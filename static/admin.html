@@ -30,6 +30,7 @@
       <div class="admin-nav-label">管理後台</div>
       <nav class="admin-nav-links">
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
+        <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
         <a href="#retrieval"><i data-lucide="scan-search"></i><span>檢索測試</span></a>
         <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
         <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
@@ -39,7 +40,7 @@
 
     <main class="admin-main">
       <header class="admin-topbar">
-        <div><h1>知識庫管理</h1><p>索引、檢索與回答稽核</p></div>
+        <div><h1>知識庫管理</h1><p>系統健康、索引、檢索與回答稽核</p></div>
         <div class="admin-auth">
           <label for="admin-token">管理權杖</label>
           <div class="token-field"><input id="admin-token" type="password" autocomplete="current-password" placeholder="輸入權杖"><button id="save-token" class="icon-button" title="更新權杖" aria-label="更新權杖"><i data-lucide="key-round"></i></button><button id="logout-admin" class="icon-button" title="登出管理後台" aria-label="登出管理後台"><i data-lucide="log-out"></i></button></div>
@@ -60,6 +61,25 @@
           <div class="stat-card"><span>Markdown</span><strong id="stat-markdown-files">—</strong></div>
           <div class="stat-card"><span>去識別對話案例</span><strong id="stat-conversation-cases">—</strong></div>
           <div class="stat-card alert-stat"><span>受密碼保護</span><strong id="stat-protected-files">—</strong></div>
+        </div>
+      </section>
+
+      <section id="health" class="admin-section">
+        <div class="section-heading">
+          <div><h2>系統健康</h2><p id="health-checked-at">尚未執行檢查</p></div>
+          <button id="refresh-health" class="command-button" type="button"><i data-lucide="refresh-cw"></i><span>立即重新檢查</span></button>
+        </div>
+        <div class="health-overview" data-status="loading">
+          <div class="health-overall-panel">
+            <span class="health-state-icon"><i data-lucide="loader-circle"></i></span>
+            <div><span>整體狀態</span><strong id="health-overall">等待檢查</strong></div>
+          </div>
+          <div id="health-summary" class="health-summary" aria-label="健康檢查統計">
+            <span><strong>—</strong> 正常</span><span><strong>—</strong> 警告</span><span><strong>—</strong> 錯誤</span>
+          </div>
+        </div>
+        <div id="health-grid" class="health-grid" aria-live="polite">
+          <div class="empty-state">驗證管理權杖後執行檢查</div>
         </div>
       </section>
 

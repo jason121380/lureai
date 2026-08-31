@@ -1,5 +1,7 @@
 import json
+import os
 import sqlite3
+import tempfile
 import threading
 from pathlib import Path
 from typing import Iterable
@@ -67,6 +69,35 @@ class KnowledgeStore:
 
     def count_chunks(self) -> int:
         return int(self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+
+    def index_health(self) -> dict:
+        with self._lock:
+            chunks = int(self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+            fts_chunks = int(self.connection.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0])
+        return {"chunks": chunks, "fts_chunks": fts_chunks}
+
+    def indexed_chunks_for_health(self) -> list[dict]:
+        with self._lock:
+            rows = self.connection.execute("SELECT metadata_json FROM chunks").fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def health_check(self) -> dict:
+        database_uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
+        probe = sqlite3.connect(database_uri, uri=True, timeout=1)
+        try:
+            integrity = str(probe.execute("PRAGMA quick_check").fetchone()[0])
+        finally:
+            probe.close()
+        writable = os.access(self.db_path, os.W_OK) and os.access(self.db_path.parent, os.W_OK)
+        if writable:
+            try:
+                with tempfile.NamedTemporaryFile(dir=self.db_path.parent, prefix=".health-", delete=True) as handle:
+                    handle.write(b"ok")
+                    handle.flush()
+            except OSError:
+                writable = False
+        size_bytes = self.db_path.stat().st_size if self.db_path.is_file() else 0
+        return {"integrity": integrity, "writable": writable, "size_bytes": size_bytes}
 
     def add_audit(self, record: dict) -> None:
         with self._lock, self.connection:

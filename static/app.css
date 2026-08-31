@@ -11,6 +11,8 @@
   --accent-soft: #e6f5f0;
   --warning: #c94f42;
   --warning-soft: #fbe9e6;
+  --caution: #a86608;
+  --caution-soft: #fff4da;
   --focus: #2f6fca;
   --sidebar-width: 254px;
   --drawer-width: 420px;
@@ -206,6 +208,41 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pipeline-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 22px 0 10px; }
 .pipeline-heading h3 { margin: 0; font-size: 13px; }
 .pipeline-heading p { margin: 0; color: var(--muted); font-size: 11px; }
+.health-overview { display: grid; grid-template-columns: minmax(250px, 1fr) auto; align-items: stretch; margin-bottom: 12px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }
+.health-overall-panel { min-height: 82px; display: flex; align-items: center; gap: 13px; padding: 16px 18px; }
+.health-state-icon { width: 36px; height: 36px; display: grid; place-items: center; color: var(--muted); background: #f2f2f2; border-radius: 50%; }
+.health-state-icon svg { width: 19px; height: 19px; }
+.health-overall-panel > div > span { display: block; color: var(--muted); font-size: 10px; }
+.health-overall-panel strong { display: block; margin-top: 4px; font-size: 18px; }
+.health-overview[data-status="ok"] .health-state-icon { color: var(--accent-dark); background: var(--accent-soft); }
+.health-overview[data-status="warning"] .health-state-icon { color: var(--caution); background: var(--caution-soft); }
+.health-overview[data-status="error"] .health-state-icon { color: var(--warning); background: var(--warning-soft); }
+.health-summary { display: grid; grid-template-columns: repeat(3, minmax(76px, 1fr)); border-left: 1px solid var(--line); }
+.health-summary span { min-width: 76px; display: grid; place-items: center; align-content: center; gap: 3px; padding: 12px; color: var(--muted); border-left: 1px solid var(--line); font-size: 10px; }
+.health-summary span:first-child { border-left: 0; }
+.health-summary strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 20px; }
+.health-grid { overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }
+.health-item { display: grid; grid-template-columns: 34px minmax(180px, .7fr) minmax(260px, 1.3fr); align-items: center; gap: 12px; min-height: 82px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.health-item:last-child { border-bottom: 0; }
+.health-item-icon { width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); background: #f2f2f2; border-radius: 6px; }
+.health-item-icon svg { width: 17px; height: 17px; }
+.health-item[data-status="ok"] .health-item-icon { color: var(--accent-dark); background: var(--accent-soft); }
+.health-item[data-status="warning"] .health-item-icon { color: var(--caution); background: var(--caution-soft); }
+.health-item[data-status="error"] .health-item-icon { color: var(--warning); background: var(--warning-soft); }
+.health-item-copy > div { display: flex; align-items: center; gap: 8px; }
+.health-item-copy strong { font-size: 13px; }
+.health-item-copy p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.health-badge { padding: 2px 5px; color: var(--muted); background: #f2f2f2; border-radius: 4px; font-size: 9px; font-weight: 700; }
+.health-item[data-status="ok"] .health-badge { color: var(--accent-dark); background: var(--accent-soft); }
+.health-item[data-status="warning"] .health-badge { color: var(--caution); background: var(--caution-soft); }
+.health-item[data-status="error"] .health-badge { color: var(--warning); background: var(--warning-soft); }
+.health-item-meta { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.health-item-meta > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px 12px; }
+.health-item-meta > div span { color: #555b55; font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; overflow-wrap: anywhere; }
+.health-item-meta b { margin-right: 4px; color: #8a8a8a; font-family: inherit; font-weight: 500; }
+.health-latency { flex: 0 0 auto; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
+.command-button.is-loading svg { animation: health-spin 800ms linear infinite; }
+@keyframes health-spin { to { transform: rotate(360deg); } }
 .admin-search-form { display: flex; gap: 8px; }
 .admin-search-form input { min-width: 0; height: 40px; flex: 1; padding: 0 12px; background: #fff; border: 1px solid var(--line); border-radius: 6px; outline: 0; }
 .admin-search-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -265,7 +302,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .admin-shell { display: block; }
   .admin-nav { position: static; width: 100%; height: auto; padding: 12px; }
   .admin-brand, .admin-nav-label { display: none; }
-  .admin-nav-links { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; overflow-x: auto; }
+  .admin-nav-links { grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; overflow-x: auto; }
   .admin-nav-links a { justify-content: center; padding: 8px; }
   .admin-nav-links span { display: none; }
   .admin-chat-link { justify-content: center; margin-top: 8px; }
@@ -274,6 +311,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .admin-auth, .token-field, .token-field input { width: 100%; }
   .section-heading { align-items: flex-start; }
   .pipeline-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .health-overview { grid-template-columns: 1fr; }
+  .health-summary { border-top: 1px solid var(--line); border-left: 0; }
+  .health-item { grid-template-columns: 30px minmax(0, 1fr); }
+  .health-item-meta { grid-column: 2; flex-direction: column; gap: 7px; }
+  .health-item-meta > div { justify-content: flex-start; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-search-form { align-items: stretch; }
   .admin-search-form .command-button span { display: none; }

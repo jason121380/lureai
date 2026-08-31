@@ -2,13 +2,15 @@ import hmac
 import json
 import mimetypes
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .answer import AnswerEngine
+from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
 from .retrieval import Retriever
@@ -52,6 +54,7 @@ class AppContext:
     welcome_prompts: tuple[str, ...] = ()
     pipeline_stats: dict | None = None
     max_request_bytes: int = 65536
+    started_at: float = field(default_factory=time.monotonic)
 
     @classmethod
     def create(
@@ -165,6 +168,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     stats = context.store.stats()
                     stats["pipeline"] = context.pipeline_stats or {}
                     self._json(HTTPStatus.OK, stats)
+                return
+            if parsed.path == "/api/admin/health":
+                if self._require_admin():
+                    self._json(HTTPStatus.OK, build_health_report(context))
                 return
             if parsed.path == "/api/admin/audits":
                 if self._require_admin():

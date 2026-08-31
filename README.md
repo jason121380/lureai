@@ -96,6 +96,15 @@ curl http://127.0.0.1:8765/api/health
 
 應回傳 `"model_enabled": true`。模型呼叫失敗或輸出缺少引用時，系統會降級為來源抽取式回答。
 
+管理後台提供完整健康檢查，需使用管理權杖：
+
+```bash
+curl -H "X-Admin-Token: $ADMIN_TOKEN" \
+  http://127.0.0.1:8765/api/admin/health
+```
+
+回傳 Server、內部 API、Frontend、SQLite Database、RAG、Knowledge 與 LLM 七項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。健康檢查不會回傳 API Key 或完整本機路徑，也不會主動發送付費模型請求。
+
 ### macOS Keychain
 
 ```bash

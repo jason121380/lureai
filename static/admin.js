@@ -87,6 +87,86 @@
       </article>`).join("");
   }
 
+  const healthStatus = {
+    ok: { label: "正常", icon: "circle-check" },
+    warning: { label: "警告", icon: "triangle-alert" },
+    error: { label: "錯誤", icon: "circle-x" },
+  };
+
+  const detailLabels = {
+    profile: "Profile", python: "Python", uptime_seconds: "運行秒數",
+    admin_auth: "管理驗證", max_request_bytes: "請求上限",
+    assets: "靜態資源", missing: "缺少資源", empty: "空白資源",
+    unreadable: "無法讀取", invalid: "結構異常", bytes: "資源大小",
+    integrity: "完整性", writable: "可寫入", size_bytes: "檔案大小",
+    chunks: "知識區塊", fts_chunks: "FTS 區塊", probe_hits: "探針命中",
+    records: "來源筆數", invalid_records: "無效資料",
+    mode: "回答模式", configured: "設定", model: "模型", provider_host: "服務主機",
+    service_chain: "服務鏈", unavailable: "未就緒",
+    approved_records: "核准筆數", duplicate_chunk_ids: "重複 ID", indexed_records: "索引筆數",
+    missing_from_index: "索引缺少", extra_in_index: "索引多出", changed_records: "內容變更", in_sync: "同步",
+    error_type: "錯誤類型",
+  };
+
+  function healthDetail(value) {
+    if (typeof value === "boolean") return value ? "是" : "否";
+    if (Array.isArray(value)) return value.length ? value.join("、") : "無";
+    if (value && typeof value === "object") {
+      return Object.entries(value).map(([key, item]) => `${key}: ${healthDetail(item)}`).join(" · ");
+    }
+    return String(value ?? "—");
+  }
+
+  function renderHealth(body) {
+    const state = healthStatus[body.status] || healthStatus.error;
+    const overview = el("health-overall").closest(".health-overview");
+    overview.dataset.status = body.status;
+    overview.querySelector(".health-state-icon").innerHTML = `<i data-lucide="${state.icon}"></i>`;
+    el("health-overall").textContent = state.label;
+    el("health-summary").innerHTML = `
+      <span><strong>${body.summary.ok}</strong> 正常</span>
+      <span><strong>${body.summary.warning}</strong> 警告</span>
+      <span><strong>${body.summary.error}</strong> 錯誤</span>`;
+    el("health-checked-at").textContent = `最後檢查：${new Date(body.checked_at).toLocaleString("zh-TW")}`;
+    el("health-grid").innerHTML = body.checks.map((item) => {
+      const itemState = healthStatus[item.status] || healthStatus.error;
+      const details = Object.entries(item.details || {}).map(([key, value]) => `
+        <span><b>${escapeHtml(detailLabels[key] || key)}</b>${escapeHtml(healthDetail(value))}</span>`).join("");
+      return `<article class="health-item" data-status="${escapeHtml(item.status)}">
+        <span class="health-item-icon"><i data-lucide="${itemState.icon}"></i></span>
+        <div class="health-item-copy"><div><strong>${escapeHtml(item.label)}</strong><span class="health-badge">${itemState.label}</span></div><p>${escapeHtml(item.message)}</p></div>
+        <div class="health-item-meta"><span class="health-latency">${item.latency_ms} ms</span><div>${details}</div></div>
+      </article>`;
+    }).join("");
+    window.lucide?.createIcons();
+  }
+
+  async function loadHealth(showNotification = false) {
+    const button = el("refresh-health");
+    button.disabled = true;
+    button.classList.add("is-loading");
+    try {
+      const body = await api("/api/admin/health");
+      renderHealth(body);
+      if (showNotification) toast("系統健康檢查完成", body.status === "error");
+      return true;
+    } catch (error) {
+      const overview = el("health-overall").closest(".health-overview");
+      overview.querySelector(".health-state-icon").innerHTML = '<i data-lucide="circle-x"></i>';
+      el("health-overall").textContent = "檢查失敗";
+      overview.dataset.status = "error";
+      el("health-summary").innerHTML = '<span><strong>—</strong> 正常</span><span><strong>—</strong> 警告</span><span><strong>—</strong> 錯誤</span>';
+      el("health-checked-at").textContent = `檢查失敗：${new Date().toLocaleString("zh-TW")}`;
+      el("health-grid").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      window.lucide?.createIcons();
+      if (showNotification) toast(error.message, true);
+      return false;
+    } finally {
+      button.disabled = false;
+      button.classList.remove("is-loading");
+    }
+  }
+
   async function retrieve(event) {
     event.preventDefault();
     const message = el("retrieval-query").value.trim();
@@ -125,7 +205,7 @@
     try {
       const body = await api("/api/admin/reindex", { method: "POST", body: "{}" });
       toast(`索引完成：匯入 ${body.imported}，拒絕 ${body.rejected}`);
-      await Promise.all([loadStats(), loadKnowledge()]);
+      await Promise.all([loadStats(), loadKnowledge(), loadHealth()]);
     } catch (error) { toast(error.message, true); }
     finally { button.disabled = false; }
   }
@@ -141,7 +221,7 @@
     if (await loadStats()) {
       localStorage.setItem(TOKEN_KEY, value);
       showAdmin();
-      await Promise.all([loadKnowledge(), loadAudits()]);
+      await Promise.all([loadKnowledge(), loadAudits(), loadHealth()]);
       toast("管理權限已驗證");
     } else {
       localStorage.removeItem(TOKEN_KEY);
@@ -169,6 +249,7 @@
   el("retrieval-form").addEventListener("submit", retrieve);
   el("knowledge-form").addEventListener("submit", loadKnowledge);
   el("refresh-audits").addEventListener("click", loadAudits);
+  el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   window.lucide?.createIcons();
   loadProfile();

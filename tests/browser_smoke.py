@@ -76,6 +76,12 @@ with sync_playwright() as playwright:
     ]:
         if expected:
             assert page.locator(selector).inner_text() == expected
+    page.wait_for_function("document.querySelectorAll('.health-item').length === 7")
+    health_labels = page.locator(".health-item-copy strong").all_text_contents()
+    assert health_labels == ["Server", "API", "Frontend", "Database", "RAG", "Knowledge", "LLM"]
+    assert page.locator("#health-overall").inner_text() in ("正常", "警告")
+    page.locator("#refresh-health").click()
+    page.wait_for_function("!document.querySelector('#refresh-health').disabled")
     page.screenshot(path=QA / f"{PROFILE}-admin-desktop.png", full_page=True)
     assert_no_horizontal_overflow(page)
 
@@ -134,6 +140,8 @@ with sync_playwright() as playwright:
     )
     if EXPECTED_SOURCE_FILES:
         assert mobile.locator("#stat-source-files").inner_text() == EXPECTED_SOURCE_FILES
+    mobile.wait_for_function("document.querySelectorAll('.health-item').length === 7")
+    assert mobile.locator("#health-overall").inner_text() in ("正常", "警告")
     mobile.screenshot(path=QA / f"{PROFILE}-admin-mobile.png", full_page=True)
     assert_no_horizontal_overflow(mobile)
 

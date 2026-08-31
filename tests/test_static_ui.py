@@ -7,6 +7,7 @@ INDEX = ROOT / "static" / "index.html"
 ADMIN = ROOT / "static" / "admin.html"
 CSS = ROOT / "static" / "app.css"
 CHAT_JS = ROOT / "static" / "chat.js"
+ADMIN_JS = ROOT / "static" / "admin.js"
 
 
 class StaticUiTests(unittest.TestCase):
@@ -36,6 +37,15 @@ class StaticUiTests(unittest.TestCase):
         for element_id in ("admin-gate", "admin-shell", "stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('id="admin-shell" class="admin-shell" hidden', html)
+
+    def test_admin_page_has_system_health_controls(self):
+        html = ADMIN.read_text(encoding="utf-8")
+        script = ADMIN_JS.read_text(encoding="utf-8")
+
+        for element_id in ("health", "health-overall", "health-summary", "health-grid", "health-checked-at", "refresh-health"):
+            self.assertIn(f'id="{element_id}"', html)
+        self.assertIn("/api/admin/health", script)
+        self.assertIn("renderHealth", script)
 
     def test_css_has_mobile_breakpoint_and_touch_scroll_region(self):
         css = CSS.read_text(encoding="utf-8")
