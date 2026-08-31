@@ -50,8 +50,9 @@
 
   function renderSidebar() {
     const list = el("conversation-list");
+    const query = el("conversation-search-input").value.trim().toLowerCase();
     list.replaceChildren();
-    state.conversations.forEach((conversation) => {
+    state.conversations.filter((conversation) => conversation.title.toLowerCase().includes(query)).forEach((conversation) => {
       const button = document.createElement("button");
       button.className = `conversation-item${conversation.id === state.activeId ? " active" : ""}`;
       button.type = "button";
@@ -72,20 +73,21 @@
     const wrapper = document.createElement("div");
     wrapper.className = "welcome";
     wrapper.innerHTML = `
-      <div class="welcome-mark"><i data-lucide="message-circle-more"></i></div>
-      <h2>今天想查詢什麼？</h2>
-      <p>系統只會使用已核准知識回答，並提供可追溯來源。</p>
-      <div class="prompt-grid"></div>`;
-    const grid = wrapper.querySelector(".prompt-grid");
-    state.welcomePrompts.forEach((label) => {
+      <h2>我們該從哪裡開始？</h2>
+      <div class="prompt-list"></div>`;
+    const list = wrapper.querySelector(".prompt-list");
+    state.welcomePrompts.slice(0, 3).forEach((label) => {
       const button = document.createElement("button");
-      button.className = "prompt-chip";
+      button.className = "prompt-suggestion";
       button.type = "button";
-      button.textContent = label;
-      grid.append(button);
+      button.innerHTML = '<i data-lucide="sparkles"></i>';
+      const text = document.createElement("span");
+      text.textContent = label;
+      button.append(text);
+      list.append(button);
     });
-    wrapper.querySelectorAll(".prompt-chip").forEach((button) => button.addEventListener("click", () => {
-      prompt.value = button.textContent;
+    wrapper.querySelectorAll(".prompt-suggestion").forEach((button) => button.addEventListener("click", () => {
+      prompt.value = button.querySelector("span").textContent;
       updateComposer();
       prompt.focus();
     }));
@@ -140,7 +142,9 @@
   function renderMessages() {
     const conversation = activeConversation();
     messages.replaceChildren();
-    if (!conversation.messages.length) messages.append(welcomeView());
+    const isEmpty = !conversation.messages.length;
+    el("chat-main").classList.toggle("is-empty", isEmpty);
+    if (isEmpty) messages.append(welcomeView());
     else conversation.messages.forEach((item) => messages.append(messageView(item)));
     el("conversation-title").textContent = conversation.title;
     requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; window.lucide?.createIcons(); });
@@ -226,7 +230,10 @@
     el("source-drawer").classList.add("open");
     el("source-drawer").setAttribute("aria-hidden", "false");
     el("drawer-overlay").hidden = false;
-    requestAnimationFrame(() => content.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "start" }));
+    requestAnimationFrame(() => {
+      if (selectedIndex === 0) el("source-drawer").scrollTop = 0;
+      else content.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "start" });
+    });
   }
 
   function closeSources() {
@@ -236,6 +243,7 @@
   }
 
   function openSidebar() {
+    el("sidebar").classList.remove("desktop-hidden");
     el("sidebar").classList.add("open");
     el("drawer-overlay").hidden = false;
   }
@@ -260,9 +268,13 @@
       applyProfile(body);
       status.className = "service-status online";
       status.lastElementChild.textContent = `${body.chunks} 筆知識就緒`;
+      status.title = `${body.chunks} 筆知識就緒`;
+      status.setAttribute("aria-label", `服務狀態：${body.chunks} 筆知識就緒`);
     } catch (_) {
       status.className = "service-status offline";
       status.lastElementChild.textContent = "服務離線";
+      status.title = "服務離線";
+      status.setAttribute("aria-label", "服務狀態：服務離線");
     }
   }
 
@@ -274,7 +286,7 @@
       : state.welcomePrompts;
     const appName = body.app_name || "張副總 AI 客服";
     document.title = appName;
-    el("brand-title").textContent = state.profile === "designer_coach" ? "設計師輔導台" : "客服知識台";
+    el("brand-title").textContent = "Hair Brain";
     el("app-subtitle").textContent = appName;
     prompt.placeholder = state.profile === "designer_coach" ? "輸入輔導問題" : "輸入客服問題";
     el("knowledge-scope").textContent = state.profile === "designer_coach"
@@ -295,6 +307,14 @@
   });
   el("stop-button").addEventListener("click", () => state.controller?.abort());
   el("new-chat").addEventListener("click", newConversation);
+  el("composer-menu-button").addEventListener("click", () => { window.location.href = "admin.html"; });
+  el("sidebar-search").addEventListener("click", () => {
+    const search = el("conversation-search");
+    search.hidden = !search.hidden;
+    if (!search.hidden) el("conversation-search-input").focus();
+  });
+  el("conversation-search-input").addEventListener("input", renderSidebar);
+  el("sidebar-panel").addEventListener("click", () => el("sidebar").classList.add("desktop-hidden"));
   el("source-close").addEventListener("click", closeSources);
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);

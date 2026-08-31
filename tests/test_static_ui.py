@@ -16,6 +16,13 @@ class StaticUiTests(unittest.TestCase):
         for element_id in ("conversation-list", "messages", "composer", "source-drawer"):
             self.assertIn(f'id="{element_id}"', html)
 
+    def test_chat_page_has_chatgpt_style_navigation_and_mode_switch(self):
+        html = INDEX.read_text(encoding="utf-8")
+
+        self.assertIn('class="primary-nav"', html)
+        self.assertIn('class="mode-switch"', html)
+        self.assertIn('id="conversation-search-input"', html)
+
     def test_chat_page_loads_lucide_and_chat_controller(self):
         html = INDEX.read_text(encoding="utf-8")
 
