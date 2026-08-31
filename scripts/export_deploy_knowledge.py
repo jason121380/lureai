@@ -45,6 +45,7 @@ LATIN_STOPWORDS = {
     "sop", "ai", "ig", "fb", "line", "google", "youtube", "meta", "facebook",
     "instagram", "threads", "tiktok", "pos", "kol", "dm", "ga", "ga4", "qa",
     "excel", "word", "canva", "capcut", "iphone", "android", "gpt", "chatgpt",
+    "messenger", "rag", "ai", "sms", "vr", "ar", "ph",
 }
 SAFE_SOURCE_PATH = re.compile(
     r"^(?:knowledge/[^/]+|private_sources/conversations/case-[0-9]{4}-[0-9a-f]{16}\.md|"

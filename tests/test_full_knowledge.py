@@ -21,10 +21,21 @@ class FullKnowledgePipelineTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "knowledge" / "designer_coaching_process.jsonl"
         rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
-        self.assertGreaterEqual(len(rows), 1000)
+        self.assertGreaterEqual(len(rows), 100)
         self.assertTrue(all(row.get("review_status") == "approved" for row in rows))
         self.assertTrue(all(row.get("access_level") == "internal_coaching" for row in rows))
         self.assertEqual(validate_deployable_rows(rows, set()), [])
+
+    def test_bundled_knowledge_is_readable_prose_not_raw_dumps(self):
+        path = Path(__file__).resolve().parents[1] / "knowledge" / "designer_coaching_process.jsonl"
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+        for row in rows:
+            text = row["text"]
+            self.assertNotRegex(text, r"(?m)^[A-Z]{1,2}\d{1,3}=", row["chunk_id"])
+            self.assertNotIn("[人名]", text, row["chunk_id"])
+            self.assertNotIn("[敏感資訊已移除]", text, row["chunk_id"])
+            self.assertGreaterEqual(len(text), 80, row["chunk_id"])
 
     def test_deployable_redaction_removes_filled_identity_fields(self):
         text = "編號：7號 姓名：許博棠\n店家：晨安店 電話：02-12345678\n地址：台北市測試路1號"

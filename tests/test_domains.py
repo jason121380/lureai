@@ -60,12 +60,23 @@ class BundledKnowledgeDomainTests(unittest.TestCase):
         for key, count in counts.items():
             self.assertGreater(count, 0, f"{key} 沒有任何知識")
 
-    def test_curated_coaching_chunks_are_all_in_the_coaching_domain(self):
+    def test_each_playbook_stays_in_its_own_domain(self):
         rows = [json.loads(line) for line in KNOWLEDGE.read_text(encoding="utf-8").splitlines() if line.strip()]
-        curated = [row for row in rows if row["source_file"].startswith("knowledge/")]
+        coaching = [row for row in rows if row["doc_id"] == "designer-coaching-process"]
+        operations = [row for row in rows if row["doc_id"] == "salon-operations-playbook"]
 
-        self.assertTrue(curated)
-        self.assertTrue(all(row["domain"] == COACHING for row in curated))
+        self.assertTrue(coaching)
+        self.assertTrue(operations)
+        self.assertTrue(all(row["domain"] == COACHING for row in coaching))
+        self.assertTrue(all(row["domain"] == OPERATIONS for row in operations))
+
+    def test_every_chunk_comes_from_a_curated_playbook(self):
+        rows = [json.loads(line) for line in KNOWLEDGE.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+        # Raw OCR dumps were replaced by hand-written key points; nothing in the
+        # index should point back at source_documents/ any more.
+        self.assertTrue(all(row["source_file"].startswith("knowledge/") for row in rows))
+        self.assertFalse(any("[人名]" in row["text"] for row in rows))
 
 
 class StoreDomainTests(unittest.TestCase):
