@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -93,12 +94,20 @@ def default_port() -> int:
 
 
 def admin_token_for_host(host: str) -> str:
+    """管理 API 的權杖。沒設定時不讓整個服務停擺——後台本來就走帳號登入。"""
     configured = os.getenv("ADMIN_TOKEN", "").strip()
     if configured:
         return configured
     if str(host).strip().lower() in {"127.0.0.1", "localhost", "::1"}:
         return "local-admin"
-    raise ValueError("正式環境必須設定 ADMIN_TOKEN")
+    # 產生一個沒有人知道的權杖：等於關掉 header 這條路，但聊天與後台
+    # （管理者帳號登入）照常運作，不會因為少一個環境變數就整站打不開。
+    print(
+        "[boot] 未設定 ADMIN_TOKEN，已改用隨機權杖；管理 API 請改用管理者帳號登入",
+        file=sys.stderr,
+        flush=True,
+    )
+    return secrets.token_urlsafe(32)
 
 
 def reindex(root: Path = PROJECT_ROOT, profile: str = "designer_coach") -> dict:
@@ -172,8 +181,15 @@ def main(argv: list[str] | None = None) -> int:
         blocked_topics=profile["blocked_topics"],
         fallback_message=profile["fallback_message"],
     )
+    # 開機資訊要留在 Log 裡：卡在哪一步、索引有沒有進去，才查得出來。
+    print(
+        f"[boot] profile={args.profile} chunks={context.store.count_chunks()} "
+        f"knowledge={paths['knowledge'].name} db={paths['database']} "
+        f"model={'on' if context.service.answerer.model_enabled else 'off'}",
+        flush=True,
+    )
     server = create_server(args.host, args.port, context)
-    print(f"{profile['app_name']}：http://{args.host}:{server.server_port}")
+    print(f"{profile['app_name']}：http://{args.host}:{server.server_port}", flush=True)
     print(f"管理後台：http://{args.host}:{server.server_port}/admin.html")
     if admin_token == "local-admin":
         print("本機預設管理權杖：local-admin（正式部署必須設定 ADMIN_TOKEN）")

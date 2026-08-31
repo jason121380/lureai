@@ -86,6 +86,15 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
 
+    def test_bootstrap_never_spins_for_ever(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        # 伺服器沒回應時要看到登入頁與錯誤訊息，不是一直轉圈。
+        self.assertIn("function fetchWithTimeout", script)
+        self.assertIn('fetchWithTimeout("/api/health"', script)
+        self.assertIn('fetchWithTimeout("/api/auth/me"', script)
+        self.assertIn("載入逾時，請重新整理再試一次", script)
+
     def test_degraded_model_answers_say_so(self):
         script = CHAT_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
