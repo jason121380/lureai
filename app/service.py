@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import re
+from typing import Iterator
 from uuid import uuid4
 
 from .answer import AnswerEngine
@@ -36,6 +37,54 @@ class CustomerService:
         self.max_question_chars = max_question_chars
         self.pricing = pricing or UsagePricing.from_env()
 
+    def _validated_question(self, message: str) -> str:
+        question = str(message or "").strip()
+        if not question:
+            raise ValueError("問題不可為空")
+        if len(question) > self.max_question_chars:
+            raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
+        return question
+
+    def _safe_history(self, history: list[dict] | None) -> list[dict]:
+        return [
+            item for item in self._normalize_history(history)
+            if self.policy.precheck(item["content"]).action != "escalate"
+            and not SENSITIVE_HISTORY_PATTERN.search(item["content"])
+        ]
+
+    def _route(self, question: str, recent_history: list[dict]) -> tuple[list, list, object | None]:
+        """Return (all_hits, grounded_hits, escalation_decision_or_None)."""
+        precheck = self.policy.precheck(question)
+        if precheck.action == "escalate":
+            return [], [], precheck
+        previous_questions = [
+            item["content"] for item in recent_history if item["role"] == "user"
+        ][-2:]
+        retrieval_query = "\n".join(previous_questions + [question])
+        hits = self.retriever.retrieve(retrieval_query, limit=self.top_k)
+        decision = self.policy.evaluate(hits)
+        if decision.action == "escalate":
+            return hits, [], decision
+        grounded_hits = [hit for hit in hits if hit.score >= self.policy.minimum_score]
+        primary_hits = [hit for hit in grounded_hits if hit.category != "歷史輔導案例"]
+        historical_hits = [hit for hit in grounded_hits if hit.category == "歷史輔導案例"]
+        if primary_hits:
+            grounded_hits = (primary_hits + historical_hits[:1])[:self.top_k]
+        else:
+            grounded_hits = historical_hits[:2]
+        return hits, grounded_hits, None
+
+    def _escalated_result(self, trace_id: str, conversation_id: str | None, decision) -> dict:
+        return {
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+            "status": "escalated",
+            "reason": decision.reason,
+            "answer": decision.message,
+            "citations": [],
+            "answer_mode": "policy",
+        }
+
     def chat(
         self,
         message: str,
@@ -44,58 +93,14 @@ class CustomerService:
         user_id: int | None = None,
         allow_model: bool = True,
     ) -> dict:
-        question = str(message or "").strip()
-        if not question:
-            raise ValueError("問題不可為空")
-        if len(question) > self.max_question_chars:
-            raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
-        recent_history = [
-            item for item in self._normalize_history(history)
-            if self.policy.precheck(item["content"]).action != "escalate"
-            and not SENSITIVE_HISTORY_PATTERN.search(item["content"])
-        ]
-
+        question = self._validated_question(message)
+        recent_history = self._safe_history(history)
         trace_id = str(uuid4())
-        precheck = self.policy.precheck(question)
-        if precheck.action == "escalate":
-            result = {
-                "trace_id": trace_id,
-                "conversation_id": conversation_id,
-                "status": "escalated",
-                "reason": precheck.reason,
-                "answer": precheck.message,
-                "citations": [],
-                "answer_mode": "policy",
-            }
-            self._audit(question, result, [], user_id=user_id)
-            return result
-
-        previous_questions = [
-            item["content"] for item in recent_history if item["role"] == "user"
-        ][-2:]
-        retrieval_query = "\n".join(previous_questions + [question])
-        hits = self.retriever.retrieve(retrieval_query, limit=self.top_k)
-        decision = self.policy.evaluate(hits)
-        if decision.action == "escalate":
-            result = {
-                "trace_id": trace_id,
-                "conversation_id": conversation_id,
-                "status": "escalated",
-                "reason": decision.reason,
-                "answer": decision.message,
-                "citations": [],
-                "answer_mode": "policy",
-            }
+        hits, grounded_hits, escalation = self._route(question, recent_history)
+        if escalation is not None:
+            result = self._escalated_result(trace_id, conversation_id, escalation)
             self._audit(question, result, hits, user_id=user_id)
             return result
-
-        grounded_hits = [hit for hit in hits if hit.score >= self.policy.minimum_score]
-        primary_hits = [hit for hit in grounded_hits if hit.category != "歷史輔導案例"]
-        historical_hits = [hit for hit in grounded_hits if hit.category == "歷史輔導案例"]
-        if primary_hits:
-            grounded_hits = (primary_hits + historical_hits[:1])[:self.top_k]
-        else:
-            grounded_hits = historical_hits[:2]
         answer, mode, model_status, usage = self.answerer.answer(
             question,
             grounded_hits,
@@ -115,6 +120,71 @@ class CustomerService:
         }
         self._audit(question, result, hits, user_id=user_id)
         return result
+
+    def chat_stream(
+        self,
+        message: str,
+        conversation_id: str | None = None,
+        history: list[dict] | None = None,
+        user_id: int | None = None,
+        allow_model: bool = True,
+    ) -> Iterator[dict]:
+        """Yield {"type":"delta"} events followed by one authoritative {"type":"result"}."""
+        question = self._validated_question(message)
+        recent_history = self._safe_history(history)
+        trace_id = str(uuid4())
+        hits, grounded_hits, escalation = self._route(question, recent_history)
+        if escalation is not None:
+            result = self._escalated_result(trace_id, conversation_id, escalation)
+            self._audit(question, result, hits, user_id=user_id)
+            yield {"type": "result", **result}
+            return
+        empty_usage = {
+            "input_tokens": 0, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 0,
+        }
+        answer = ""
+        mode = "extractive"
+        model_status = "not_configured"
+        usage = empty_usage
+        if self.answerer.model_enabled and allow_model:
+            partial = ""
+            model_status = "used"
+            try:
+                for kind, payload in self.answerer.stream_answer(
+                    question, grounded_hits, history=recent_history
+                ):
+                    if kind == "delta":
+                        partial += payload
+                        yield {"type": "delta", "text": payload}
+                    elif kind == "usage":
+                        usage = payload
+            except Exception:
+                model_status = "stream_failed"
+            if model_status == "used" and partial.strip() and re.search(r"\[\d+\]", partial):
+                answer = partial.strip()
+                mode = "llm"
+            else:
+                if model_status == "used":
+                    model_status = "missing_citations"
+                answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
+        else:
+            answer, mode, model_status, usage = self.answerer.answer(
+                question, grounded_hits, history=recent_history, allow_model=allow_model
+            )
+        result = {
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+            "status": "answered",
+            "reason": "grounded",
+            "answer": answer,
+            "citations": [hit.citation() for hit in grounded_hits],
+            "answer_mode": mode,
+            "model_status": model_status,
+            "usage": usage,
+        }
+        self._audit(question, result, hits, user_id=user_id)
+        yield {"type": "result", **result}
 
     def summarize_title(
         self,

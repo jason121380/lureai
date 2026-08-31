@@ -34,7 +34,17 @@ VOCATIVE_NAME = re.compile(
 )
 LATIN_ALIAS = re.compile(r"(?<![A-Za-z])#?([A-Z][A-Za-z]{2,24})(?![A-Za-z])")
 LEADERSHIP_TITLES = {"董事長", "副總", "副總經理", "部長", "處長", "經理"}
-ROLE_LABELS = LEADERSHIP_TITLES | {"講師", "老師", "髮型師", "董娘", "市長參選人"}
+ROLE_LABELS = LEADERSHIP_TITLES | {
+    "講師", "老師", "髮型師", "董娘", "市長參選人",
+    "教練", "設計師", "顧問", "店長", "副店長", "助理", "學員",
+}
+# Common acronyms and tool names the Latin-alias pattern would otherwise
+# mistake for personal names (e.g. "SOP" became "[人名]").
+LATIN_STOPWORDS = {
+    "sop", "ai", "ig", "fb", "line", "google", "youtube", "meta", "facebook",
+    "instagram", "threads", "tiktok", "pos", "kol", "dm", "ga", "ga4", "qa",
+    "excel", "word", "canva", "capcut", "iphone", "android", "gpt", "chatgpt",
+}
 SAFE_SOURCE_PATH = re.compile(
     r"^(?:knowledge/[^/]+|private_sources/conversations/case-[0-9]{4}-[0-9a-f]{16}\.md|"
     r"source_documents/[0-9a-f]{16}\.md)$"
@@ -60,7 +70,10 @@ def collect_deploy_names(rows: list[dict]) -> set[str]:
         for title, candidate in zip(lines, lines[1:]):
             if title in LEADERSHIP_TITLES and re.fullmatch(r"[\u3400-\u9fff]{2,4}", candidate):
                 names.add(candidate)
-    return names - ROLE_LABELS
+    return {
+        name for name in names - ROLE_LABELS
+        if name.lower() not in LATIN_STOPWORDS
+    }
 
 
 def deployable_row(row: dict, names: set[str] | None = None) -> dict | None:
@@ -73,13 +86,17 @@ def deployable_row(row: dict, names: set[str] | None = None) -> dict | None:
     ):
         return None
     output = dict(row)
-    for field in ("text", "title", "section_title", "locator"):
-        output[field] = sanitize_deployable_text(
-            sanitize_message(str(output.get(field, "")), names or set())
-        )
+    # Rows sourced from knowledge/ are human-reviewed public content; masking
+    # them again only destroys role words like 教練/設計師/SOP.
+    already_reviewed = str(output.get("source_file", "")).startswith("knowledge/")
+    if not already_reviewed:
+        for field in ("text", "title", "section_title", "locator"):
+            output[field] = sanitize_deployable_text(
+                sanitize_message(str(output.get(field, "")), names or set())
+            )
     # A masked name at the start of a title ("[人名] 1 對 1 輔導流程") makes
     # every citation look identical; the title works without it.
-    output["title"] = re.sub(r"^\[人名\]\s*", "", output["title"])
+    output["title"] = re.sub(r"^\[人名\]\s*", "", str(output.get("title", "")))
     if str(output.get("chunk_id", "")).startswith("source-doc:"):
         digest = str(output.get("source_sha256", ""))[:16] or "unknown"
         category = str(output.get("category", "企業知識"))
