@@ -156,6 +156,15 @@
     });
   }
 
+  function pickRandom(items, count) {
+    const pool = [...(items || [])];
+    for (let index = pool.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [pool[index], pool[swap]] = [pool[swap], pool[index]];
+    }
+    return pool.slice(0, count);
+  }
+
   function welcomeView() {
     const wrapper = document.createElement("div");
     wrapper.className = "welcome";
@@ -163,7 +172,8 @@
       <h2>我們該從哪裡開始？</h2>
       <div class="prompt-list"></div>`;
     const list = wrapper.querySelector(".prompt-list");
-    state.welcomePrompts.slice(0, 3).forEach((label) => {
+    // 每次進到空白對話都隨機換一組題目。
+    pickRandom(state.welcomePrompts, 3).forEach((label) => {
       const button = document.createElement("button");
       button.className = "prompt-suggestion";
       button.type = "button";
@@ -683,7 +693,7 @@
     state.profile = body.profile || "customer_service";
     state.assistantName = body.assistant_name || "AI 輔導教練";
     state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
-      ? body.welcome_prompts.slice(0, 4)
+      ? body.welcome_prompts.slice(0, 12)
       : state.welcomePrompts;
     const appName = body.app_name || "LUREAI 你的智慧大腦中心";
     document.title = appName;
