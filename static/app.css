@@ -135,6 +135,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .message-row.user .message-content { flex: 0 1 auto; max-width: min(78%, 560px); }
 .message-row.user .message-text { padding: 11px 18px; color: var(--ink); background: var(--bubble); border-radius: 24px; }
 .message-text { color: var(--ink); font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; white-space: pre-wrap; }
+.message-text strong { font-weight: 700; }
+.message-text code { padding: 1px 6px; background: var(--bubble); border-radius: 5px; font-family: "SFMono-Regular", Consolas, monospace; font-size: .9em; }
+.message-text .md-heading { display: inline; font-weight: 700; font-size: 16px; }
+.cite-ref { display: inline-grid; place-items: center; min-width: 19px; height: 19px; margin: 0 1px; padding: 0 4px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: 50%; cursor: pointer; vertical-align: 2px; font-size: 11px; font-weight: 700; }
+.cite-ref:hover { color: #fff; background: var(--ink); }
 .message-status { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; margin-top: 13px; padding: 4px 10px; color: var(--ok); background: var(--ok-soft); border: 0; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; }
 .message-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .message-status svg { width: 13px; height: 13px; }
