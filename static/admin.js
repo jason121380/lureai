@@ -16,9 +16,21 @@
     requestAnimationFrame(() => el("gate-token").focus());
   }
 
+  const SECTIONS = ["overview", "health", "users", "retrieval", "knowledge", "audits"];
+
+  function showSection(id) {
+    const target = SECTIONS.includes(id) ? id : "overview";
+    SECTIONS.forEach((section) => { el(section).hidden = section !== target; });
+    document.querySelectorAll(".admin-nav-links a").forEach((link) => {
+      link.classList.toggle("active", link.getAttribute("href") === `#${target}`);
+    });
+    window.scrollTo(0, 0);
+  }
+
   function showAdmin() {
     el("admin-gate").hidden = true;
     el("admin-shell").hidden = false;
+    showSection(location.hash.replace("#", ""));
     window.lucide?.createIcons();
   }
 
@@ -204,9 +216,9 @@
     try {
       const body = await api("/api/admin/users");
       const rows = body.items.map((item) => `
-        <tr><td><strong>${escapeHtml(item.username)}</strong></td><td>${item.active ? "啟用" : "停用"}</td><td>${escapeHtml(new Date(item.updated_at).toLocaleString("zh-TW"))}</td></tr>`).join("");
+        <tr><td><strong>${escapeHtml(item.username)}</strong></td><td><span class="role-badge ${item.role === "admin" ? "is-admin" : ""}">${item.role === "admin" ? "管理者" : "一般用戶"}</span></td><td>${item.active ? "啟用" : "停用"}</td><td>${escapeHtml(new Date(item.updated_at).toLocaleString("zh-TW"))}</td></tr>`).join("");
       el("user-results").innerHTML = rows
-        ? `<table class="data-table"><thead><tr><th>帳號</th><th>狀態</th><th>最後更新</th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table class="data-table"><thead><tr><th>帳號</th><th>權限</th><th>狀態</th><th>最後更新</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<div class="empty-state">尚未建立使用者帳號</div>';
     } catch (error) {
       el("user-results").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -223,11 +235,13 @@
         body: JSON.stringify({
           username: el("user-username").value.trim(),
           password: el("user-password").value,
+          role: el("user-role").value,
         }),
       });
       el("user-username").value = "";
       el("user-password").value = "";
-      toast(`帳號 ${body.user.username} 已建立或重設`);
+      el("user-role").value = "user";
+      toast(`帳號 ${body.user.username} 已建立或重設（${body.user.role === "admin" ? "管理者" : "一般用戶"}）`);
       await loadUsers();
     } catch (error) {
       toast(error.message, true);
@@ -270,6 +284,22 @@
     showGate("已登出管理後台");
   }
 
+  async function tryAccountSession() {
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) return false;
+      const body = await response.json();
+      if (body.user?.role !== "admin") return false;
+      if (!(await loadStats())) return false;
+      showAdmin();
+      await Promise.all([loadKnowledge(), loadAudits(), loadHealth(), loadUsers()]);
+      toast(`以管理者帳號 ${body.user.username} 進入`);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   el("admin-token").value = "";
   el("gate-token").value = "";
   el("admin-login-form").addEventListener("submit", (event) => {
@@ -285,7 +315,10 @@
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   el("user-form").addEventListener("submit", saveUser);
+  window.addEventListener("hashchange", () => {
+    if (!el("admin-shell").hidden) showSection(location.hash.replace("#", ""));
+  });
   window.lucide?.createIcons();
   loadProfile();
-  showGate();
+  tryAccountSession().then((entered) => { if (!entered) showGate(); });
 })();

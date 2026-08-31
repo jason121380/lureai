@@ -50,11 +50,33 @@ class AuthTests(unittest.TestCase):
         )
 
     def test_rejects_short_passwords(self):
-        with self.assertRaisesRegex(ValueError, "至少 8"):
-            self.auth.create_or_reset_user("designer", "short")
+        with self.assertRaisesRegex(ValueError, "至少 4"):
+            self.auth.create_or_reset_user("designer", "abc")
+
+    def test_accepts_four_character_password(self):
+        user = self.auth.create_or_reset_user("designer", "1234")
+        self.assertEqual(user["username"], "designer")
+        self.assertEqual(user["role"], "user")
+
+    def test_roles_are_stored_and_validated(self):
+        admin = self.auth.create_or_reset_user("boss", "1234", role="admin")
+        self.assertEqual(admin["role"], "admin")
+        _, logged_in = self.auth.login("boss", "1234")
+        self.assertEqual(logged_in["role"], "admin")
+        # Resetting the password without a role keeps the existing role.
+        kept = self.auth.create_or_reset_user("boss", "5678")
+        self.assertEqual(kept["role"], "admin")
+        with self.assertRaisesRegex(ValueError, "權限"):
+            self.auth.create_or_reset_user("boss", "1234", role="owner")
 
     def test_password_hash_uses_strong_scrypt_work_factor(self):
-        self.assertGreaterEqual(SCRYPT_N, 2**17)
+        from app.auth import SCRYPT_P, SCRYPT_R
+
+        # OWASP-acceptable scrypt cost: N * r * p must be at least 2^17 * 8
+        # (equivalent to the N=2^17, r=8, p=1 baseline) while keeping the
+        # per-verify memory footprint (128 * N * r) at or below ~64 MB.
+        self.assertGreaterEqual(SCRYPT_N * SCRYPT_R * SCRYPT_P, 2**17 * 8)
+        self.assertLessEqual(128 * SCRYPT_N * SCRYPT_R, 64 * 1024 * 1024)
 
     def test_login_rate_limiter_blocks_after_repeated_failures(self):
         limiter = LoginRateLimiter(max_failures=3, window_seconds=60)

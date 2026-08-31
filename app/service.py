@@ -42,6 +42,7 @@ class CustomerService:
         conversation_id: str | None = None,
         history: list[dict] | None = None,
         user_id: int | None = None,
+        allow_model: bool = True,
     ) -> dict:
         question = str(message or "").strip()
         if not question:
@@ -99,6 +100,7 @@ class CustomerService:
             question,
             grounded_hits,
             history=recent_history,
+            allow_model=allow_model,
         )
         result = {
             "trace_id": trace_id,
@@ -139,7 +141,8 @@ class CustomerService:
             "trace_id": result["trace_id"],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "conversation_id": result.get("conversation_id"),
-            "question": question,
+            # Audit logs are long-lived; strip phone/email/ID-style PII first.
+            "question": SENSITIVE_HISTORY_PATTERN.sub("〔已遮罩〕", question),
             "status": result["status"],
             "reason": result["reason"],
             "top_score": hits[0].score if hits else None,

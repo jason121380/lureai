@@ -50,6 +50,7 @@ class AnswerEngine:
         question: str,
         hits: list[SearchHit],
         history: list[dict] | None = None,
+        allow_model: bool = True,
     ) -> tuple[str, str, str, dict]:
         empty_usage = {
             "input_tokens": 0,
@@ -57,6 +58,8 @@ class AnswerEngine:
             "cache_write_input_tokens": 0,
             "output_tokens": 0,
         }
+        if self.model_enabled and not allow_model:
+            return self._extractive_answer(hits), "extractive", "budget_exhausted", empty_usage
         if self.model_enabled:
             try:
                 generated, usage = self._call_model(question, hits, history=history)

@@ -234,6 +234,96 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn("unit-test-api-key", serialized)
         self.assertNotIn(str(Path(self.temp.name)), serialized)
 
+    def test_admin_role_session_grants_admin_access(self):
+        self.context.auth.create_or_reset_user("boss", "1234", role="admin")
+        self.request("POST", "/api/auth/login", {"username": "boss", "password": "1234"})
+
+        status, body = self.request("GET", "/api/admin/stats")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["chunks"], 1)
+
+        status, body = self.request("POST", "/api/admin/users", {
+            "username": "front-desk", "password": "9999", "role": "user",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["role"], "user")
+
+    def test_regular_user_session_cannot_access_admin(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+
+        status, body = self.request("GET", "/api/admin/stats")
+        self.assertEqual(status, 401)
+        self.assertEqual(body["error"], "unauthorized")
+
+    def test_cross_origin_post_is_rejected(self):
+        payload = json.dumps({
+            "username": "designer", "password": "designer-password",
+        }).encode()
+        request = urllib.request.Request(
+            self.base + "/api/auth/login",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "https://evil.example.com",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                status = response.status
+        except urllib.error.HTTPError as error:
+            status = error.code
+        self.assertEqual(status, 403)
+
+    def test_chat_is_rate_limited_per_user(self):
+        from app.auth import RequestRateLimiter
+
+        self.context.chat_limiter = RequestRateLimiter(max_requests=2, window_seconds=60)
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        for _ in range(2):
+            status, _body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+            self.assertEqual(status, 200)
+
+        status, body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+        self.assertEqual(status, 429)
+        self.assertEqual(body["error"], "rate_limited")
+
+    def test_chat_over_budget_disables_model_generation(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        over_budget = {
+            "input_tokens": 1, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 1,
+            "spend_twd": 999999.0,
+        }
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "unit-test-api-key",
+            "LLM_MODEL": "test-model",
+        }), patch(
+            "urllib.request.urlopen", side_effect=AssertionError("model must not be called")
+        ), patch.object(self.context.store, "usage_totals", return_value=over_budget):
+            status, body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "answered")
+        self.assertEqual(body["answer_mode"], "extractive")
+        self.assertEqual(body["model_status"], "budget_exhausted")
+
+    def test_clean_admin_route_serves_admin_page(self):
+        with self.client.open(self.base + "/admin", timeout=3) as response:
+            body = response.read().decode("utf-8")
+            self.assertEqual(response.status, 200)
+            self.assertIn("admin-shell", body)
+            self.assertIn("text/html", response.headers.get("Content-Type", ""))
+            self.assertIn("nosniff", response.headers.get("X-Content-Type-Options", ""))
+            self.assertTrue(response.headers.get("Content-Security-Policy"))
+
     def test_admin_health_detects_knowledge_source_and_index_drift(self):
         self.source.write_text(json.dumps(approved_chunk(
             locator="replacement-1",

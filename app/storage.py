@@ -73,6 +73,7 @@ class KnowledgeStore:
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
                 password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
                 active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -93,6 +94,7 @@ class KnowledgeStore:
             );
             """
         )
+        self._ensure_column("users", "role", "TEXT NOT NULL DEFAULT 'user'")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "cached_input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -120,12 +122,14 @@ class KnowledgeStore:
         self.connection.close()
 
     def count_chunks(self) -> int:
-        return int(self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
+        with self._lock:
+            return int(self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0])
 
     def get_metadata(self, key: str) -> str | None:
-        row = self.connection.execute(
-            "SELECT value FROM app_metadata WHERE key = ?", (key,)
-        ).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT value FROM app_metadata WHERE key = ?", (key,)
+            ).fetchone()
         return str(row[0]) if row else None
 
     def set_metadata(self, key: str, value: str) -> None:
@@ -189,18 +193,19 @@ class KnowledgeStore:
             )
 
     def usage_totals(self, user_id: int, start_at: str, end_at: str) -> dict:
-        row = self.connection.execute(
-            """
-            SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens,
-                   COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
-                   COALESCE(SUM(cache_write_input_tokens), 0) AS cache_write_input_tokens,
-                   COALESCE(SUM(output_tokens), 0) AS output_tokens,
-                   COALESCE(SUM(cost_twd), 0) AS spend_twd
-            FROM audits
-            WHERE user_id = ? AND created_at >= ? AND created_at < ?
-            """,
-            (user_id, start_at, end_at),
-        ).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                """
+                SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                       COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                       COALESCE(SUM(cache_write_input_tokens), 0) AS cache_write_input_tokens,
+                       COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                       COALESCE(SUM(cost_twd), 0) AS spend_twd
+                FROM audits
+                WHERE user_id = ? AND created_at >= ? AND created_at < ?
+                """,
+                (user_id, start_at, end_at),
+            ).fetchone()
         return {
             "input_tokens": int(row["input_tokens"]),
             "cached_input_tokens": int(row["cached_input_tokens"]),
@@ -210,18 +215,20 @@ class KnowledgeStore:
         }
 
     def list_audits(self, limit: int = 100) -> list[dict]:
-        rows = self.connection.execute(
-            "SELECT * FROM audits ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT * FROM audits ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def stats(self) -> dict:
-        status_rows = self.connection.execute(
-            "SELECT status, COUNT(*) AS count FROM audits GROUP BY status"
-        ).fetchall()
-        category_rows = self.connection.execute(
-            "SELECT category, COUNT(*) AS count FROM chunks GROUP BY category ORDER BY count DESC"
-        ).fetchall()
+        with self._lock:
+            status_rows = self.connection.execute(
+                "SELECT status, COUNT(*) AS count FROM audits GROUP BY status"
+            ).fetchall()
+            category_rows = self.connection.execute(
+                "SELECT category, COUNT(*) AS count FROM chunks GROUP BY category ORDER BY count DESC"
+            ).fetchall()
         return {
             "chunks": self.count_chunks(),
             "audits": sum(int(row["count"]) for row in status_rows),
@@ -230,32 +237,35 @@ class KnowledgeStore:
         }
 
     def get_chunk(self, chunk_id: str) -> dict | None:
-        row = self.connection.execute(
-            "SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,)
-        ).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,)
+            ).fetchone()
         return dict(row) if row else None
 
     def search_fts(self, query: str, limit: int = 20) -> list[dict]:
         if not query.strip():
             return []
-        rows = self.connection.execute(
-            """
-            SELECT chunks.*, bm25(chunks_fts, 0.0, 2.0, 1.4, 1.0) AS rank
-            FROM chunks_fts
-            JOIN chunks ON chunks.id = chunks_fts.rowid
-            WHERE chunks_fts MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, limit),
-        ).fetchall()
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT chunks.*, bm25(chunks_fts, 0.0, 2.0, 1.4, 1.0) AS rank
+                FROM chunks_fts
+                JOIN chunks ON chunks.id = chunks_fts.rowid
+                WHERE chunks_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (query, limit),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def list_chunks(self, limit: int = 100, offset: int = 0) -> list[dict]:
-        rows = self.connection.execute(
-            "SELECT * FROM chunks ORDER BY title, locator LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT * FROM chunks ORDER BY title, locator LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def replace_chunks(self, chunks: Iterable[dict]) -> None:

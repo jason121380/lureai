@@ -15,7 +15,9 @@ ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG pro
 - 管理端知識搜尋、檢索測試、重新索引與 audit log
 - OpenAI Responses API 與 GPT-5.6 Luna
 - 使用者帳密登入、HttpOnly session、後台帳號建立與密碼重設
-- 每位使用者本月 token、台幣花費與預算進度
+- 帳號權限分「一般用戶」與「管理者」；管理者帳號登入後可直接使用 `/admin` 管理後台
+- 每位使用者本月 token、台幣花費與預算進度；超出 `MONTHLY_BUDGET_TWD` 時自動停用模型生成、改用抽取式回答
+- 聊天每分鐘限流（`CHAT_RATE_LIMIT_PER_MINUTE`）、登入失敗限流、安全標頭與同源檢查
 - 未設定 API Key 時可使用離線抽取式回答
 
 ## 啟動設計師 AI 輔導
@@ -26,7 +28,7 @@ python3 run.py --profile designer_coach --port 8766
 ```
 
 - 輔導介面：<http://127.0.0.1:8766>
-- 輔導管理後台：<http://127.0.0.1:8766/admin.html>
+- 輔導管理後台：<http://127.0.0.1:8766/admin>
 
 macOS 也可以執行 `./start-coach.command`。客服與輔導可分別使用 `8765`、`8766` 同時運作。
 
@@ -42,7 +44,8 @@ APP_HOST=0.0.0.0
 APP_PROFILE=designer_coach
 ADMIN_TOKEN=請換成長且不可猜測的隨機值
 USER_USERNAME=designer
-USER_PASSWORD=請換成至少8字的強密碼
+USER_PASSWORD=請換成至少4字的密碼
+USER_ROLE=admin
 LLM_BASE_URL=https://api.openai.com
 LLM_API_KEY=你的OpenAI_API_Key
 LLM_MODEL=gpt-5.6-luna
@@ -82,8 +85,8 @@ python3 run.py --port 8765
 ```
 
 - 客服介面：<http://127.0.0.1:8765>
-- 管理後台：<http://127.0.0.1:8765/admin.html>
-- 本機預設管理權杖：`local-admin`
+- 管理後台：<http://127.0.0.1:8765/admin>（`/admin.html` 仍可使用）
+- 本機預設管理權杖：`local-admin`；具「管理者」權限的帳號登入後也可直接進入管理後台
 
 正式部署必須以 `ADMIN_TOKEN` 更換預設管理權杖。
 
@@ -98,7 +101,7 @@ export LLM_MODEL="gpt-5.6-luna"
 export LLM_REASONING_EFFORT="low"
 export ADMIN_TOKEN="請設定長且不可猜測的管理權杖"
 export USER_USERNAME="designer"
-export USER_PASSWORD="請設定至少8字的強密碼"
+export USER_PASSWORD="請設定至少4字的密碼"
 python3 run.py --port 8765
 ```
 
