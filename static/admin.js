@@ -201,7 +201,7 @@
     try {
       const body = await api("/api/admin/audits");
       const rows = body.items.map((item) => `
-        <tr><td>${escapeHtml(new Date(item.created_at).toLocaleString("zh-TW"))}</td><td>${escapeHtml(item.question)}</td><td><span class="table-status ${escapeHtml(item.status)}">${item.status === "answered" ? "已回答" : "轉人工"}</span></td><td>${escapeHtml(item.reason || "")}</td><td>${item.top_score == null ? "—" : Math.round(item.top_score * 100) + "%"}</td></tr>`).join("");
+        <tr><td>${escapeHtml(new Date(item.created_at).toLocaleString("zh-TW"))}</td><td>${escapeHtml(item.question)}</td><td><span class="table-status ${escapeHtml(item.status)}">${{ answered: "已回答", escalated: "轉人工", title: "標題" }[item.status] || escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reason || "")}</td><td>${item.top_score == null ? "—" : Math.round(item.top_score * 100) + "%"}</td></tr>`).join("");
       el("audit-results").innerHTML = rows ? `<table class="data-table"><thead><tr><th>時間</th><th>問題</th><th>狀態</th><th>原因</th><th>分數</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty-state">尚無查詢紀錄</div>';
     } catch (error) { toast(error.message, true); }
   }

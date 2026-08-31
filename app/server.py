@@ -419,6 +419,31 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     )
                     self._json(HTTPStatus.OK, result)
                     return
+                if parsed.path == "/api/chat/title":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    if not context.chat_limiter.allow(f"user:{user['id']}"):
+                        self._json(
+                            HTTPStatus.TOO_MANY_REQUESTS,
+                            {"error": "rate_limited", "message": "請求太頻繁，請稍候再試"},
+                            {"Retry-After": "30"},
+                        )
+                        return
+                    usage_summary = self._usage_summary(user["id"])
+                    within_budget = (
+                        usage_summary["budget_twd"] <= 0
+                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
+                    )
+                    result = context.service.summarize_title(
+                        payload.get("message", ""),
+                        payload.get("answer", ""),
+                        conversation_id=payload.get("conversation_id"),
+                        user_id=user["id"],
+                        allow_model=within_budget,
+                    )
+                    self._json(HTTPStatus.OK, result)
+                    return
                 if parsed.path == "/api/admin/users":
                     if not self._require_admin():
                         return

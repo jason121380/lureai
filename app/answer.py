@@ -146,6 +146,65 @@ class AnswerEngine:
                     return content["text"], token_usage
         return "", token_usage
 
+    def generate_title(self, question: str, answer: str, allow_model: bool = True) -> tuple[str, str, dict]:
+        empty_usage = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+        }
+        fallback = " ".join(str(question or "").split())[:20] or "新對話"
+        if not (self.model_enabled and allow_model):
+            return fallback, "not_configured" if not self.model_enabled else "budget_exhausted", empty_usage
+        payload = {
+            "model": os.environ["LLM_MODEL"],
+            "instructions": "你是標題產生器。為對話產生不超過 12 個字的繁體中文標題，概括主題。直接輸出標題本身，不要引號、句號或任何說明。",
+            "input": [{
+                "role": "user",
+                "content": f"問題：{question[:300]}\n\n回答摘要：{answer[:400]}",
+            }],
+            "reasoning": {"effort": "low"},
+            "max_output_tokens": 300,
+            "store": False,
+        }
+        request = urllib.request.Request(
+            responses_url(os.environ["LLM_BASE_URL"]),
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {os.environ['LLM_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=min(self.timeout, 20.0)) as response:
+                body = json.loads(response.read())
+        except (OSError, ValueError, KeyError, urllib.error.URLError, TimeoutError):
+            return fallback, "model_failed", empty_usage
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        input_details = usage.get("input_tokens_details")
+        if not isinstance(input_details, dict):
+            input_details = {}
+        token_usage = {
+            "input_tokens": max(0, int(usage.get("input_tokens", 0))),
+            "cached_input_tokens": max(0, int(input_details.get("cached_tokens", 0))),
+            "cache_write_input_tokens": max(0, int(input_details.get("cache_write_tokens", 0))),
+            "output_tokens": max(0, int(usage.get("output_tokens", 0))),
+        }
+        text = ""
+        if isinstance(body.get("output_text"), str):
+            text = body["output_text"]
+        else:
+            for item in body.get("output", []):
+                for content in item.get("content", []):
+                    if content.get("type") == "output_text" and isinstance(content.get("text"), str):
+                        text = content["text"]
+                        break
+        title = " ".join(text.split()).strip("「」\"'。.，, ")[:20]
+        if not title:
+            return fallback, "empty_output", token_usage
+        return title, "used", token_usage
+
     def check_model_access(self) -> dict:
         request = urllib.request.Request(
             model_url(os.environ["LLM_BASE_URL"], os.environ["LLM_MODEL"]),
