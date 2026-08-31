@@ -462,6 +462,21 @@ def compile_name_redactor(names: set[str]) -> tuple[re.Pattern | None, list[str]
     return re.compile(rf"(?<![A-Za-z0-9])(?:{alternatives})(?![A-Za-z0-9])", re.I), literal_names
 
 
+# Customer names often appear as surname + honorific ("吳小姐"); the sender
+# name list never contains them, so mask the surname explicitly.
+HONORIFIC_NAME_PATTERN = re.compile(r"([㐀-鿿])(小姐|先生|太太|女士)")
+HONORIFIC_EXCLUDED_LEADS = set("這那各哪位小一二兩幾的是叫有大老她他我你妳您名")
+
+
+def _mask_honorific_names(value: str) -> str:
+    def _replace(match: re.Match) -> str:
+        if match.group(1) in HONORIFIC_EXCLUDED_LEADS:
+            return match.group(0)
+        return "[人名]" + match.group(2)
+
+    return HONORIFIC_NAME_PATTERN.sub(_replace, value)
+
+
 def sanitize_message(
     text: str,
     names: set[str],
@@ -472,6 +487,7 @@ def sanitize_message(
     value = MENTION_PATTERN.sub("[提及對象]", value)
     value = ADDRESS_PATTERN.sub("[地址已移除]", value)
     value = DISTRICT_ADDRESS_PATTERN.sub("[地址已移除]", value)
+    value = _mask_honorific_names(value)
     for pattern in PRIVATE_PATTERNS:
         value = pattern.sub("[敏感資訊已移除]", value)
     if literal_names is None:
