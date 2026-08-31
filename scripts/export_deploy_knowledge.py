@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.domains import domain_of
 from scripts.build_full_knowledge import (
     ADDRESS_PATTERN,
     DISTRICT_ADDRESS_PATTERN,
@@ -102,6 +103,8 @@ def deployable_row(row: dict, names: set[str] | None = None) -> dict | None:
         category = str(output.get("category", "企業知識"))
         output["title"] = f"歷史教材：{category}"
         output["source_file"] = f"source_documents/{digest}.md"
+    # Every exported chunk belongs to one of the two knowledge domains.
+    output["domain"] = domain_of(output)
     return output
 
 

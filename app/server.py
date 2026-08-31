@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from .answer import AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
+from .domains import DOMAIN_LABELS, classify, is_domain
 from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
@@ -53,11 +54,14 @@ def build_custom_chunk(payload: dict, access_level: str) -> dict:
     title = " ".join(str(payload.get("title", "")).split())
     section_title = " ".join(str(payload.get("section_title", "")).split())
     category = " ".join(str(payload.get("category", "")).split())
+    domain = " ".join(str(payload.get("domain", "")).split())
     text = str(payload.get("text", "")).strip()
     if not section_title:
         raise ValueError("標題不可為空")
     if len(section_title) > 80:
         raise ValueError("標題不可超過 80 個字")
+    if domain and not is_domain(domain):
+        raise ValueError("主題只能是店務營運管理或設計師一對一行銷輔導")
     if not text:
         raise ValueError("內容不可為空")
     if len(text) > MAX_KNOWLEDGE_TEXT:
@@ -78,6 +82,7 @@ def build_custom_chunk(payload: dict, access_level: str) -> dict:
         "source_file": CUSTOM_SOURCE_FILE,
         "source_sha256": "",
         "category": category or "後台新增",
+        "domain": domain or classify(category),
         "access_level": access_level,
         "rag_allowed": True,
         "review_status": "approved",
@@ -366,6 +371,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     stats = context.store.stats()
                     stats["pipeline"] = context.pipeline_stats or {}
                     stats["composition"] = context.store.knowledge_composition()
+                    stats["domain_labels"] = DOMAIN_LABELS
                     self._json(HTTPStatus.OK, stats)
                 return
             if parsed.path == "/api/admin/knowledge/detail":
@@ -380,6 +386,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     "chunk_id": chunk["chunk_id"],
                     "section_title": chunk["section_title"],
                     "category": chunk["category"],
+                    "domain": chunk.get("domain", ""),
                     "text": chunk["text"],
                     "origin": chunk.get("origin", "file"),
                 }})
@@ -417,17 +424,21 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 params = parse_qs(parsed.query)
                 query = params.get("q", [""])[0].strip()
                 origin = params.get("origin", [""])[0].strip()
+                domain = params.get("domain", [""])[0].strip()
+                origin = origin if origin in ("file", "custom") else ""
+                domain = domain if is_domain(domain) else ""
                 if query:
                     hits = context.retriever.retrieve(query, limit=60)
                     found = {hit.chunk_id for hit in hits}
                     items = [
-                        chunk for chunk in context.store.list_chunks(limit=100000)
+                        chunk
+                        for chunk in context.store.list_chunks(
+                            limit=100000, origin=origin, domain=domain
+                        )
                         if chunk["chunk_id"] in found
                     ]
                 else:
-                    items = context.store.list_chunks(limit=200)
-                if origin in ("file", "custom"):
-                    items = [item for item in items if item.get("origin") == origin]
+                    items = context.store.list_chunks(limit=200, origin=origin, domain=domain)
                 # Send only what the list renders: the full rows carry
                 # metadata_json and search_text, which made this a 1.5 MB reply.
                 self._json(HTTPStatus.OK, {"items": [
@@ -436,6 +447,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "title": item["title"],
                         "section_title": item["section_title"],
                         "category": item["category"],
+                        "domain": item.get("domain", ""),
                         "locator": item["locator"],
                         "origin": item.get("origin", "file"),
                         "text": str(item["text"])[:400],
@@ -623,6 +635,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "chunk_id": chunk["chunk_id"],
                         "section_title": chunk["section_title"],
                         "category": chunk["category"],
+                        "domain": chunk["domain"],
                     }})
                     return
                 if parsed.path == "/api/admin/knowledge/delete":
