@@ -62,6 +62,14 @@
     } catch (_) {
       state.conversations = [];
     }
+    if (Array.isArray(state.conversations)) {
+      // A loading placeholder saved mid-request would spin forever after reload.
+      state.conversations.forEach((conversation) => {
+        if (Array.isArray(conversation?.messages)) {
+          conversation.messages = conversation.messages.filter((message) => !message?.loading);
+        }
+      });
+    }
     if (!Array.isArray(state.conversations) || !state.conversations.length) newConversation();
     else state.activeId = state.conversations[0].id;
   }
@@ -327,21 +335,13 @@
   }
 
   async function checkHealth() {
-    const status = el("service-status");
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error();
       applyProfile(body);
-      status.className = "service-status online";
-      status.lastElementChild.textContent = `${body.chunks} 筆知識就緒`;
-      status.title = `${body.chunks} 筆知識就緒`;
-      status.setAttribute("aria-label", `服務狀態：${body.chunks} 筆知識就緒`);
     } catch (_) {
-      status.className = "service-status offline";
-      status.lastElementChild.textContent = "服務離線";
-      status.title = "服務離線";
-      status.setAttribute("aria-label", "服務狀態：服務離線");
+      // The header stays quiet when the health endpoint is unavailable.
     }
   }
 

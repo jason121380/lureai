@@ -62,7 +62,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-item svg { display: none; }
 .sidebar-footer { display: grid; gap: 12px; padding: 14px 7px 5px; border-top: 1px solid var(--line); }
-.usage-panel { min-width: 0; }
+.usage-panel { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }
 .usage-heading strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
 .usage-track { height: 6px; margin: 8px 0; overflow: hidden; background: #e7e7e7; border-radius: 3px; }
@@ -102,11 +102,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .mode-switch { position: absolute; left: 50%; top: 10px; display: grid; grid-template-columns: repeat(2, 108px); padding: 3px; background: var(--bubble); border-radius: var(--radius-pill); transform: translateX(-50%); }
 .mode-option { height: 42px; display: grid; place-items: center; color: var(--ink-soft); background: transparent; border: 0; border-radius: var(--radius-pill); text-decoration: none; cursor: pointer; font-size: 14px; }
 .mode-option.active { color: var(--ink); background: var(--surface); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.12); font-weight: 600; }
-.service-status { min-width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-left: auto; color: var(--ink-soft); white-space: nowrap; font-size: 11px; }
-.service-status svg { width: 21px; height: 21px; }
-.service-status > span:last-child, .status-dot { display: none; }
-.service-status.online svg { color: var(--ok); }
-.service-status.offline svg { color: var(--warning); }
 
 .messages {
   min-height: 0;
@@ -177,7 +172,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .source-drawer.open { transform: translateX(0); }
 .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .eyebrow { display: block; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
-.drawer-header h2, .admin-topbar h1 { margin: 4px 0 0; font-size: 21px; font-weight: 650; }
+.drawer-header h2 { margin: 4px 0 0; font-size: 21px; font-weight: 650; }
 .source-block { padding: 18px 0; border-bottom: 1px solid var(--line); }
 .source-block:last-child { border-bottom: 0; }
 .source-topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -190,21 +185,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 /* Administration */
 .admin-body { overflow: auto; }
-.admin-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--canvas); }
-.admin-login-panel { width: min(380px, 100%); padding: 8px; background: transparent; border: 0; text-align: center; }
-.admin-login-brand { display: block; width: 112px; height: 34px; margin: 0 auto 30px; object-fit: contain; object-position: center; }
-.admin-login-panel h1 { margin: 0 0 8px; font-size: 28px; font-weight: 650; }
-.admin-login-panel > p { margin: 0 0 24px; color: var(--muted); font-size: 13px; line-height: 1.6; }
-.admin-login-panel label { display: block; margin-bottom: 6px; color: var(--ink-soft); text-align: left; font-size: 12px; font-weight: 500; }
-.gate-token-field { width: 100%; height: 48px; border-radius: var(--radius-sm); border-color: var(--line-strong); }
-.gate-token-field:focus-within { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-.gate-token-field input { min-width: 0; height: 46px; flex: 1; padding: 0 14px; border: 0; outline: 0; background: transparent; border-radius: inherit; }
-.gate-token-field > svg { width: 18px; margin-right: 14px; color: var(--muted); }
-.admin-login-button { width: 100%; margin-top: 16px; min-height: 48px; border-radius: var(--radius-pill); font-size: 14px; }
-.admin-login-panel .admin-gate-status { min-height: 20px; margin: 12px 0 0; color: var(--warning); font-size: 12px; }
-.admin-return-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; color: var(--muted); text-decoration: none; font-size: 12px; }
-.admin-return-link:hover { color: var(--ink); }
-.admin-return-link svg { width: 15px; }
 .admin-shell { min-height: 100%; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
 .admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); }
 .admin-brand { min-height: 48px; padding: 0 7px; color: var(--ink); text-decoration: none; }
@@ -216,13 +196,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-nav-links svg { width: 17px; }
 .admin-chat-link { min-height: 40px; display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 8px 10px; color: var(--ink); border-radius: 10px; text-decoration: none; font-size: 13px; }
 .admin-chat-link:hover { background: var(--hover); }
-.admin-main { min-width: 0; padding: 0 36px 70px; }
-.admin-topbar { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--line); }
-.admin-topbar h1 { margin: 0; font-family: inherit; font-size: 16px; font-weight: 600; }
-.admin-topbar p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
-.admin-auth label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
-.token-field { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
-.token-field input { width: 210px; height: 38px; padding: 0 12px; border: 0; outline: 0; background: transparent; border-radius: inherit; }
+.admin-main { min-width: 0; padding: 12px 36px 70px; }
 .admin-section { padding: 30px 0; scroll-margin-top: 10px; }
 .admin-section[hidden] { display: none; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
@@ -321,7 +295,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .topbar h1 { display: none; }
   .mode-switch { top: 8px; grid-template-columns: repeat(2, 84px); }
   .mode-option { height: 36px; font-size: 13px; }
-  .service-status { min-width: 32px; }
   .messages { padding: 0 14px 26px; }
   .welcome { padding-top: 22vh; }
   .welcome h2 { font-size: 23px; }
@@ -345,8 +318,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .admin-nav-links span { display: none; }
   .admin-chat-link { justify-content: center; margin-top: 8px; }
   .admin-main { padding: 0 16px 50px; }
-  .admin-topbar { align-items: flex-start; flex-direction: column; padding: 20px 0; }
-  .admin-auth, .token-field, .token-field input { width: 100%; }
   .section-heading { align-items: flex-start; }
   .pipeline-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
   .health-overview { grid-template-columns: 1fr; }
