@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --ink: #0d0d0d;
   --ink-soft: #5d5d5d;
   --canvas: #ffffff;
@@ -31,6 +32,10 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--canvas); overscroll-behavior-y: none; }
+/* 安裝成 App 後畫面會延伸到瀏海與底部，這兩塊要跟內容同色。 */
+@supports (padding: env(safe-area-inset-top)) {
+  html { background: var(--canvas); }
+}
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); outline-offset: 2px; }

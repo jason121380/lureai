@@ -3,7 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- 深色模式下沒有對應的 theme-color 時，iOS 會用系統灰底畫狀態列，
+       頁面是白的就會出現一條分割線；兩種模式都指定白色並鎖定淺色配色。 -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#ffffff">
+  <meta name="color-scheme" content="light">
   <title>知識庫管理｜LUREAI</title>
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="app-icon.png">
