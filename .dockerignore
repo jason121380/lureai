@@ -1,0 +1,10 @@
+.git
+__pycache__
+**/__pycache__
+data
+private_sources
+qa
+tests
+design-qa.md
+*.command
+.env

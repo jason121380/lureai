@@ -19,7 +19,7 @@ PROFILES = {
         "database_file": "designer_coach.db",
         "policy_file": "designer_coach_policy.md",
         "access_level": "internal_coaching",
-        "app_name": "設計師 1 對 1 AI 輔導",
+        "app_name": "LUREAI 你的智慧大腦中心",
         "assistant_name": "AI 輔導教練",
         "welcome_prompts": (
             "設計師私訊很多但預約很少，先查什麼？",

@@ -600,7 +600,7 @@
     state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
       ? body.welcome_prompts.slice(0, 4)
       : state.welcomePrompts;
-    const appName = body.app_name || "lure ai 輔導大腦";
+    const appName = body.app_name || "LUREAI 你的智慧大腦中心";
     document.title = appName;
     prompt.placeholder = "輸入輔導問題";
     el("knowledge-scope").textContent = "回答僅使用已核准內部輔導知識";
