@@ -396,3 +396,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .knowledge-head { flex-direction: column; }
 }
+
+/* Search row controls share one height so the icon button lines up. */
+.admin-search-form .bordered-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--radius-sm); }
+.compact-search { align-items: center; }

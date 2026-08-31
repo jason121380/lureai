@@ -368,6 +368,22 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     stats["composition"] = context.store.knowledge_composition()
                     self._json(HTTPStatus.OK, stats)
                 return
+            if parsed.path == "/api/admin/knowledge/detail":
+                if not self._require_admin():
+                    return
+                chunk_id = parse_qs(parsed.query).get("chunk_id", [""])[0].strip()
+                chunk = context.store.get_chunk(chunk_id)
+                if not chunk:
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                    return
+                self._json(HTTPStatus.OK, {"chunk": {
+                    "chunk_id": chunk["chunk_id"],
+                    "section_title": chunk["section_title"],
+                    "category": chunk["category"],
+                    "text": chunk["text"],
+                    "origin": chunk.get("origin", "file"),
+                }})
+                return
             if parsed.path == "/api/admin/knowledge/quality":
                 if self._require_admin():
                     chunks = context.store.list_chunks(limit=100000)
@@ -412,7 +428,21 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     items = context.store.list_chunks(limit=200)
                 if origin in ("file", "custom"):
                     items = [item for item in items if item.get("origin") == origin]
-                self._json(HTTPStatus.OK, {"items": items[:200]})
+                # Send only what the list renders: the full rows carry
+                # metadata_json and search_text, which made this a 1.5 MB reply.
+                self._json(HTTPStatus.OK, {"items": [
+                    {
+                        "chunk_id": item["chunk_id"],
+                        "title": item["title"],
+                        "section_title": item["section_title"],
+                        "category": item["category"],
+                        "locator": item["locator"],
+                        "origin": item.get("origin", "file"),
+                        "text": str(item["text"])[:400],
+                        "length": len(str(item["text"])),
+                    }
+                    for item in items[:200]
+                ]})
                 return
             if parsed.path.startswith("/api/"):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})

@@ -188,6 +188,7 @@
   async function loadKnowledge(event) {
     event?.preventDefault();
     try {
+      el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
       const query = encodeURIComponent(el("knowledge-query").value.trim());
       const origin = encodeURIComponent(el("knowledge-origin").value);
       const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}`);
@@ -196,14 +197,27 @@
         ? knowledgeCache.map(knowledgeCard).join("")
         : '<div class="empty-state">沒有符合的知識</div>';
       window.lucide?.createIcons();
-    } catch (error) { toast(error.message, true); }
+    } catch (error) {
+      el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}</div>`;
+      toast(error.message, true);
+    }
   }
 
-  function openEditor(chunk) {
+  async function openEditor(chunk) {
     el("editor-chunk-id").value = chunk?.chunk_id || "";
     el("editor-title").value = chunk?.section_title || "";
     el("editor-category").value = chunk?.category || "";
-    el("editor-text").value = chunk?.text || "";
+    let text = chunk?.text || "";
+    if (chunk?.chunk_id) {
+      // The list only carries an excerpt; fetch the full text before editing.
+      try {
+        const body = await api(`/api/admin/knowledge/detail?chunk_id=${encodeURIComponent(chunk.chunk_id)}`);
+        text = body.chunk.text;
+      } catch (_) {
+        toast("讀取完整內容失敗，顯示的是摘要", true);
+      }
+    }
+    el("editor-text").value = text;
     el("knowledge-editor").hidden = false;
     el("editor-title").focus();
   }
