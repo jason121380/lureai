@@ -60,6 +60,43 @@ def questions_for(locator: str, section_title: str, limit: int = 2) -> list[str]
     return [question if question.endswith(("？", "?")) else f"{question}？" for question in picks]
 
 
+def welcome_questions(limit: int = 12, rng=None, fallback: tuple[str, ...] = ()) -> list[str]:
+    """開場建議問題：每次都不一樣，而且橫跨不同主題。
+
+    來源是問法索引裡人工寫的問句，所以隨機挑到哪一題都答得出來。
+    """
+    import random
+
+    picker = rng or random
+    curated = [question for question in fallback if str(question).strip()]
+    if len(curated) >= limit:
+        picker.shuffle(curated)
+        return curated[:limit]
+    grouped: dict[str, list[str]] = {}
+    for locator, questions in seed_questions().items():
+        prefix = str(locator).split("-", 1)[0]
+        grouped.setdefault(prefix, []).extend(questions)
+    if not grouped:
+        return list(fallback)[:limit]
+
+    for questions in grouped.values():
+        picker.shuffle(questions)
+    # 依主題輪流取，三個建議才不會全部落在同一本手冊。
+    prefixes = sorted(grouped)
+    picker.shuffle(prefixes)
+    picked: list[str] = []
+    index = 0
+    while len(picked) < limit and any(len(grouped[prefix]) > index for prefix in prefixes):
+        for prefix in prefixes:
+            if len(grouped[prefix]) > index:
+                question = grouped[prefix][index]
+                picked.append(question if question.endswith(("？", "?")) else f"{question}？")
+                if len(picked) >= limit:
+                    break
+        index += 1
+    return picked
+
+
 def _normalize(question: str) -> str:
     return "".join(str(question or "").split()).rstrip("？?。.")
 

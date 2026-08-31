@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from .answer import AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
+from .followups import welcome_questions
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .health import build_health_report
 from .ingest import ingest_jsonl
@@ -349,7 +350,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     "profile": context.profile,
                     "app_name": context.app_name,
                     "assistant_name": context.assistant_name,
-                    "welcome_prompts": list(context.welcome_prompts),
+                    # 每次開新對話都給不一樣的題目，前端再從中隨機挑三個。
+                    "welcome_prompts": welcome_questions(
+                        limit=12, fallback=context.welcome_prompts
+                    ),
                 })
                 return
             if parsed.path == "/api/auth/me":

@@ -193,6 +193,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("applyProfile", script)
         self.assertIn("body.assistant_name", script)
         self.assertIn("body.welcome_prompts", script)
+        # 每次進到空白對話都要換一組建議問題。
+        self.assertIn("function pickRandom", script)
+        self.assertIn("pickRandom(state.welcomePrompts, 3)", script)
 
 
 if __name__ == "__main__":
