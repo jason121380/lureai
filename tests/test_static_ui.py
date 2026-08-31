@@ -71,6 +71,24 @@ class StaticUiTests(unittest.TestCase):
         for element_id in ("users", "user-form", "user-username", "user-password", "user-results"):
             self.assertIn(f'id="{element_id}"', html)
 
+    def test_chat_renders_answers_as_lists_not_one_block_of_text(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        for marker in ("BULLET_LINE", "ORDERED_LINE", "<li>", "flushList"):
+            self.assertIn(marker, script)
+        # Bullets need real list layout, so the assistant bubble drops pre-wrap.
+        self.assertIn('text.classList.add("rich")', script)
+        self.assertIn(".message-text.rich { white-space: normal; }", css)
+        self.assertIn(".message-text.rich ul", css)
+
+    def test_answer_policy_requires_short_action_focused_bullets(self):
+        policy = (ROOT / "config" / "designer_coach_policy.md").read_text(encoding="utf-8")
+
+        self.assertIn("## 輸出格式", policy)
+        for rule in ("第一行一句話講結論", "以動詞開頭", "不要複述他的問題"):
+            self.assertIn(rule, policy)
+
     def test_admin_page_splits_knowledge_into_the_two_domains(self):
         html = ADMIN.read_text(encoding="utf-8")
         script = ADMIN_JS.read_text(encoding="utf-8")
