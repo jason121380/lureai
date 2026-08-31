@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#20211e">
+  <meta name="theme-color" content="#ffffff">
   <title>知識庫管理｜張副總 AI 客服</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="app.css">
@@ -11,8 +11,7 @@
 <body class="admin-body">
   <section id="admin-gate" class="admin-gate" aria-labelledby="admin-login-title">
     <form id="admin-login-form" class="admin-login-panel">
-      <div class="admin-login-mark" aria-hidden="true"><i data-lucide="shield-check"></i></div>
-      <span class="eyebrow">RESTRICTED ACCESS</span>
+      <strong class="admin-login-brand">Hair Brain</strong>
       <h1 id="admin-login-title">管理者登入</h1>
       <p>輸入管理權杖後，才能查看知識、檢索與查詢稽核。</p>
       <label for="gate-token">管理權杖</label>
@@ -26,9 +25,9 @@
   <div id="admin-shell" class="admin-shell" hidden>
     <aside class="admin-nav">
       <a href="index.html" class="brand-row admin-brand">
-        <div class="brand-mark" aria-hidden="true">張</div>
-        <div><strong id="admin-brand-title">客服知識台</strong><span>Administration</span></div>
+        <strong>Hair Brain</strong>
       </a>
+      <div class="admin-nav-label">管理後台</div>
       <nav class="admin-nav-links">
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
         <a href="#retrieval"><i data-lucide="scan-search"></i><span>檢索測試</span></a>
@@ -40,7 +39,7 @@
 
     <main class="admin-main">
       <header class="admin-topbar">
-        <div><span class="eyebrow">CONTROL DESK</span><h1>知識庫管理</h1></div>
+        <div><h1>知識庫管理</h1><p>索引、檢索與回答稽核</p></div>
         <div class="admin-auth">
           <label for="admin-token">管理權杖</label>
           <div class="token-field"><input id="admin-token" type="password" autocomplete="current-password" placeholder="輸入權杖"><button id="save-token" class="icon-button" title="更新權杖" aria-label="更新權杖"><i data-lucide="key-round"></i></button><button id="logout-admin" class="icon-button" title="登出管理後台" aria-label="登出管理後台"><i data-lucide="log-out"></i></button></div>
