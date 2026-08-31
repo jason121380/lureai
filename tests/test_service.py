@@ -86,10 +86,10 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(all(item["score"] >= 0.72 for item in result["citations"]))
 
     def test_sensitive_question_escalates_without_citations(self):
-        result = self.service.chat("染髮多少錢？")
+        result = self.service.chat("客人要求退費，我要賠多少？")
 
         self.assertEqual(result["status"], "escalated")
-        self.assertEqual(result["reason"], "price_or_promotion")
+        self.assertEqual(result["reason"], "legal_refund_or_compensation")
         self.assertEqual(result["citations"], [])
 
     def test_empty_question_is_rejected(self):
@@ -97,7 +97,7 @@ class ServiceTests(unittest.TestCase):
             self.service.chat("   ")
 
     def test_chat_writes_audit_record(self):
-        result = self.service.chat("染髮多少錢？", "conversation-1")
+        result = self.service.chat("客人要求退費，我要賠多少？", "conversation-1")
 
         audits = self.store.list_audits()
         self.assertEqual(audits[0]["trace_id"], result["trace_id"])
@@ -160,9 +160,12 @@ class ServiceTests(unittest.TestCase):
 
         result = events[-1]
         self.assertEqual(result["answer"], "先檢查回覆速度。[1]")
-        self.assertEqual(result["followups"], [
-            "回覆速度標準是什麼？", "如何抽查私訊品質？", "預約引導怎麼寫？",
-        ])
+        # 模型寫的追問只有「問得下去」的才留下；這個測試索引裡沒有對應知識，
+        # 所以會被換成知識庫本身接得下去的題目。
+        self.assertTrue(result["followups"])
+        for question in result["followups"]:
+            hits = self.service.retriever.retrieve(question, limit=1)
+            self.assertTrue(hits and hits[0].score >= self.service.policy.minimum_score, question)
 
     def test_chat_stream_falls_back_when_stream_lacks_citations(self):
         class UncitedAnswerer:

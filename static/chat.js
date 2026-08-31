@@ -409,11 +409,16 @@
     persist();
     render();
     try {
-      const history = conversation.messages
+      // 最近 8 題完整送出（模型脈絡與檢索用），更早的只送前 80 字，
+      // 讓伺服器知道哪些題目已經問過，建議問題才不會重複。
+      const asked = conversation.messages
         .slice(0, -2)
         .filter((item) => !item.loading && item.role === "user" && item.content)
-        .slice(-8)
-        .map((item) => ({ role: item.role, content: String(item.content).slice(0, 1200) }));
+        .slice(-60);
+      const history = asked.map((item, index) => ({
+        role: item.role,
+        content: String(item.content).slice(0, index >= asked.length - 8 ? 1200 : 80),
+      }));
       let streamedText = "";
       const body = await streamChat(
         { message: value, conversation_id: conversation.id, history },

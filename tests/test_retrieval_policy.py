@@ -72,11 +72,29 @@ class RetrievalPolicyTests(unittest.TestCase):
         self.assertEqual(hits[0].locator, "intake-1")
         self.assertGreaterEqual(hits[0].score, 0.72)
 
-    def test_price_question_escalates_before_retrieval(self):
-        decision = self.policy.precheck("染髮多少錢？")
+    def test_coaching_topics_are_answered_not_escalated(self):
+        # 提問者是設計師本人：報價、追客、店內規定都是輔導範圍，轉人工幫不到他。
+        for question in (
+            "客人嫌貴我要怎麼回？",
+            "廣告要投多少錢？",
+            "設計師薪資抽成怎麼算？",
+            "客人說頭皮有點紅，可以染嗎？",
+            "年假有幾天？",
+        ):
+            self.assertEqual(self.policy.precheck(question).action, "continue", question)
 
-        self.assertEqual(decision.action, "escalate")
-        self.assertEqual(decision.reason, "price_or_promotion")
+    def test_requests_only_a_person_can_settle_still_escalate(self):
+        for question, reason in (
+            ("客人要求退費怎麼辦？", "legal_refund_or_compensation"),
+            ("客人說要提告", "legal_refund_or_compensation"),
+            ("幫我預約明天下午", "live_schedule"),
+            ("客人的信用卡卡號可以留嗎？", "personal_or_payment"),
+            ("這個頭皮狀況要看醫生嗎？", "health_or_medical"),
+            ("資遣要怎麼處理？", "labor_hr"),
+        ):
+            decision = self.policy.precheck(question)
+            self.assertEqual(decision.action, "escalate", question)
+            self.assertEqual(decision.reason, reason, question)
 
     def test_general_booking_information_is_not_treated_as_live_booking(self):
         decision = self.policy.precheck("預約需要提供什麼資訊？")
@@ -88,12 +106,6 @@ class RetrievalPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, "escalate")
         self.assertEqual(decision.reason, "live_schedule")
-
-    def test_labor_question_escalates_before_historical_material_is_used(self):
-        decision = self.policy.precheck("設計師薪資抽成怎麼算？")
-
-        self.assertEqual(decision.action, "escalate")
-        self.assertEqual(decision.reason, "labor_hr")
 
     def test_low_confidence_results_escalate(self):
         hit = SearchHit(
