@@ -315,6 +315,28 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["answer_mode"], "extractive")
         self.assertEqual(body["model_status"], "budget_exhausted")
 
+    def test_chat_stream_returns_ndjson_result(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        payload = json.dumps({"message": "燙髮後怎麼整理？"}).encode()
+        request = urllib.request.Request(
+            self.base + "/api/chat/stream",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with self.client.open(request, timeout=5) as response:
+            self.assertIn("application/x-ndjson", response.headers.get("Content-Type", ""))
+            lines = [line for line in response.read().decode("utf-8").splitlines() if line.strip()]
+
+        events = [json.loads(line) for line in lines]
+        result = events[-1]
+        self.assertEqual(result["type"], "result")
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(result["citations"][0]["locator"], "aftercare-1")
+
     def test_chat_title_requires_login(self):
         status, body = self.request("POST", "/api/chat/title", {"message": "燙髮", "answer": "x"})
 

@@ -95,8 +95,13 @@ class AnswerEngine:
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
-    def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:
-        url = responses_url(os.environ["LLM_BASE_URL"])
+    def _model_request(
+        self,
+        question: str,
+        hits: list[SearchHit],
+        history: list[dict] | None,
+        stream: bool,
+    ) -> urllib.request.Request:
         source_text = "\n\n".join(
             f"<source id=\"{index}\" title=\"{hit.title}\" locator=\"{hit.locator}\">\n{hit.text}\n</source>"
             for index, hit in enumerate(hits, start=1)
@@ -117,15 +122,59 @@ class AnswerEngine:
             "max_output_tokens": 1200,
             "store": False,
         }
-        request = urllib.request.Request(
-            url,
+        if stream:
+            payload["stream"] = True
+        return urllib.request.Request(
+            responses_url(os.environ["LLM_BASE_URL"]),
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {os.environ['LLM_API_KEY']}",
                 "Content-Type": "application/json",
+                **({"Accept": "text/event-stream"} if stream else {}),
             },
             method="POST",
         )
+
+    @staticmethod
+    def _token_usage(usage: dict) -> dict:
+        input_details = usage.get("input_tokens_details")
+        if not isinstance(input_details, dict):
+            input_details = {}
+        return {
+            "input_tokens": max(0, int(usage.get("input_tokens", 0))),
+            "cached_input_tokens": max(0, int(input_details.get("cached_tokens", 0))),
+            "cache_write_input_tokens": max(0, int(input_details.get("cache_write_tokens", 0))),
+            "output_tokens": max(0, int(usage.get("output_tokens", 0))),
+        }
+
+    def stream_answer(self, question: str, hits: list[SearchHit], history: list[dict] | None = None):
+        """Yield ("delta", text) chunks and a final ("usage", tokens) event."""
+        request = self._model_request(question, hits, history, stream=True)
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                event_type = str(event.get("type", ""))
+                if event_type == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if isinstance(delta, str) and delta:
+                        yield ("delta", delta)
+                elif event_type == "response.completed":
+                    usage = event.get("response", {}).get("usage")
+                    yield ("usage", self._token_usage(usage if isinstance(usage, dict) else {}))
+                elif event_type in ("response.failed", "response.incomplete", "error"):
+                    raise ValueError("model stream failed")
+
+    def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:
+        request = self._model_request(question, hits, history, stream=False)
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read())
         usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}

@@ -247,6 +247,51 @@
     return html;
   }
 
+  // Reads the ndjson stream from /api/chat/stream: delta events update the
+  // bubble as text arrives; the final result event is authoritative.
+  async function streamChat(payload, signal, onDelta) {
+    const response = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!response.ok) {
+      const body = await response.json();
+      const requestError = new Error(body.message || "服務暫時無法處理請求");
+      requestError.status = response.status;
+      throw requestError;
+    }
+    let result = null;
+    const handleLine = (line) => {
+      if (!line.trim()) return;
+      let event;
+      try { event = JSON.parse(line); } catch (_) { return; }
+      if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
+      else if (event.type === "result") result = event;
+    };
+    if (response.body?.getReader) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf("\n")) >= 0) {
+          handleLine(buffer.slice(0, newline));
+          buffer = buffer.slice(newline + 1);
+        }
+      }
+      handleLine(buffer);
+    } else {
+      (await response.text()).split("\n").forEach(handleLine);
+    }
+    if (!result) throw new Error("服務暫時無法處理請求");
+    return result;
+  }
+
   async function sendMessage(event) {
     event?.preventDefault();
     const value = prompt.value.trim();
@@ -269,18 +314,19 @@
         .filter((item) => !item.loading && item.role === "user" && item.content)
         .slice(-8)
         .map((item) => ({ role: item.role, content: String(item.content).slice(0, 1200) }));
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: value, conversation_id: conversation.id, history }),
-        signal: state.controller.signal,
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        const requestError = new Error(body.message || "服務暫時無法處理請求");
-        requestError.status = response.status;
-        throw requestError;
-      }
+      let streamedText = "";
+      const body = await streamChat(
+        { message: value, conversation_id: conversation.id, history },
+        state.controller.signal,
+        (delta) => {
+          streamedText += delta;
+          const textNode = messages.lastElementChild?.querySelector(".message-text");
+          if (textNode) {
+            textNode.textContent = streamedText;
+            messages.scrollTop = messages.scrollHeight;
+          }
+        },
+      );
       conversation.messages[conversation.messages.length - 1] = {
         role: "assistant",
         content: body.answer,

@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 import ipaddress
+import itertools
 import json
 import mimetypes
 import os
@@ -418,6 +419,48 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         allow_model=within_budget,
                     )
                     self._json(HTTPStatus.OK, result)
+                    return
+                if parsed.path == "/api/chat/stream":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    if not context.chat_limiter.allow(f"user:{user['id']}"):
+                        self._json(
+                            HTTPStatus.TOO_MANY_REQUESTS,
+                            {"error": "rate_limited", "message": "訊息傳送太頻繁，請稍候再試"},
+                            {"Retry-After": "30"},
+                        )
+                        return
+                    usage_summary = self._usage_summary(user["id"])
+                    within_budget = (
+                        usage_summary["budget_twd"] <= 0
+                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
+                    )
+                    events = context.service.chat_stream(
+                        payload.get("message", ""),
+                        payload.get("conversation_id"),
+                        payload.get("history"),
+                        user_id=user["id"],
+                        allow_model=within_budget,
+                    )
+                    # Validation errors must surface as JSON before the stream starts.
+                    try:
+                        first_event = next(events)
+                    except StopIteration:
+                        self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "message": "服務暫時無法處理請求"})
+                        return
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self._send_security_headers()
+                    self.end_headers()
+                    try:
+                        for event in itertools.chain([first_event], events):
+                            self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+                            self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                     return
                 if parsed.path == "/api/chat/title":
                     user = self._require_user()

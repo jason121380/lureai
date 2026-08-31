@@ -31,6 +31,10 @@
 
 ## 已知待辦／觀察
 
+- 2026-08-31：聊天已改串流輸出（/api/chat/stream，ndjson delta+result；/api/chat 保留為相容端點）。
+- 2026-08-31：修復去識別化過度遮罩——coach 區塊由 knowledge/designer_coaching_process.md 重建；export_deploy_knowledge.py 加入角色詞/縮寫停用表、knowledge/* 來源不再重遮罩。歷史教材/案例的 [人名][歷史數值] 屬隱私設計，完整版需在使用者 Mac 重跑匯出或掛私人 KNOWLEDGE_JSONL。
+- 2026-08-31：登入頁極簡化為 LOGO + "Your Private Brain" + 表單。
+
 - 生產環境曾出現 LLM 呼叫失敗降級（timeout 20s 時代）；調至 60s 後需實測確認。
 - 歷史輔導案例 chunks 有少量雜訊（test/hi 對話、全遮罩片段，約 1-5%）；檢索已將歷史案例降權（最多附 1 筆），必要時可清洗 `knowledge/designer_coaching_process.jsonl`。
 - 可考慮：回答串流輸出（SSE）讓長生成有即時回饋。

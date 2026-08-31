@@ -103,6 +103,62 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(audits[0]["trace_id"], result["trace_id"])
         self.assertEqual(audits[0]["status"], "escalated")
 
+    def test_chat_stream_without_model_yields_single_result(self):
+        events = list(self.service.chat_stream("燙髮後怎麼整理？", "conversation-1"))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "result")
+        self.assertEqual(events[0]["status"], "answered")
+        self.assertEqual(events[0]["answer_mode"], "extractive")
+        self.assertTrue(events[0]["citations"])
+
+    def test_chat_stream_emits_deltas_then_authoritative_result(self):
+        class StreamingAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None):
+                yield ("delta", "先檢查回覆速度")
+                yield ("delta", "。[1]")
+                yield ("usage", {
+                    "input_tokens": 10, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 5,
+                })
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = StreamingAnswerer()
+        events = list(self.service.chat_stream("燙髮後怎麼整理？", "conversation-1"))
+
+        self.assertEqual([event["type"] for event in events], ["delta", "delta", "result"])
+        result = events[-1]
+        self.assertEqual(result["answer"], "先檢查回覆速度。[1]")
+        self.assertEqual(result["answer_mode"], "llm")
+        self.assertEqual(result["model_status"], "used")
+        self.assertEqual(result["usage"]["input_tokens"], 10)
+        audits = self.store.list_audits()
+        self.assertEqual(audits[0]["trace_id"], result["trace_id"])
+
+    def test_chat_stream_falls_back_when_stream_lacks_citations(self):
+        class UncitedAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None):
+                yield ("delta", "沒有引用的回答")
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "模型暫時無法完成生成，原文 [1]"
+
+        self.service.answerer = UncitedAnswerer()
+        events = list(self.service.chat_stream("燙髮後怎麼整理？"))
+
+        result = events[-1]
+        self.assertEqual(result["answer_mode"], "extractive")
+        self.assertEqual(result["model_status"], "missing_citations")
+        self.assertIn("原文", result["answer"])
+
     def test_curated_sources_are_ordered_before_historical_cases(self):
         from app.retrieval import SearchHit
 
