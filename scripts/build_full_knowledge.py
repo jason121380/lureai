@@ -466,6 +466,8 @@ def compile_name_redactor(names: set[str]) -> tuple[re.Pattern | None, list[str]
 # name list never contains them, so mask the surname explicitly.
 HONORIFIC_NAME_PATTERN = re.compile(r"([㐀-鿿])(小姐|先生|太太|女士)")
 HONORIFIC_EXCLUDED_LEADS = set("這那各哪位小一二兩幾的是叫有大老她他我你妳您名")
+# Wording that must never be treated as a personal name.
+SANITIZE_KEEP = ("參考", "名留")
 
 
 def _mask_honorific_names(value: str) -> str:
@@ -488,6 +490,8 @@ def sanitize_message(
     value = ADDRESS_PATTERN.sub("[地址已移除]", value)
     value = DISTRICT_ADDRESS_PATTERN.sub("[地址已移除]", value)
     value = _mask_honorific_names(value)
+    for keep in SANITIZE_KEEP:
+        names.discard(keep)
     for pattern in PRIVATE_PATTERNS:
         value = pattern.sub("[敏感資訊已移除]", value)
     if literal_names is None:

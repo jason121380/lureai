@@ -29,6 +29,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/policy.py` | 敏感話題攔截、0.72 信心門檻 |
 | `app/storage.py` | SQLite schema 與所有查詢（一律在 `_lock` 內）|
 | `app/health.py` | 管理端 8 項健康檢查 |
+| `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
+| `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法 |
 | `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` |
 
 ## 不可破壞的約定
@@ -38,6 +40,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
 - **零依賴**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
+- **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
 - 對話紀錄存 localStorage（per user id），伺服器不存聊天內容，只存稽核（問題已遮罩 PII）。
 
 ## 工作流程

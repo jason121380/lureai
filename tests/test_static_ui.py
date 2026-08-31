@@ -65,7 +65,7 @@ class StaticUiTests(unittest.TestCase):
     def test_admin_page_has_operational_views(self):
         html = ADMIN.read_text(encoding="utf-8")
 
-        for element_id in ("admin-shell", "stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
+        for element_id in ("admin-shell", "stats-grid", "knowledge-results", "quality-list", "knowledge-editor"):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('id="admin-shell" class="admin-shell" hidden', html)
         for element_id in ("users", "user-form", "user-username", "user-password", "user-results"):

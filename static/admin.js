@@ -7,7 +7,7 @@
     return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
   }
 
-  const SECTIONS = ["overview", "health", "users", "retrieval", "knowledge", "audits"];
+  const SECTIONS = ["overview", "knowledge", "quality", "users", "health"];
 
   function showSection(id) {
     const target = SECTIONS.includes(id) ? id : "overview";
@@ -30,8 +30,6 @@
       const body = await response.json();
       if (!response.ok) return;
       document.title = `知識庫管理｜${body.app_name}`;
-      el("admin-chat-label").textContent = "返回輔導對話";
-      el("admin-knowledge-scope").textContent = "內部輔導目前可使用的來源區塊";
     } catch (_) {
       // Keep the static labels when the health endpoint is unavailable.
     }
@@ -62,31 +60,22 @@
   async function loadStats() {
     try {
       const body = await api("/api/admin/stats");
+      const composition = body.composition || {};
+      const origins = composition.origins || {};
       el("stat-chunks").textContent = body.chunks;
-      el("stat-audits").textContent = body.audits;
-      el("stat-answered").textContent = body.statuses.answered || 0;
-      el("stat-escalated").textContent = body.statuses.escalated || 0;
-      const pipeline = body.pipeline || {};
-      el("stat-source-files").textContent = pipeline.source_files ?? "—";
-      el("stat-markdown-files").textContent = pipeline.markdown_files ?? "—";
-      el("stat-conversation-cases").textContent = pipeline.conversation_cases ?? "—";
-      el("stat-protected-files").textContent = pipeline.protected_files ?? "—";
-      el("admin-status").textContent = `管理權限已驗證 · ${body.chunks} 個知識區塊`;
+      el("stat-sources").textContent = composition.source_files ?? "—";
+      el("stat-custom").textContent = origins.custom || 0;
+      el("admin-status").textContent = `${body.chunks} 個知識區塊 · ${composition.source_files || 0} 份來源`;
+      const categories = composition.categories || [];
+      el("category-grid").innerHTML = categories.length
+        ? categories.map((item) => `
+            <div class="category-card"><span>${escapeHtml(item.name)}</span><strong>${item.count}</strong></div>`).join("")
+        : '<div class="empty-state">尚無知識</div>';
       return true;
     } catch (error) {
       el("admin-status").textContent = error.message;
       return false;
     }
-  }
-
-  function resultRows(items) {
-    if (!items.length) return '<div class="empty-state">沒有符合的結果</div>';
-    return items.map((item, index) => `
-      <article class="result-row">
-        <h3>[${index + 1}] ${escapeHtml(item.title)}</h3>
-        <div class="result-meta"><span>${escapeHtml(item.locator)}</span><span>${Math.round((item.score || 0) * 100)}%</span></div>
-        <p>${escapeHtml(item.text)}</p>
-      </article>`).join("");
   }
 
   const healthStatus = {
@@ -171,36 +160,135 @@
     }
   }
 
-  async function retrieve(event) {
-    event.preventDefault();
-    const message = el("retrieval-query").value.trim();
-    if (!message) return;
-    try {
-      const body = await api("/api/admin/retrieve", { method: "POST", body: JSON.stringify({ message }) });
-      const target = el("retrieval-results");
-      target.className = "result-list";
-      target.innerHTML = resultRows(body.items);
-    } catch (error) { toast(error.message, true); }
+  function knowledgeCard(item) {
+    const custom = item.origin === "custom";
+    const title = item.section_title || item.title || "（無標題）";
+    const actions = custom
+      ? `<button class="icon-button bordered-icon" data-edit="${escapeHtml(item.chunk_id)}" title="編輯" aria-label="編輯"><i data-lucide="pencil"></i></button>
+         <button class="icon-button bordered-icon" data-remove="${escapeHtml(item.chunk_id)}" title="刪除" aria-label="刪除"><i data-lucide="trash-2"></i></button>`
+      : "";
+    return `<article class="knowledge-card">
+      <div class="knowledge-head">
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <div class="knowledge-meta">
+            <span class="origin-badge${custom ? " is-custom" : ""}">${custom ? "後台新增" : "匯入知識"}</span>
+            <span>${escapeHtml(item.category || "未分類")}</span>
+            <span class="source-locator">${escapeHtml(item.locator || "")}</span>
+          </div>
+        </div>
+        <div class="knowledge-actions">${actions}</div>
+      </div>
+      <p>${escapeHtml(String(item.text || "").slice(0, 260))}${String(item.text || "").length > 260 ? "…" : ""}</p>
+    </article>`;
   }
+
+  let knowledgeCache = [];
 
   async function loadKnowledge(event) {
     event?.preventDefault();
     try {
       const query = encodeURIComponent(el("knowledge-query").value.trim());
-      const body = await api(`/api/admin/chunks?q=${query}`);
-      const rows = body.items.map((item) => `
-        <tr><td><strong>${escapeHtml(item.title)}</strong><br><span class="source-locator">${escapeHtml(item.source_file || "")}</span></td><td>${escapeHtml(item.locator)}</td><td>${escapeHtml(item.text).slice(0, 220)}</td></tr>`).join("");
-      el("knowledge-results").innerHTML = rows ? `<table class="data-table"><thead><tr><th>來源</th><th>定位</th><th>內容</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty-state">沒有符合的知識</div>';
+      const origin = encodeURIComponent(el("knowledge-origin").value);
+      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}`);
+      knowledgeCache = body.items || [];
+      el("knowledge-results").innerHTML = knowledgeCache.length
+        ? knowledgeCache.map(knowledgeCard).join("")
+        : '<div class="empty-state">沒有符合的知識</div>';
+      window.lucide?.createIcons();
     } catch (error) { toast(error.message, true); }
   }
 
-  async function loadAudits() {
+  function openEditor(chunk) {
+    el("editor-chunk-id").value = chunk?.chunk_id || "";
+    el("editor-title").value = chunk?.section_title || "";
+    el("editor-category").value = chunk?.category || "";
+    el("editor-text").value = chunk?.text || "";
+    el("knowledge-editor").hidden = false;
+    el("editor-title").focus();
+  }
+
+  function closeEditor() {
+    el("knowledge-editor").hidden = true;
+    el("knowledge-editor").reset();
+    el("editor-chunk-id").value = "";
+  }
+
+  async function saveKnowledge(event) {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type=submit]");
+    button.disabled = true;
     try {
-      const body = await api("/api/admin/audits");
-      const rows = body.items.map((item) => `
-        <tr><td>${escapeHtml(new Date(item.created_at).toLocaleString("zh-TW"))}</td><td>${escapeHtml(item.question)}</td><td><span class="table-status ${escapeHtml(item.status)}">${{ answered: "已回答", escalated: "轉人工", title: "標題" }[item.status] || escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reason || "")}</td><td>${item.top_score == null ? "—" : Math.round(item.top_score * 100) + "%"}</td></tr>`).join("");
-      el("audit-results").innerHTML = rows ? `<table class="data-table"><thead><tr><th>時間</th><th>問題</th><th>狀態</th><th>原因</th><th>分數</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty-state">尚無查詢紀錄</div>';
+      const body = await api("/api/admin/knowledge", {
+        method: "POST",
+        body: JSON.stringify({
+          chunk_id: el("editor-chunk-id").value || undefined,
+          section_title: el("editor-title").value,
+          category: el("editor-category").value,
+          text: el("editor-text").value,
+        }),
+      });
+      toast(`已儲存：${body.chunk.section_title}`);
+      closeEditor();
+      await Promise.all([loadKnowledge(), loadStats()]);
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function removeKnowledge(chunkId) {
+    if (!window.confirm("確定要刪除這則知識嗎？")) return;
+    try {
+      await api("/api/admin/knowledge/delete", {
+        method: "POST",
+        body: JSON.stringify({ chunk_id: chunkId }),
+      });
+      toast("知識已刪除");
+      await Promise.all([loadKnowledge(), loadStats()]);
     } catch (error) { toast(error.message, true); }
+  }
+
+  async function loadQuality() {
+    const button = el("refresh-quality");
+    button.disabled = true;
+    try {
+      const body = await api("/api/admin/knowledge/quality");
+      el("stat-flagged").textContent = body.flagged;
+      const labels = body.labels || {};
+      el("quality-summary").innerHTML = `
+        <div class="stat-card"><span>知識總數</span><strong>${body.total}</strong></div>
+        <div class="stat-card"><span>結構完整</span><strong>${body.healthy}</strong></div>
+        <div class="stat-card alert-stat"><span>待整理</span><strong>${body.flagged}</strong></div>
+        <div class="stat-card"><span>完整度</span><strong>${body.total ? Math.round((body.healthy / body.total) * 100) : 0}%</strong></div>`;
+      const counts = Object.entries(body.counts || {}).filter(([, value]) => value > 0);
+      const summary = counts.map(([key, value]) => `<span class="issue-chip">${escapeHtml(labels[key] || key)} ${value}</span>`).join("");
+      const samples = (body.samples || []).map((item) => {
+        const custom = item.origin === "custom";
+        const issues = item.issues.map((issue) => `<span class="issue-chip">${escapeHtml(labels[issue] || issue)}</span>`).join("");
+        const action = custom
+          ? `<button class="icon-button bordered-icon" data-edit="${escapeHtml(item.chunk_id)}" title="編輯" aria-label="編輯"><i data-lucide="pencil"></i></button>`
+          : '<span class="knowledge-note">在原始檔調整</span>';
+        return `<article class="knowledge-card">
+          <div class="knowledge-head">
+            <div><h3>${escapeHtml(item.section_title || item.title || "（無標題）")}</h3>
+              <div class="knowledge-meta">${issues}<span class="source-locator">${escapeHtml(item.locator)}</span></div>
+            </div>
+            <div class="knowledge-actions">${action}</div>
+          </div>
+          <p>${escapeHtml(item.excerpt)}</p>
+        </article>`;
+      }).join("");
+      el("quality-list").innerHTML = samples
+        ? `<div class="issue-summary">${summary}</div>${samples}`
+        : '<div class="empty-state">所有知識都結構完整</div>';
+      window.lucide?.createIcons();
+    } catch (error) {
+      el("quality-list").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function loadUsers() {
@@ -247,7 +335,7 @@
     try {
       const body = await api("/api/admin/reindex", { method: "POST", body: "{}" });
       toast(`索引完成：匯入 ${body.imported}，拒絕 ${body.rejected}`);
-      await Promise.all([loadStats(), loadKnowledge(), loadHealth()]);
+      await Promise.all([loadStats(), loadKnowledge(), loadQuality(), loadHealth()]);
     } catch (error) { toast(error.message, true); }
     finally { button.disabled = false; }
   }
@@ -260,16 +348,30 @@
       if (body.user?.role !== "admin") return false;
       if (!(await loadStats())) return false;
       showAdmin();
-      await Promise.all([loadKnowledge(), loadAudits(), loadHealth(), loadUsers()]);
+      await Promise.all([loadKnowledge(), loadQuality(), loadHealth(), loadUsers()]);
       return true;
     } catch (_) {
       return false;
     }
   }
 
-  el("retrieval-form").addEventListener("submit", retrieve);
   el("knowledge-form").addEventListener("submit", loadKnowledge);
-  el("refresh-audits").addEventListener("click", loadAudits);
+  el("knowledge-origin").addEventListener("change", () => loadKnowledge());
+  el("new-knowledge").addEventListener("click", () => openEditor(null));
+  el("editor-cancel").addEventListener("click", closeEditor);
+  el("knowledge-editor").addEventListener("submit", saveKnowledge);
+  document.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-edit]");
+    if (edit) {
+      const chunk = knowledgeCache.find((item) => item.chunk_id === edit.dataset.edit);
+      if (chunk) { showSection("knowledge"); openEditor(chunk); }
+      else toast("請先在知識庫分頁找到這則知識", true);
+      return;
+    }
+    const remove = event.target.closest("[data-remove]");
+    if (remove) removeKnowledge(remove.dataset.remove);
+  });
+  el("refresh-quality").addEventListener("click", loadQuality);
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   el("user-form").addEventListener("submit", saveUser);

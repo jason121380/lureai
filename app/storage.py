@@ -39,7 +39,8 @@ class KnowledgeStore:
                 reviewer TEXT,
                 reviewed_at TEXT,
                 search_text TEXT NOT NULL,
-                metadata_json TEXT NOT NULL
+                metadata_json TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'file'
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -94,6 +95,7 @@ class KnowledgeStore:
             );
             """
         )
+        self._ensure_column("chunks", "origin", "TEXT NOT NULL DEFAULT 'file'")
         self._ensure_column("users", "role", "TEXT NOT NULL DEFAULT 'user'")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -236,6 +238,25 @@ class KnowledgeStore:
             "categories": [{"name": row["category"] or "未分類", "count": int(row["count"])} for row in category_rows],
         }
 
+    def knowledge_composition(self) -> dict:
+        """Chunk counts by category and by origin, for the admin overview."""
+        with self._lock:
+            categories = self.connection.execute(
+                "SELECT COALESCE(NULLIF(category, ''), '未分類') AS name, COUNT(*) AS count "
+                "FROM chunks GROUP BY name ORDER BY count DESC"
+            ).fetchall()
+            origins = self.connection.execute(
+                "SELECT origin, COUNT(*) AS count FROM chunks GROUP BY origin"
+            ).fetchall()
+            sources = self.connection.execute(
+                "SELECT COUNT(DISTINCT source_file) AS count FROM chunks"
+            ).fetchone()
+        return {
+            "categories": [{"name": row["name"], "count": int(row["count"])} for row in categories],
+            "origins": {str(row["origin"]): int(row["count"]) for row in origins},
+            "source_files": int(sources["count"]),
+        }
+
     def get_chunk(self, chunk_id: str) -> dict | None:
         with self._lock:
             row = self.connection.execute(
@@ -268,36 +289,72 @@ class KnowledgeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def _insert_chunk(self, row: dict, origin: str) -> None:
+        cursor = self.connection.execute(
+            """
+            INSERT INTO chunks (
+                chunk_id, doc_id, locator, section_title, text, title,
+                source_file, source_sha256, category, access_level,
+                customer_service_allowed, review_status, reviewer,
+                reviewed_at, search_text, metadata_json, origin
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["chunk_id"], row.get("doc_id"), row["locator"],
+                row.get("section_title", ""), row["text"], row["title"],
+                row["source_file"], row.get("source_sha256", ""),
+                row.get("category", ""), row["access_level"],
+                int(row.get("customer_service_allowed") is True),
+                row["review_status"], row.get("reviewer", ""),
+                row.get("reviewed_at", ""), row["search_text"],
+                json.dumps(row, ensure_ascii=False), origin,
+            ),
+        )
+        self.connection.execute(
+            "INSERT INTO chunks_fts(rowid, chunk_id, title, section_title, search_text) VALUES (?, ?, ?, ?, ?)",
+            (
+                cursor.lastrowid, row["chunk_id"], row["title"],
+                row.get("section_title", ""), row["search_text"],
+            ),
+        )
+
+    def _delete_chunk_rows(self, where: str, params: tuple) -> None:
+        """Delete chunks matching a predicate along with their FTS entries."""
+        ids = [
+            int(row[0])
+            for row in self.connection.execute(f"SELECT id FROM chunks WHERE {where}", params)
+        ]
+        for chunk_row_id in ids:
+            self.connection.execute("DELETE FROM chunks_fts WHERE rowid = ?", (chunk_row_id,))
+        self.connection.execute(f"DELETE FROM chunks WHERE {where}", params)
+
     def replace_chunks(self, chunks: Iterable[dict]) -> None:
+        """Replace file-sourced chunks; knowledge authored in the admin survives."""
         rows = list(chunks)
         with self._lock, self.connection:
-            self.connection.execute("DELETE FROM chunks_fts")
-            self.connection.execute("DELETE FROM chunks")
+            self._delete_chunk_rows("origin = ?", ("file",))
             for row in rows:
-                cursor = self.connection.execute(
-                    """
-                    INSERT INTO chunks (
-                        chunk_id, doc_id, locator, section_title, text, title,
-                        source_file, source_sha256, category, access_level,
-                        customer_service_allowed, review_status, reviewer,
-                        reviewed_at, search_text, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        row["chunk_id"], row.get("doc_id"), row["locator"],
-                        row.get("section_title", ""), row["text"], row["title"],
-                        row["source_file"], row.get("source_sha256", ""),
-                        row.get("category", ""), row["access_level"],
-                        int(row.get("customer_service_allowed") is True),
-                        row["review_status"], row.get("reviewer", ""),
-                        row.get("reviewed_at", ""), row["search_text"],
-                        json.dumps(row, ensure_ascii=False),
-                    ),
-                )
-                self.connection.execute(
-                    "INSERT INTO chunks_fts(rowid, chunk_id, title, section_title, search_text) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        cursor.lastrowid, row["chunk_id"], row["title"],
-                        row.get("section_title", ""), row["search_text"],
-                    ),
-                )
+                self._insert_chunk(row, "file")
+
+    def upsert_custom_chunk(self, row: dict) -> None:
+        with self._lock, self.connection:
+            self._delete_chunk_rows("chunk_id = ?", (row["chunk_id"],))
+            self._insert_chunk(row, "custom")
+
+    def delete_custom_chunk(self, chunk_id: str) -> bool:
+        with self._lock, self.connection:
+            existing = self.connection.execute(
+                "SELECT id FROM chunks WHERE chunk_id = ? AND origin = 'custom'", (chunk_id,)
+            ).fetchone()
+            if not existing:
+                return False
+            self._delete_chunk_rows("chunk_id = ? AND origin = 'custom'", (chunk_id,))
+        return True
+
+    def all_chunk_payloads(self) -> list[dict]:
+        """Every indexed chunk as its original payload, for export."""
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT metadata_json FROM chunks ORDER BY origin DESC, title, locator"
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
