@@ -158,7 +158,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("persistenceSnapshot", script)
         self.assertIn("catch (_)", script)
         self.assertIn("/api/chat", script)
-        self.assertIn("const history = conversation.messages", script)
+        self.assertIn("const asked = conversation.messages", script)
+        self.assertIn("const history = asked.map", script)
         self.assertIn('item.role === "user"', script)
         self.assertIn("conversation_id: conversation.id, history", script)
 

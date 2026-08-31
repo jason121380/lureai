@@ -4,6 +4,7 @@ from typing import Iterator
 from uuid import uuid4
 
 from .answer import AnswerEngine
+from .followups import FollowupPlanner
 from .policy import PolicyEngine
 from .retrieval import Retriever, relevance_tokens
 from .storage import KnowledgeStore
@@ -56,6 +57,7 @@ class CustomerService:
         self.top_k = top_k
         self.max_question_chars = max_question_chars
         self.pricing = pricing or UsagePricing.from_env()
+        self.followups = FollowupPlanner(store, retriever, policy)
 
     def _validated_question(self, message: str) -> str:
         question = str(message or "").strip()
@@ -116,17 +118,20 @@ class CustomerService:
         return hits, grounded_hits, None
 
     @staticmethod
-    def _nearest_questions(hits: list, limit: int = 3) -> list[str]:
-        """Turn the closest chunks into questions the user can actually ask."""
-        questions: list[str] = []
-        for hit in hits:
-            title = " ".join(str(hit.section_title or "").split())
-            if not title or title in questions:
-                continue
-            questions.append(title)
-            if len(questions) >= limit:
-                break
-        return questions
+    def _asked_questions(history: list[dict] | None, question: str) -> set[str]:
+        """Everything already asked in this conversation, for follow-up dedup."""
+        asked = {
+            str(item.get("content", "")).strip()
+            for item in (history or [])
+            if isinstance(item, dict) and item.get("role") == "user"
+        }
+        asked.discard("")
+        asked.add(question)
+        return asked
+
+    def _nearest_questions(self, hits: list, limit: int = 3) -> list[str]:
+        """Turn the closest chunks into questions the designer can actually ask."""
+        return self.followups.plan(hits, limit=limit)
 
     def _escalated_result(
         self,
@@ -172,6 +177,12 @@ class CustomerService:
         followups: list[str] = []
         if mode == "llm":
             answer, followups = split_followups(answer)
+        # 建議問題一律要能被回答，點下去才不會撞到「沒有足夠資料」。
+        followups = self.followups.plan(
+            grounded_hits,
+            asked=self._asked_questions(history, question),
+            candidates=followups,
+        )
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -251,7 +262,11 @@ class CustomerService:
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
-            "followups": followups,
+            "followups": self.followups.plan(
+                grounded_hits,
+                asked=self._asked_questions(history, question),
+                candidates=followups,
+            ),
         }
         self._audit(question, result, hits, user_id=user_id)
         yield {"type": "result", **result}
@@ -288,15 +303,18 @@ class CustomerService:
             return []
         if not isinstance(history, list):
             raise ValueError("對話紀錄格式無效")
+        if len(history) > 80:
+            raise ValueError("對話紀錄格式無效")
         normalized = []
-        for item in history[-8:]:
+        # 全部驗過，但只有最後 8 則會進到模型脈絡與檢索。
+        for item in history:
             if not isinstance(item, dict) or item.get("role") != "user":
                 raise ValueError("對話紀錄格式無效")
             content = str(item.get("content", "")).strip()
             if not content or len(content) > self.max_question_chars:
                 raise ValueError("對話紀錄格式無效")
             normalized.append({"role": item["role"], "content": content})
-        return normalized
+        return normalized[-8:]
 
     def _audit(self, question: str, result: dict, hits: list, user_id: int | None = None) -> None:
         usage = result.get("usage") or {}

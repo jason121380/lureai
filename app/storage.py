@@ -324,6 +324,30 @@ class KnowledgeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def related_chunks(
+        self,
+        category: str = "",
+        domain: str = "",
+        source_file: str = "",
+        exclude_ids: Iterable[str] = (),
+        limit: int = 12,
+    ) -> list[dict]:
+        """Neighbouring knowledge: same category first, then same playbook, then same domain."""
+        excluded = [str(chunk_id) for chunk_id in exclude_ids]
+        placeholders = ",".join("?" for _ in excluded) or "''"
+        with self._lock:
+            rows = self.connection.execute(
+                f"""
+                SELECT chunk_id, locator, section_title, category, domain, source_file
+                FROM chunks
+                WHERE chunk_id NOT IN ({placeholders})
+                ORDER BY (category = ?) DESC, (source_file = ?) DESC, (domain = ?) DESC, locator
+                LIMIT ?
+                """,
+                (*excluded, category, source_file, domain, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _insert_chunk(self, row: dict, origin: str) -> None:
         cursor = self.connection.execute(
             """
