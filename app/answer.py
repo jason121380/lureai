@@ -11,6 +11,13 @@ from .retrieval import SearchHit
 
 DEFAULT_POLICY = "你只能根據提供的已核准來源回答。每個主張必須附 [編號] 引用；資料不足時不得猜測。"
 
+# Appended at request time; app/service.py parses these lines back out of the
+# answer, so the marker here and FOLLOWUP_PATTERN there must stay in sync.
+FOLLOWUP_INSTRUCTION = (
+    "\n\n回答結束後空一行，另外輸出恰好 3 行，每行以「▷ 」開頭，"
+    "各提出一個使用者最可能接著問的相關問題（20 字內、繁體中文、不加引用編號、不加其他說明）。"
+)
+
 
 def responses_url(base_url: str) -> str:
     base = str(base_url).rstrip("/")
@@ -31,6 +38,15 @@ def model_url(base_url: str, model: str) -> str:
 
 
 DEFAULT_MODEL_TIMEOUT = 60.0
+# Reasoning tokens count against max_output_tokens on the Responses API.
+# No cap by default so answers are never cut off; set LLM_MAX_OUTPUT_TOKENS
+# to a positive number to enforce one.
+def max_output_tokens() -> int | None:
+    try:
+        value = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "") or 0)
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def model_timeout() -> float:
@@ -90,8 +106,8 @@ class AnswerEngine:
         lines = [heading]
         for index, hit in enumerate(hits[:3], start=1):
             text = " ".join(hit.text.split())
-            if len(text) > 260:
-                text = text[:257].rstrip() + "..."
+            if len(text) > 600:
+                text = text[:597].rstrip() + "..."
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
@@ -116,12 +132,14 @@ class AnswerEngine:
         })
         payload = {
             "model": os.environ["LLM_MODEL"],
-            "instructions": self.policy,
+            "instructions": self.policy + FOLLOWUP_INSTRUCTION,
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
-            "max_output_tokens": 1200,
             "store": False,
         }
+        cap = max_output_tokens()
+        if cap is not None:
+            payload["max_output_tokens"] = cap
         if stream:
             payload["stream"] = True
         return urllib.request.Request(
@@ -167,10 +185,12 @@ class AnswerEngine:
                     delta = event.get("delta")
                     if isinstance(delta, str) and delta:
                         yield ("delta", delta)
-                elif event_type == "response.completed":
+                elif event_type in ("response.completed", "response.incomplete"):
+                    # An incomplete response (e.g. output-token cap reached) still
+                    # carries useful streamed text and usage; keep what we have.
                     usage = event.get("response", {}).get("usage")
                     yield ("usage", self._token_usage(usage if isinstance(usage, dict) else {}))
-                elif event_type in ("response.failed", "response.incomplete", "error"):
+                elif event_type in ("response.failed", "error"):
                     raise ValueError("model stream failed")
 
     def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:

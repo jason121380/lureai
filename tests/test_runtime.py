@@ -21,31 +21,29 @@ class RuntimeTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(admin_token_for_host("127.0.0.1"), "local-admin")
 
-    def test_default_paths_prefer_bundled_customer_index(self):
+    def test_default_paths_use_bundled_coaching_index(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            bundled = root / "knowledge/active_customer_service.jsonl"
-            bundled.parent.mkdir()
-            bundled.write_text("", encoding="utf-8")
 
             paths = default_paths(root)
 
-            self.assertEqual(paths["knowledge"], bundled)
-            self.assertEqual(paths["database"], root / "data/knowledge.db")
+            self.assertEqual(paths["knowledge"], root / "knowledge/designer_coaching_process.jsonl")
+            self.assertEqual(paths["database"], root / "data/designer_coach.db")
 
     def test_default_paths_prefer_private_full_index_when_available(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            private_index = root / "private_sources/full/rag/customer_service_full.jsonl"
+            private_index = root / "private_sources/full/rag/designer_coach_full.jsonl"
             private_index.parent.mkdir(parents=True)
             private_index.write_text("", encoding="utf-8")
-            bundled = root / "knowledge/active_customer_service.jsonl"
-            bundled.parent.mkdir()
-            bundled.write_text("", encoding="utf-8")
 
             paths = default_paths(root)
 
             self.assertEqual(paths["knowledge"], private_index)
+
+    def test_customer_profile_is_removed(self):
+        with self.assertRaisesRegex(ValueError, "未知的知識 profile"):
+            load_profile("customer_service")
 
     def test_environment_can_override_knowledge_path(self):
         with patch.dict(os.environ, {"KNOWLEDGE_JSONL": "/tmp/custom.jsonl"}):

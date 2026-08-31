@@ -33,7 +33,9 @@
 - **主要按鈕** `.command-button`：黑底白字藥丸，hover `#3d3d3d`，不變色系。
 - **輸入框** focus：邊框變 `--ink` + `box-shadow 0 0 0 1px var(--ink)`（不用彩色光暈）。
 - **聊天訊息**：使用者靠右、`--bubble` 氣泡、最大寬 78%；助理靠左純文字無框無頭像、字級 15px、行高 1.8。
-- **引用**：藥丸按鈕 + 黑色圓形編號。
+- **引用**：藥丸按鈕 + 黑色圓形編號；內文中的 `[n]` 是灰底小圓鈕 `.cite-ref`，點擊開來源抽屜。
+- **關聯問題** `.followup-button`：白底細框藥丸、`corner-down-right` icon，直向排列在最新回覆下方，點擊即送出。
+- **對話標題**：topbar 顯示 AI 產生的標題＋鉛筆行內編輯（`.title-input`）。
 - **登入頁**：白底、無卡片框、置中，logo 置中、標題 28px、輸入框 48px、黑色藥丸登入鈕。
 - **側欄**：`--sidebar` 底、10px 圓角 hover 項目；用量面板是獨立白色卡片（12px 圓角）與帳號列分離。
 - 字體：系統字堆疊（含 PingFang TC / Noto Sans TC）；數字用 SFMono/Consolas。

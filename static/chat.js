@@ -5,13 +5,12 @@
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
-    profile: "customer_service",
-    assistantName: "AI 客服",
+    profile: "designer_coach",
+    assistantName: "AI 輔導教練",
     welcomePrompts: [
-      "顧客不滿意怎麼處理？",
-      "臉型可以直接決定髮型嗎？",
-      "預約需要提供什麼資訊？",
-      "染髮多少錢？",
+      "設計師私訊很多但預約很少，先查什麼？",
+      "幫我安排一次 1 對 1 輔導流程",
+      "如何健檢設計師的私訊回覆？",
     ],
   };
   const el = (id) => document.getElementById(id);
@@ -156,7 +155,7 @@
     return wrapper;
   }
 
-  function messageView(item) {
+  function messageView(item, isLast = false) {
     const row = document.createElement("article");
     row.className = `message-row ${item.role}`;
     const avatar = document.createElement("div");
@@ -205,6 +204,27 @@
       });
       content.append(citations);
     }
+
+    if (isLast && item.role === "assistant" && item.followups?.length && !state.controller) {
+      const followups = document.createElement("div");
+      followups.className = "followup-list";
+      item.followups.slice(0, 3).forEach((question) => {
+        const button = document.createElement("button");
+        button.className = "followup-button";
+        button.type = "button";
+        button.innerHTML = '<i data-lucide="corner-down-right"></i>';
+        const label = document.createElement("span");
+        label.textContent = question;
+        button.append(label);
+        button.addEventListener("click", () => {
+          prompt.value = question;
+          updateComposer();
+          sendMessage();
+        });
+        followups.append(button);
+      });
+      content.append(followups);
+    }
     row.append(avatar, content);
     return row;
   }
@@ -215,7 +235,7 @@
     const isEmpty = !conversation.messages.length;
     el("chat-main").classList.toggle("is-empty", isEmpty);
     if (isEmpty) messages.append(welcomeView());
-    else conversation.messages.forEach((item) => messages.append(messageView(item)));
+    else conversation.messages.forEach((item, index) => messages.append(messageView(item, index === conversation.messages.length - 1)));
     el("conversation-title").textContent = conversation.title;
     requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; window.lucide?.createIcons(); });
   }
@@ -334,6 +354,7 @@
         reason: body.reason,
         modelStatus: body.model_status,
         citations: body.citations || [],
+        followups: body.followups || [],
         traceId: body.trace_id,
       };
       if (body.status === "answered" && !conversation.titleEdited && !conversation.titleGenerated) {
@@ -344,7 +365,7 @@
       if (error.status === 401) showLogin("登入已過期，請重新登入");
       conversation.messages[conversation.messages.length - 1] = {
         role: "assistant",
-        content: error.name === "AbortError" ? "已停止這次查詢。" : "目前無法連線到客服知識庫，請稍後再試。",
+        content: error.name === "AbortError" ? "已停止這次查詢。" : "目前無法連線到知識庫，請稍後再試。",
         status: "escalated",
         citations: [],
       };
@@ -575,19 +596,15 @@
 
   function applyProfile(body) {
     state.profile = body.profile || "customer_service";
-    state.assistantName = body.assistant_name || "AI 客服";
+    state.assistantName = body.assistant_name || "AI 輔導教練";
     state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
       ? body.welcome_prompts.slice(0, 4)
       : state.welcomePrompts;
-    const appName = body.app_name || "張副總 AI 客服";
+    const appName = body.app_name || "lure ai 輔導大腦";
     document.title = appName;
-    prompt.placeholder = state.profile === "designer_coach" ? "輸入輔導問題" : "輸入客服問題";
-    el("knowledge-scope").textContent = state.profile === "designer_coach"
-      ? "回答僅使用已核准內部輔導知識"
-      : "回答僅使用已核准客服知識";
-    el("index-scope").textContent = state.profile === "designer_coach"
-      ? "內部索引已隔離"
-      : "客服索引已隔離";
+    prompt.placeholder = "輸入輔導問題";
+    el("knowledge-scope").textContent = "回答僅使用已核准內部輔導知識";
+    el("index-scope").textContent = "內部索引已隔離";
   }
 
   el("composer").addEventListener("submit", sendMessage);

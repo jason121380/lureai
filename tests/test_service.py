@@ -140,6 +140,30 @@ class ServiceTests(unittest.TestCase):
         audits = self.store.list_audits()
         self.assertEqual(audits[0]["trace_id"], result["trace_id"])
 
+    def test_stream_answer_followup_lines_become_options(self):
+        class FollowupAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None):
+                yield ("delta", "先檢查回覆速度。[1]\n\n▷ 回覆速度標準是什麼？\n▷ 如何抽查私訊品質？\n▷ 預約引導怎麼寫？")
+                yield ("usage", {
+                    "input_tokens": 1, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 1,
+                })
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = FollowupAnswerer()
+        events = list(self.service.chat_stream("燙髮後怎麼整理？"))
+
+        result = events[-1]
+        self.assertEqual(result["answer"], "先檢查回覆速度。[1]")
+        self.assertEqual(result["followups"], [
+            "回覆速度標準是什麼？", "如何抽查私訊品質？", "預約引導怎麼寫？",
+        ])
+
     def test_chat_stream_falls_back_when_stream_lacks_citations(self):
         class UncitedAnswerer:
             model_enabled = True

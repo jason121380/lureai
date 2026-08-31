@@ -1,17 +1,15 @@
-# Hair Brain
+# lure ai 輔導大腦
 
-ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG profile 使用不同知識檔、資料庫、回答規則與瀏覽器對話空間。
+ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 
 ## 功能
 
-- 客服聊天介面、localStorage 對話紀錄與來源抽屜
+- ChatGPT 式聊天介面（串流回覆、AI 對話命名、關聯問題選項）、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
-- 本機完整索引：549 個客服 chunks、2,443 個設計師輔導 chunks
-- 公開部署索引：15 個客服 chunks、2,393 個去識別化輔導 chunks
+- 公開部署索引：2,393 個去識別化輔導 chunks（本機可掛完整私人索引）
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
-- `customer_service`／`designer_coach` 雙 profile 隔離
 - `0.72` 最低信心門檻，低信心內容不進入答案
-- 價格、療效、退款、賠償、個資與即時預約轉人工
+- 個資、醫療、法律賠償與勞資話題轉人工
 - 管理端知識搜尋、檢索測試、重新索引與 audit log
 - OpenAI Responses API 與 GPT-5.6 Luna
 - 使用者帳密登入、HttpOnly session、後台帳號建立與密碼重設
@@ -19,18 +17,6 @@ ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG pro
 - 每位使用者本月 token、台幣花費與預算進度；超出 `MONTHLY_BUDGET_TWD` 時自動停用模型生成、改用抽取式回答
 - 聊天每分鐘限流（`CHAT_RATE_LIMIT_PER_MINUTE`）、登入失敗限流、安全標頭與同源檢查
 - 未設定 API Key 時可使用離線抽取式回答
-
-## 啟動設計師 AI 輔導
-
-```bash
-python3 run.py --profile designer_coach --reindex-only
-python3 run.py --profile designer_coach --port 8766
-```
-
-- 輔導介面：<http://127.0.0.1:8766>
-- 輔導管理後台：<http://127.0.0.1:8766/admin>
-
-macOS 也可以執行 `./start-coach.command`。客服與輔導可分別使用 `8765`、`8766` 同時運作。
 
 ## Zeabur 部署
 
@@ -59,7 +45,7 @@ USD_TO_TWD=32.5
 MONTHLY_BUDGET_TWD=1000
 ```
 
-Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。若部署客服版本，將 `APP_PROFILE` 改成 `customer_service`。
+Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
 設計師輔導部署預設包含 2,393 個已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
@@ -68,7 +54,7 @@ KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
 APP_DB_PATH=/data/hair-brain/designer_coach.db
 ```
 
-客服部署則改用 `customer_service_full.jsonl` 與 `knowledge.db`。SQLite 負責索引、使用者、session、用量與稽核紀錄，不需要另外建立 PostgreSQL；正式環境建議掛載持久化 Volume，否則重新部署時後四項紀錄會重置。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
+SQLite 負責索引、使用者、session、用量與稽核紀錄，不需要另外建立 PostgreSQL；正式環境建議掛載持久化 Volume，否則重新部署時後四項紀錄會重置。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
 
 ## 系統需求
 
@@ -85,7 +71,7 @@ python3 run.py --reindex-only
 python3 run.py --port 8765
 ```
 
-- 客服介面：<http://127.0.0.1:8765>
+- 輔導介面：<http://127.0.0.1:8765>
 - 管理後台：<http://127.0.0.1:8765/admin>（需以「管理者」權限帳號登入；非管理者會被導回對話頁）
 
 `ADMIN_TOKEN` 僅用於 API（`X-Admin-Token` header，供 curl、測試與緊急操作）；本機綁 127.0.0.1 時預設 `local-admin`，正式部署必須更換為長且不可猜測的值。
@@ -150,13 +136,6 @@ python3 run.py
 部署索引：
 
 ```text
-knowledge/active_customer_service.jsonl
-knowledge/designer_coaching_process.jsonl
-```
-
-設計師教練載入：
-
-```text
 knowledge/designer_coaching_process.jsonl
 ```
 
@@ -166,7 +145,7 @@ knowledge/designer_coaching_process.jsonl
 private_sources/full/
 ├── extracted/       # 267 份來源各一份 MD，保留頁碼、投影片、工作表或段落定位
 ├── conversations/   # 270 份去識別化 1 對 1 輔導案例 MD
-├── rag/             # 客服與內部輔導兩份完整 JSONL
+├── rag/             # 完整內部輔導 JSONL
 └── manifest.json    # 每檔雜湊、狀態、摘要、警告與統計
 ```
 
@@ -176,7 +155,7 @@ private_sources/full/
 
 匯入器只接受同時符合以下條件的資料：
 
-- 客服舊格式使用 `customer_service_allowed=true`，新格式使用 `rag_allowed=true`
+- `rag_allowed=true`（舊格式 `customer_service_allowed=true` 僅供相容）
 - `review_status=approved`
 - `access_level` 必須與目前 profile 完全相符
 - `chunk_id`、`title`、`source_file`、`locator`、`text` 完整
@@ -187,8 +166,6 @@ private_sources/full/
 export KNOWLEDGE_JSONL="/absolute/path/to/approved-knowledge.jsonl"
 python3 run.py --reindex-only
 ```
-
-完整內部索引不會被客服程式讀取。
 
 ### 重建完整私人知識
 
@@ -202,26 +179,23 @@ python3 scripts/build_full_knowledge.py \
   /absolute/path/to/source-folder private_sources/full \
   --ocr-binary private_sources/bin/vision_ocr \
   --video-ocr-binary private_sources/bin/video_frame_ocr
-python3 run.py --profile customer_service --reindex-only
-python3 run.py --profile designer_coach --reindex-only
+python3 run.py --reindex-only
 python3 scripts/verify_full_knowledge.py
 ```
 
 驗證報告在 `qa/full_knowledge_verification.json`。影片目前抽取檔案中繼資料與取樣畫面的 OCR，不包含語音轉錄。
 
-### Profile 對照
+### Profile
 
 | Profile | Access level | 知識檔 | DB |
 | --- | --- | --- | --- |
-| `customer_service` | `customer_service` | `active_customer_service.jsonl` | `data/knowledge.db` |
-| `designer_coach` | `internal_coaching` | `designer_coaching_process.jsonl` | `data/designer_coach.db` |
+| `designer_coach`（唯一） | `internal_coaching` | `designer_coaching_process.jsonl` | `data/designer_coach.db` |
 
 聊天與用量 API 需要先透過 `POST /api/auth/login` 建立 session。登入後呼叫 `POST /api/chat`，JSON body 為 `{"message":"問題","conversation_id":"可選 ID"}`；`GET /api/usage` 只回傳目前登入使用者的本月用量。前端可先讀取公開的 `GET /api/health` 確認目前 profile、知識筆數與模型是否啟用。
 
 ## 設定
 
 - 檢索門檻與 top-k：`config/settings.json`
-- 模型回答規則：`config/customer_policy.md`
 - 輔導回答規則：`config/designer_coach_policy.md`
 - 敏感問題分類：`app/policy.py`
 - 環境變數範例：`.env.example`

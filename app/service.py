@@ -10,6 +10,26 @@ from .storage import KnowledgeStore
 from .usage import UsagePricing
 
 
+FOLLOWUP_PATTERN = re.compile(r"^[▷›>]\s*(.+)$")
+
+
+def split_followups(text: str) -> tuple[str, list[str]]:
+    """Pull trailing '▷ question' lines (written per FOLLOWUP_INSTRUCTION) off an answer."""
+    lines = str(text or "").rstrip().splitlines()
+    followups: list[str] = []
+    while lines:
+        line = lines[-1].strip()
+        matched = FOLLOWUP_PATTERN.match(line)
+        if matched and matched.group(1).strip():
+            followups.insert(0, matched.group(1).strip()[:60])
+            lines.pop()
+        elif not line:
+            lines.pop()
+        else:
+            break
+    return "\n".join(lines).rstrip(), followups[:3]
+
+
 SENSITIVE_HISTORY_PATTERN = re.compile(
     r"(?:09\d{2}[- ]?\d{3}[- ]?\d{3}|(?:\+?886[- ]?)?9\d{8}|"
     r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|"
@@ -107,6 +127,9 @@ class CustomerService:
             history=recent_history,
             allow_model=allow_model,
         )
+        followups: list[str] = []
+        if mode == "llm":
+            answer, followups = split_followups(answer)
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -117,6 +140,7 @@ class CustomerService:
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
+            "followups": followups,
         }
         self._audit(question, result, hits, user_id=user_id)
         return result
@@ -147,6 +171,7 @@ class CustomerService:
         mode = "extractive"
         model_status = "not_configured"
         usage = empty_usage
+        followups: list[str] = []
         if self.answerer.model_enabled and allow_model:
             partial = ""
             model_status = "used"
@@ -161,13 +186,15 @@ class CustomerService:
                         usage = payload
             except Exception:
                 model_status = "stream_failed"
-            if model_status == "used" and partial.strip() and re.search(r"\[\d+\]", partial):
-                answer = partial.strip()
+            candidate, followups = split_followups(partial.strip())
+            if model_status == "used" and candidate and re.search(r"\[\d+\]", candidate):
+                answer = candidate
                 mode = "llm"
             else:
                 if model_status == "used":
                     model_status = "missing_citations"
                 answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
+                followups = []
         else:
             answer, mode, model_status, usage = self.answerer.answer(
                 question, grounded_hits, history=recent_history, allow_model=allow_model
@@ -182,6 +209,7 @@ class CustomerService:
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
+            "followups": followups,
         }
         self._audit(question, result, hits, user_id=user_id)
         yield {"type": "result", **result}

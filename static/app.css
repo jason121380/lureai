@@ -349,3 +349,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+.followup-list { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 14px; }
+.followup-button { min-height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; text-align: left; font-size: 13px; }
+.followup-button:hover { color: var(--ink); background: var(--bubble); }
+.followup-button svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--muted); }
