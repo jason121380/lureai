@@ -102,6 +102,22 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(usage["input_tokens"], 75)
         self.assertEqual(usage["output_tokens"], 10)
 
+    def test_budget_exhausted_skips_model_call(self):
+        hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", side_effect=AssertionError("model must not be called")):
+            answer, mode, model_status, usage = AnswerEngine().answer(
+                "先查什麼？", [hit], allow_model=False
+            )
+
+        self.assertEqual(mode, "extractive")
+        self.assertEqual(model_status, "budget_exhausted")
+        self.assertIn("核准內容", answer)
+        self.assertEqual(usage["input_tokens"], 0)
+
     def test_reports_model_failure_when_falling_back(self):
         hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
         with patch.dict(os.environ, {

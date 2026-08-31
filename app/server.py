@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import ipaddress
 import json
 import mimetypes
 import os
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 from .answer import AnswerEngine
-from .auth import AuthManager, LoginRateLimiter
+from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
@@ -25,6 +26,18 @@ from .usage import UsagePricing
 
 
 SESSION_COOKIE = "hairbrain_session"
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+LONG_CACHE_SUFFIXES = {".png", ".svg", ".ico", ".woff", ".woff2", ".webmanifest"}
 
 
 def load_pipeline_stats(knowledge_path: Path) -> dict:
@@ -59,6 +72,7 @@ class AppContext:
     auth: AuthManager
     pricing: UsagePricing
     login_limiter: LoginRateLimiter
+    chat_limiter: RequestRateLimiter = field(default_factory=RequestRateLimiter)
     profile: str = "customer_service"
     access_level: str = "customer_service"
     app_name: str = "張副總 AI 客服"
@@ -112,7 +126,10 @@ class AppContext:
             if not bootstrap_username or not bootstrap_password:
                 store.close()
                 raise ValueError("USER_USERNAME 與 USER_PASSWORD 必須同時設定")
-            auth.ensure_bootstrap_user(bootstrap_username, bootstrap_password)
+            auth.ensure_bootstrap_user(
+                bootstrap_username, bootstrap_password,
+                role=os.getenv("USER_ROLE", "").strip() or None,
+            )
         service = CustomerService(
             store=store,
             retriever=retriever,
@@ -135,6 +152,10 @@ class AppContext:
             auth=auth,
             pricing=pricing,
             login_limiter=login_limiter,
+            chat_limiter=RequestRateLimiter(
+                max_requests=int(os.getenv("CHAT_RATE_LIMIT_PER_MINUTE", "20") or 20),
+                window_seconds=60,
+            ),
             profile=profile,
             access_level=access_level,
             app_name=app_name,
@@ -150,10 +171,16 @@ class AppContext:
 def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         server_version = "ZhangRAG/1.0"
+        # Drop slow or stalled connections so they cannot pin worker threads.
+        timeout = 30
 
         def log_message(self, format_string: str, *args) -> None:
             if os.getenv("APP_QUIET") != "1":
                 super().log_message(format_string, *args)
+
+        def _send_security_headers(self) -> None:
+            for key, value in SECURITY_HEADERS.items():
+                self.send_header(key, value)
 
         def _json(self, status: int, payload: dict, headers: dict | None = None) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -161,6 +188,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self._send_security_headers()
             for key, value in (headers or {}).items():
                 self.send_header(key, value)
             self.end_headers()
@@ -183,13 +211,32 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
 
         def _is_admin(self) -> bool:
             supplied = self.headers.get("X-Admin-Token", "")
-            return bool(context.admin_token) and hmac.compare_digest(supplied, context.admin_token)
+            if supplied and bool(context.admin_token) and hmac.compare_digest(supplied, context.admin_token):
+                return True
+            user = self._current_user()
+            return bool(user and user.get("role") == "admin")
 
         def _require_admin(self) -> bool:
             if self._is_admin():
                 return True
             self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized", "message": "管理權杖無效"})
             return False
+
+        def _client_ip(self) -> str:
+            peer = self.client_address[0]
+            try:
+                peer_address = ipaddress.ip_address(peer)
+            except ValueError:
+                return peer
+            if peer_address.is_private or peer_address.is_loopback:
+                forwarded = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+                if forwarded:
+                    try:
+                        ipaddress.ip_address(forwarded)
+                        return forwarded
+                    except ValueError:
+                        pass
+            return peer
 
         def _session_token(self) -> str:
             cookie = SimpleCookie()
@@ -296,13 +343,24 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             self._serve_static(parsed.path)
 
+        def _same_origin(self) -> bool:
+            origin = self.headers.get("Origin", "")
+            if not origin:
+                return True
+            origin_host = urlparse(origin).netloc.strip().lower()
+            host = self.headers.get("Host", "").strip().lower()
+            return not origin_host or not host or origin_host == host
+
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
+            if not self._same_origin():
+                self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "來源網域不符"})
+                return
             try:
                 payload = self._read_json()
                 if parsed.path == "/api/auth/login":
                     username = str(payload.get("username", "")).strip().casefold()
-                    login_key = f"{self.client_address[0]}|{username}"
+                    login_key = f"{self._client_ip()}|{username}"
                     if not context.login_limiter.allowed(login_key):
                         self._json(
                             HTTPStatus.TOO_MANY_REQUESTS,
@@ -340,11 +398,24 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     user = self._require_user()
                     if not user:
                         return
+                    if not context.chat_limiter.allow(f"user:{user['id']}"):
+                        self._json(
+                            HTTPStatus.TOO_MANY_REQUESTS,
+                            {"error": "rate_limited", "message": "訊息傳送太頻繁，請稍候再試"},
+                            {"Retry-After": "30"},
+                        )
+                        return
+                    usage_summary = self._usage_summary(user["id"])
+                    within_budget = (
+                        usage_summary["budget_twd"] <= 0
+                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
+                    )
                     result = context.service.chat(
                         payload.get("message", ""),
                         payload.get("conversation_id"),
                         payload.get("history"),
                         user_id=user["id"],
+                        allow_model=within_budget,
                     )
                     self._json(HTTPStatus.OK, result)
                     return
@@ -352,7 +423,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     if not self._require_admin():
                         return
                     user = context.auth.create_or_reset_user(
-                        payload.get("username", ""), payload.get("password", "")
+                        payload.get("username", ""), payload.get("password", ""),
+                        role=payload.get("role"),
                     )
                     self._json(HTTPStatus.OK, {"user": user})
                     return
@@ -381,8 +453,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             except (OSError, json.JSONDecodeError):
                 self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "message": "服務暫時無法處理請求"})
 
+        CLEAN_ROUTES = {"/": "index.html", "/admin": "admin.html", "/chat": "index.html"}
+
         def _serve_static(self, request_path: str) -> None:
-            relative = "index.html" if request_path == "/" else request_path.lstrip("/")
+            normalized = request_path.rstrip("/") or "/"
+            relative = self.CLEAN_ROUTES.get(normalized) or request_path.lstrip("/")
             target = (context.static_dir / relative).resolve()
             static_root = context.static_dir.resolve()
             if static_root not in target.parents and target != static_root:
@@ -393,9 +468,24 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             body = target.read_bytes()
             content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+            long_cache = relative.startswith("vendor/") or target.suffix.lower() in LONG_CACHE_SUFFIXES
+            cache_control = "public, max-age=86400" if long_cache else "no-cache"
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(HTTPStatus.NOT_MODIFIED)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", cache_control)
+                self._send_security_headers()
+                self.end_headers()
+                return
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8" if content_type.startswith("text/") else content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache_control)
+            self._send_security_headers()
+            if content_type == "text/html":
+                self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
             self.end_headers()
             self.wfile.write(body)
 

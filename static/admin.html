@@ -14,18 +14,18 @@
     <form id="admin-login-form" class="admin-login-panel">
       <img class="admin-login-brand" src="logo.svg" alt="lure ai">
       <h1 id="admin-login-title">管理者登入</h1>
-      <p>輸入管理權杖後，才能查看知識、檢索與查詢稽核。</p>
+      <p>輸入管理權杖，或先以「管理者」權限帳號在對話頁登入後再開啟本頁。</p>
       <label for="gate-token">管理權杖</label>
       <div class="token-field gate-token-field"><input id="gate-token" type="password" autocomplete="current-password" placeholder="輸入管理權杖"><i data-lucide="key-round"></i></div>
       <button id="admin-login-button" class="command-button admin-login-button" type="submit"><i data-lucide="log-in"></i><span>登入管理後台</span></button>
       <p id="admin-gate-status" class="admin-gate-status" role="status" aria-live="polite"></p>
-      <a href="index.html" class="admin-return-link"><i data-lucide="arrow-left"></i><span>返回對話</span></a>
+      <a href="/" class="admin-return-link"><i data-lucide="arrow-left"></i><span>返回對話</span></a>
     </form>
   </section>
 
   <div id="admin-shell" class="admin-shell" hidden>
     <aside class="admin-nav">
-      <a href="index.html" class="brand-row admin-brand">
+      <a href="/" class="brand-row admin-brand">
         <img class="brand-logo" src="logo.svg" alt="lure ai">
       </a>
       <div class="admin-nav-label">管理後台</div>
@@ -37,7 +37,7 @@
         <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
         <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
       </nav>
-      <a class="sidebar-link admin-chat-link" href="index.html"><i data-lucide="messages-square"></i><span id="admin-chat-label">返回客服對話</span></a>
+      <a class="sidebar-link admin-chat-link" href="/"><i data-lucide="messages-square"></i><span id="admin-chat-label">返回客服對話</span></a>
     </aside>
 
     <main class="admin-main">
@@ -66,17 +66,21 @@
         </div>
       </section>
 
-      <section id="users" class="admin-section">
+      <section id="users" class="admin-section" hidden>
         <div class="section-heading"><div><h2>使用者帳號</h2><p>建立登入帳號；輸入既有帳號可重設密碼並登出其舊 session</p></div></div>
         <form id="user-form" class="admin-search-form user-form">
           <input id="user-username" autocomplete="off" placeholder="帳號（至少 2 個字）" aria-label="使用者帳號" required>
-          <input id="user-password" type="password" autocomplete="new-password" placeholder="新密碼（至少 8 個字）" aria-label="使用者密碼" required>
+          <input id="user-password" type="password" autocomplete="new-password" placeholder="新密碼（至少 4 個字）" aria-label="使用者密碼" required>
+          <select id="user-role" aria-label="使用者權限">
+            <option value="user" selected>一般用戶</option>
+            <option value="admin">管理者</option>
+          </select>
           <button class="command-button" type="submit"><i data-lucide="user-plus"></i><span>建立或重設</span></button>
         </form>
         <div id="user-results" class="table-shell"><div class="empty-state">驗證管理權杖後載入帳號</div></div>
       </section>
 
-      <section id="health" class="admin-section">
+      <section id="health" class="admin-section" hidden>
         <div class="section-heading">
           <div><h2>系統健康</h2><p id="health-checked-at">尚未執行檢查</p></div>
           <button id="refresh-health" class="command-button" type="button"><i data-lucide="refresh-cw"></i><span>立即重新檢查</span></button>
@@ -95,7 +99,7 @@
         </div>
       </section>
 
-      <section id="retrieval" class="admin-section">
+      <section id="retrieval" class="admin-section" hidden>
         <div class="section-heading"><div><h2>檢索測試</h2><p>只顯示 RAG 命中，不呼叫語言模型</p></div></div>
         <form id="retrieval-form" class="admin-search-form">
           <input id="retrieval-query" type="search" placeholder="輸入測試問題" aria-label="輸入檢索測試問題">
@@ -104,7 +108,7 @@
         <div id="retrieval-results" class="result-list empty-state">尚無檢索結果</div>
       </section>
 
-      <section id="knowledge" class="admin-section">
+      <section id="knowledge" class="admin-section" hidden>
         <div class="section-heading"><div><h2>核准知識</h2><p id="admin-knowledge-scope">目前可使用的來源區塊</p></div></div>
         <form id="knowledge-form" class="admin-search-form compact-search">
           <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋核准知識">
@@ -113,7 +117,7 @@
         <div id="knowledge-results" class="table-shell"><div class="empty-state">輸入權杖後載入知識</div></div>
       </section>
 
-      <section id="audits" class="admin-section">
+      <section id="audits" class="admin-section" hidden>
         <div class="section-heading"><div><h2>查詢稽核</h2><p>最近 100 筆問題與處理狀態</p></div><button id="refresh-audits" class="icon-button bordered-icon" title="重新整理稽核" aria-label="重新整理稽核"><i data-lucide="refresh-cw"></i></button></div>
         <div id="audit-results" class="table-shell"><div class="empty-state">輸入權杖後載入紀錄</div></div>
       </section>

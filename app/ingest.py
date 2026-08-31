@@ -64,30 +64,32 @@ def ingest_jsonl(
     errors: list[str] = []
     rejected = 0
 
-    with source.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
-                rejected += 1
-                errors.append(f"line {line_number}: invalid JSON ({exc.msg})")
-                continue
-            valid, row_errors = validate_chunk(row, expected_access_level=expected_access_level)
-            if not valid:
-                rejected += 1
-                errors.append(f"line {line_number}: {', '.join(row_errors)}")
-                continue
-            prepared = dict(row)
-            prepared["search_text"] = _search_text(prepared)
-            accepted.append(prepared)
+    # Read once so the stored digest always matches the exact bytes ingested,
+    # even if the file changes on disk mid-import.
+    raw = source.read_bytes()
+    for line_number, line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            rejected += 1
+            errors.append(f"line {line_number}: invalid JSON ({exc.msg})")
+            continue
+        valid, row_errors = validate_chunk(row, expected_access_level=expected_access_level)
+        if not valid:
+            rejected += 1
+            errors.append(f"line {line_number}: {', '.join(row_errors)}")
+            continue
+        prepared = dict(row)
+        prepared["search_text"] = _search_text(prepared)
+        accepted.append(prepared)
 
     if errors:
         raise ValueError(f"知識檔包含 {rejected} 筆未核准或無效資料")
     if not accepted:
         raise ValueError("知識檔沒有可匯入的核准資料")
     store.replace_chunks(accepted)
-    store.set_metadata("knowledge_sha256", hashlib.sha256(source.read_bytes()).hexdigest())
+    store.set_metadata("knowledge_sha256", hashlib.sha256(raw).hexdigest())
     store.set_metadata("knowledge_access_level", expected_access_level)
     return IngestReport(imported=len(accepted), rejected=rejected, errors=errors)

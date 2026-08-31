@@ -38,6 +38,9 @@
     el("app-shell").hidden = false;
     el("user-name").textContent = user.username;
     el("profile-avatar").textContent = Array.from(user.username)[0]?.toUpperCase() || "U";
+    const adminLink = el("admin-link");
+    if (adminLink) adminLink.hidden = user.role !== "admin";
+    window.lucide?.createIcons();
   }
 
   function makeId() {
