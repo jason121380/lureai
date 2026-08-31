@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#20211e">
+  <title>知識庫管理｜張副總 AI 客服</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="admin-body">
+  <div class="admin-shell">
+    <aside class="admin-nav">
+      <a href="index.html" class="brand-row admin-brand">
+        <div class="brand-mark" aria-hidden="true">張</div>
+        <div><strong>客服知識台</strong><span>Administration</span></div>
+      </a>
+      <nav class="admin-nav-links">
+        <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
+        <a href="#retrieval"><i data-lucide="scan-search"></i><span>檢索測試</span></a>
+        <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
+        <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
+      </nav>
+      <a class="sidebar-link admin-chat-link" href="index.html"><i data-lucide="messages-square"></i><span>返回客服對話</span></a>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div><span class="eyebrow">CONTROL DESK</span><h1>知識庫管理</h1></div>
+        <div class="admin-auth">
+          <label for="admin-token">管理權杖</label>
+          <div class="token-field"><input id="admin-token" type="password" autocomplete="current-password" placeholder="輸入權杖"><button id="save-token" class="icon-button" title="儲存權杖" aria-label="儲存權杖"><i data-lucide="key-round"></i></button></div>
+        </div>
+      </header>
+
+      <section id="overview" class="admin-section">
+        <div class="section-heading"><div><h2>運作狀態</h2><p id="admin-status">等待驗證管理權杖</p></div><button id="reindex-button" class="command-button"><i data-lucide="refresh-cw"></i><span>重新建立索引</span></button></div>
+        <div id="stats-grid" class="stats-grid">
+          <div class="stat-card"><span>核准區塊</span><strong id="stat-chunks">—</strong></div>
+          <div class="stat-card"><span>累計查詢</span><strong id="stat-audits">—</strong></div>
+          <div class="stat-card"><span>已回答</span><strong id="stat-answered">—</strong></div>
+          <div class="stat-card alert-stat"><span>轉人工</span><strong id="stat-escalated">—</strong></div>
+        </div>
+      </section>
+
+      <section id="retrieval" class="admin-section">
+        <div class="section-heading"><div><h2>檢索測試</h2><p>只顯示 RAG 命中，不呼叫語言模型</p></div></div>
+        <form id="retrieval-form" class="admin-search-form">
+          <input id="retrieval-query" type="search" placeholder="輸入測試問題" aria-label="輸入檢索測試問題">
+          <button class="command-button" type="submit"><i data-lucide="scan-search"></i><span>執行檢索</span></button>
+        </form>
+        <div id="retrieval-results" class="result-list empty-state">尚無檢索結果</div>
+      </section>
+
+      <section id="knowledge" class="admin-section">
+        <div class="section-heading"><div><h2>核准知識</h2><p>客服目前可使用的來源區塊</p></div></div>
+        <form id="knowledge-form" class="admin-search-form compact-search">
+          <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋核准知識">
+          <button class="icon-button bordered-icon" type="submit" title="搜尋知識" aria-label="搜尋知識"><i data-lucide="search"></i></button>
+        </form>
+        <div id="knowledge-results" class="table-shell"><div class="empty-state">輸入權杖後載入知識</div></div>
+      </section>
+
+      <section id="audits" class="admin-section">
+        <div class="section-heading"><div><h2>查詢稽核</h2><p>最近 100 筆問題與處理狀態</p></div><button id="refresh-audits" class="icon-button bordered-icon" title="重新整理稽核" aria-label="重新整理稽核"><i data-lucide="refresh-cw"></i></button></div>
+        <div id="audit-results" class="table-shell"><div class="empty-state">輸入權杖後載入紀錄</div></div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

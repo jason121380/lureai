@@ -1,0 +1,85 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from app.answer import AnswerEngine
+from app.ingest import ingest_jsonl
+from app.policy import PolicyEngine
+from app.retrieval import Retriever
+from app.service import CustomerService
+from app.storage import KnowledgeStore
+
+from tests.test_ingest import approved_chunk
+
+
+class ServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = KnowledgeStore(root / "knowledge.db")
+        source = root / "knowledge.jsonl"
+        rows = [
+            approved_chunk(
+                chunk_id="aftercare",
+                locator="aftercare-1",
+                title="燙髮居家照護",
+                section_title="日常整理",
+                text="燙髮後整理時，依照設計師示範的方向吹整，並避免拉扯頭髮。",
+            ),
+            approved_chunk(
+                chunk_id="generic",
+                locator="policy-1",
+                title="客服溝通",
+                section_title="一般原則",
+                text="客服可以協助整理顧客需求。",
+            ),
+        ]
+        source.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows), encoding="utf-8")
+        ingest_jsonl(self.store, source)
+        self.service = CustomerService(
+            store=self.store,
+            retriever=Retriever(self.store),
+            policy=PolicyEngine(minimum_score=0.72),
+            answerer=AnswerEngine(),
+        )
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_grounded_answer_contains_citations(self):
+        result = self.service.chat("燙髮後怎麼整理？", "conversation-1")
+
+        self.assertEqual(result["status"], "answered")
+        self.assertIn("[1]", result["answer"])
+        self.assertEqual(result["citations"][0]["locator"], "aftercare-1")
+        self.assertTrue(result["trace_id"])
+
+    def test_answer_excludes_hits_below_policy_threshold(self):
+        result = self.service.chat("燙髮後怎麼整理？")
+
+        self.assertTrue(result["citations"])
+        self.assertTrue(all(item["score"] >= 0.72 for item in result["citations"]))
+
+    def test_sensitive_question_escalates_without_citations(self):
+        result = self.service.chat("染髮多少錢？")
+
+        self.assertEqual(result["status"], "escalated")
+        self.assertEqual(result["reason"], "price_or_promotion")
+        self.assertEqual(result["citations"], [])
+
+    def test_empty_question_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "問題不可為空"):
+            self.service.chat("   ")
+
+    def test_chat_writes_audit_record(self):
+        result = self.service.chat("染髮多少錢？", "conversation-1")
+
+        audits = self.store.list_audits()
+        self.assertEqual(audits[0]["trace_id"], result["trace_id"])
+        self.assertEqual(audits[0]["status"], "escalated")
+
+
+if __name__ == "__main__":
+    unittest.main()

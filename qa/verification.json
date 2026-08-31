@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "unit_and_integration_tests": 33,
+  "browser_smoke": "PASS",
+  "live_health_check": "PASS",
+  "approved_customer_chunks": 15,
+  "rejected_chunks": 0,
+  "customer_scope_violations": 0,
+  "citation_fields_complete": true,
+  "desktop_chat_verified": true,
+  "desktop_source_drawer_verified": true,
+  "desktop_admin_verified": true,
+  "mobile_chat_verified": true,
+  "mobile_admin_verified": true,
+  "horizontal_overflow_detected": false,
+  "browser_console_errors": 0,
+  "model_enabled_during_verification": false,
+  "local_url": "http://127.0.0.1:8765"
+}

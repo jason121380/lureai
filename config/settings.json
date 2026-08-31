@@ -1,0 +1,11 @@
+{
+  "retrieval": {
+    "top_k": 6,
+    "minimum_score": 0.72
+  },
+  "limits": {
+    "max_question_chars": 1200,
+    "max_request_bytes": 65536
+  },
+  "fallback_message": "目前知識庫沒有足夠且已核准的資料，我幫您轉由專人確認。"
+}
