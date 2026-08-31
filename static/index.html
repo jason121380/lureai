@@ -68,7 +68,11 @@
     <main class="chat-main" id="chat-main">
       <header class="topbar">
         <button class="icon-button menu-button" id="menu-button" title="開啟側邊欄" aria-label="開啟側邊欄"><i data-lucide="panel-left"></i></button>
-        <h1 id="conversation-title">新對話</h1>
+        <div class="topbar-title" id="topbar-title">
+          <h1 id="conversation-title">新對話</h1>
+          <input id="conversation-title-input" class="title-input" maxlength="40" aria-label="編輯對話名稱" hidden>
+          <button id="rename-conversation" class="icon-button rename-button" type="button" title="編輯名稱" aria-label="編輯對話名稱"><i data-lucide="pencil"></i></button>
+        </div>
       </header>
 
       <section id="messages" class="messages" aria-live="polite"></section>

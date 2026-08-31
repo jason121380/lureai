@@ -315,6 +315,29 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["answer_mode"], "extractive")
         self.assertEqual(body["model_status"], "budget_exhausted")
 
+    def test_chat_title_requires_login(self):
+        status, body = self.request("POST", "/api/chat/title", {"message": "燙髮", "answer": "x"})
+
+        self.assertEqual(status, 401)
+        self.assertEqual(body["error"], "authentication_required")
+
+    def test_chat_title_falls_back_to_question_without_model(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+
+        question = "燙髮後怎麼整理比較不會亂翹呢？我每天都很困擾"
+        status, body = self.request("POST", "/api/chat/title", {
+            "message": question,
+            "answer": "依照設計師示範方向吹整。",
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["title"], question[:20])
+        self.assertEqual(body["model_status"], "not_configured")
+        audits = self.context.store.list_audits(5)
+        self.assertIn("title", [item["status"] for item in audits])
+
     def test_clean_admin_route_serves_admin_page(self):
         with self.client.open(self.base + "/admin", timeout=3) as response:
             body = response.read().decode("utf-8")

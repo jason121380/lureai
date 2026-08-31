@@ -116,6 +116,33 @@ class CustomerService:
         self._audit(question, result, hits, user_id=user_id)
         return result
 
+    def summarize_title(
+        self,
+        message: str,
+        answer: str,
+        conversation_id: str | None = None,
+        user_id: int | None = None,
+        allow_model: bool = True,
+    ) -> dict:
+        question = str(message or "").strip()
+        if not question:
+            raise ValueError("問題不可為空")
+        if len(question) > self.max_question_chars:
+            raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
+        title, model_status, usage = self.answerer.generate_title(
+            question, str(answer or ""), allow_model=allow_model
+        )
+        result = {
+            "trace_id": str(uuid4()),
+            "conversation_id": conversation_id,
+            "status": "title",
+            "reason": model_status,
+            "answer": title,
+            "usage": usage,
+        }
+        self._audit(question, result, [], user_id=user_id)
+        return {"title": title, "model_status": model_status}
+
     def _normalize_history(self, history: list[dict] | None) -> list[dict]:
         if history is None:
             return []

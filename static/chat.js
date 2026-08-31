@@ -290,6 +290,10 @@
         citations: body.citations || [],
         traceId: body.trace_id,
       };
+      if (body.status === "answered" && !conversation.titleEdited && !conversation.titleGenerated) {
+        conversation.titleGenerated = true;
+        requestConversationTitle(conversation, value, body.answer);
+      }
     } catch (error) {
       if (error.status === 401) showLogin("登入已過期，請重新登入");
       conversation.messages[conversation.messages.length - 1] = {
@@ -304,6 +308,57 @@
       persist();
       render();
       if (state.user) loadUsage();
+    }
+  }
+
+  function startRename() {
+    const conversation = activeConversation();
+    if (!conversation) return;
+    const input = el("conversation-title-input");
+    el("conversation-title").hidden = true;
+    el("rename-conversation").hidden = true;
+    input.hidden = false;
+    input.value = conversation.title;
+    input.focus();
+    input.select();
+  }
+
+  function finishRename(save) {
+    const input = el("conversation-title-input");
+    if (input.hidden) return;
+    const conversation = activeConversation();
+    if (save && conversation) {
+      const value = input.value.trim().slice(0, 40);
+      if (value && value !== conversation.title) {
+        conversation.title = value;
+        conversation.titleEdited = true;
+        persist();
+      }
+    }
+    input.hidden = true;
+    el("conversation-title").hidden = false;
+    el("rename-conversation").hidden = false;
+    render();
+  }
+
+  async function requestConversationTitle(conversation, message, answer) {
+    try {
+      const response = await fetch("/api/chat/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, answer, conversation_id: conversation.id }),
+      });
+      if (!response.ok) return;
+      const body = await response.json();
+      const title = String(body.title || "").trim().slice(0, 40);
+      if (title && !conversation.titleEdited) {
+        conversation.title = title;
+        persist();
+        if (state.activeId === conversation.id) el("conversation-title").textContent = title;
+        renderSidebar();
+      }
+    } catch (_) {
+      // The title derived from the first message stays in place.
     }
   }
 
@@ -513,6 +568,13 @@
   el("sidebar-close").addEventListener("click", closeSidebar);
   el("login-form").addEventListener("submit", login);
   el("logout-button").addEventListener("click", logout);
+  el("rename-conversation").addEventListener("click", startRename);
+  el("conversation-title-input").addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") { event.preventDefault(); finishRename(true); }
+    if (event.key === "Escape") { event.stopPropagation(); finishRename(false); }
+  });
+  el("conversation-title-input").addEventListener("blur", () => finishRename(true));
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
 
   async function bootstrap() {
