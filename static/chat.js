@@ -334,6 +334,13 @@
     el("char-count").textContent = `${prompt.value.length} / 1200`;
   }
 
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator) || location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return;
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Installability is a progressive enhancement; chat works without it.
+    });
+  }
+
   async function checkHealth() {
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
@@ -484,6 +491,7 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
 
   async function bootstrap() {
+    registerServiceWorker();
     await checkHealth();
     await restoreSession();
   }
