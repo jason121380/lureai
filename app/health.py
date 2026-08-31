@@ -97,7 +97,7 @@ def _frontend_check(context) -> tuple[str, str, dict]:
         "chat.js": ("/api/chat",),
         "admin.js": ("/api/admin/health",),
         "logo.svg": ("<svg", "lure ai"),
-        "manifest.webmanifest": ('"name"', "lure ai"),
+        "manifest.webmanifest": ('"name"', "LUREAI"),
         "vendor/lucide.min.js": ("lucide",),
     }
     missing = []

@@ -38,7 +38,7 @@ class ApiTests(unittest.TestCase):
             "chat.js": 'fetch("/api/chat")',
             "admin.js": 'fetch("/api/admin/health")',
             "logo.svg": '<svg aria-label="lure ai"></svg>',
-            "manifest.webmanifest": '{"name":"lure ai"}',
+            "manifest.webmanifest": '{"name":"LUREAI"}',
             "vendor/lucide.min.js": "const lucide = {};",
         }
         for relative, content in frontend_assets.items():
