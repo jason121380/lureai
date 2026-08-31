@@ -92,6 +92,26 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "legal_refund_or_compensation")
         self.assertEqual(result["citations"], [])
 
+    def test_self_contained_follow_up_is_not_dragged_off_topic(self):
+        # 前一題在講別的主題時，後面這題仍要用自己的字去檢索。
+        history = [{"role": "user", "content": "客訴現場的用語要怎麼改？"}]
+
+        standalone = self.service.chat("燙髮後怎麼整理？")
+        with_history = self.service.chat("燙髮後怎麼整理？", history=history)
+
+        self.assertEqual(
+            [item["chunk_id"] for item in standalone["citations"]],
+            [item["chunk_id"] for item in with_history["citations"]],
+        )
+
+    def test_thin_follow_up_still_uses_the_previous_question(self):
+        history = [{"role": "user", "content": "燙髮後怎麼整理？"}]
+
+        result = self.service.chat("然後呢？", history=history)
+
+        self.assertEqual(result["status"], "answered")
+        self.assertTrue(result["citations"])
+
     def test_empty_question_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "問題不可為空"):
             self.service.chat("   ")
@@ -202,23 +222,40 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(sources.count("knowledge/sop.md"), 2)
         self.assertIn("source_documents/abc.md", sources)
 
-    def test_full_question_retrieves_without_history_bias(self):
-        captured = {}
+    def test_question_is_always_retrieved_on_its_own_terms_first(self):
+        queries = []
 
         class CapturingRetriever:
             def retrieve(self, query, limit=6):
-                captured["query"] = query
+                queries.append(query)
                 return []
 
         self.service.retriever = CapturingRetriever()
-        self.service.chat(
-            "設計師私訊很多但預約很少，先查什麼？",
-            history=[{"role": "user", "content": "廣告成效要看哪些指標？"}],
-        )
-        self.assertNotIn("廣告成效", captured["query"])
+        history = [{"role": "user", "content": "廣告成效要看哪些指標？"}]
 
-        self.service.chat("然後呢？", history=[{"role": "user", "content": "廣告成效要看哪些指標？"}])
-        self.assertIn("廣告成效", captured["query"])
+        self.service.chat("設計師私訊很多但預約很少，先查什麼？", history=history)
+
+        # 第一次一定只用這一題的字；撈不到東西時才補前一題當脈絡重試。
+        self.assertEqual(queries[0], "設計師私訊很多但預約很少，先查什麼？")
+        self.assertNotIn("廣告成效", queries[0])
+        self.assertIn("廣告成效", queries[1])
+
+    def test_strong_answer_never_triggers_the_history_padded_retry(self):
+        queries = []
+        original = self.service.retriever.retrieve
+
+        def counting(query, limit=6):
+            queries.append(query)
+            return original(query, limit=limit)
+
+        self.service.retriever.retrieve = counting
+        self.service.chat(
+            "燙髮後怎麼整理？", history=[{"role": "user", "content": "廣告成效要看哪些指標？"}]
+        )
+
+        # 建議問題的驗證也會用到檢索，所以只確認沒有補脈絡的那一次。
+        self.assertEqual(queries[0], "燙髮後怎麼整理？")
+        self.assertFalse([query for query in queries if "廣告成效" in query])
 
     def test_curated_sources_are_ordered_before_historical_cases(self):
         from app.retrieval import SearchHit

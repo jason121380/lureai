@@ -3,10 +3,10 @@ import re
 from typing import Iterator
 from uuid import uuid4
 
-from .answer import AnswerEngine
+from .answer import AnswerEngine, log_model_failure
 from .followups import FollowupPlanner
 from .policy import PolicyEngine
-from .retrieval import Retriever, relevance_tokens
+from .retrieval import Retriever
 from .storage import KnowledgeStore
 from .usage import UsagePricing
 
@@ -92,17 +92,19 @@ class CustomerService:
         precheck = self.policy.precheck(question)
         if precheck.action == "escalate":
             return [], [], precheck
-        # A self-contained question retrieves on its own terms; earlier turns
-        # only pad the query for thin follow-ups ("然後呢？"), otherwise every
-        # answer in a conversation keeps citing the previous question's sources.
-        if len(relevance_tokens(question)) >= 5:
-            retrieval_query = question
-        else:
+        # 先用問題本身檢索。夠好就用它，避免前一題把主題帶偏（「客人沒回要追嗎」
+        # 被前面的客訴問題拉去撈送客流程）；撈不動時才補上前兩題當脈絡，
+        # 讓「然後呢？」這種接話仍然有得查。
+        hits = self.retriever.retrieve(question, limit=self.top_k * 2)
+        if recent_history and (not hits or hits[0].score < self.policy.minimum_score):
             previous_questions = [
                 item["content"] for item in recent_history if item["role"] == "user"
             ][-2:]
-            retrieval_query = "\n".join(previous_questions + [question])
-        hits = self.retriever.retrieve(retrieval_query, limit=self.top_k * 2)
+            padded = self.retriever.retrieve(
+                "\n".join(previous_questions + [question]), limit=self.top_k * 2
+            )
+            if padded and (not hits or padded[0].score > hits[0].score):
+                hits = padded
         decision = self.policy.evaluate(hits)
         if decision.action == "escalate":
             return hits, [], decision
@@ -237,7 +239,8 @@ class CustomerService:
                         yield {"type": "delta", "text": payload}
                     elif kind == "usage":
                         usage = payload
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - 任何失敗都要降級，但要留下原因
+                log_model_failure("stream", exc, f"model={self.answerer.model_name}")
                 model_status = "stream_failed"
             candidate, followups = split_followups(partial.strip())
             if model_status == "used" and candidate and re.search(r"\[\d+\]", candidate):
@@ -245,6 +248,10 @@ class CustomerService:
                 mode = "llm"
             else:
                 if model_status == "used":
+                    log_model_failure(
+                        "stream",
+                        detail=f"missing_citations chars={len(candidate or '')} model={self.answerer.model_name}",
+                    )
                     model_status = "missing_citations"
                 answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
                 followups = []

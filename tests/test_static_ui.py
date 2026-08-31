@@ -86,6 +86,14 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
 
+    def test_degraded_model_answers_say_so(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        self.assertIn("模型未回應，以下為知識原文", script)
+        self.assertIn("item.modelStatus", script)
+        self.assertIn(".message-status.degraded", css)
+
     def test_installed_app_keeps_a_white_status_bar(self):
         for page in (INDEX, ADMIN):
             html = page.read_text(encoding="utf-8")

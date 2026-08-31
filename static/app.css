@@ -185,6 +185,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .composer-tool:hover { background: var(--hover); }
 .composer-tool svg { width: 23px; height: 23px; }
 .composer-action svg { width: 17px; height: 17px; }
+.message-status.degraded { color: var(--caution); background: var(--caution-soft); }
 .retrieval-mode { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .send-action { color: #fff; background: var(--ink); }
 .send-action:hover { background: #3d3d3d; }
