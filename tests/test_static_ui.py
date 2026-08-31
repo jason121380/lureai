@@ -61,7 +61,15 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
 
         self.assertIn("localStorage", script)
+        self.assertIn("persistenceSnapshot", script)
+        self.assertIn("catch (_)", script)
         self.assertIn("/api/chat", script)
+
+    def test_chat_controller_ignores_ime_confirmation_enter(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn("event.isComposing", script)
+        self.assertIn("event.keyCode === 229", script)
 
     def test_chat_controller_applies_server_profile(self):
         script = CHAT_JS.read_text(encoding="utf-8")

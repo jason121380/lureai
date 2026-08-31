@@ -137,6 +137,27 @@ with sync_playwright() as playwright:
     mobile.screenshot(path=QA / f"{PROFILE}-admin-mobile.png", full_page=True)
     assert_no_horizontal_overflow(mobile)
 
+    storage_failure = browser.new_page(viewport={"width": 390, "height": 844})
+    storage_failure.add_init_script(
+        """() => {
+            const original = Storage.prototype.setItem;
+            Storage.prototype.setItem = function (key, value) {
+                if (window.__failConversationStorage) {
+                    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+                }
+                return original.call(this, key, value);
+            };
+        }"""
+    )
+    storage_failure.goto(BASE_URL, wait_until="networkidle")
+    storage_failure.evaluate("window.__failConversationStorage = true")
+    storage_failure.locator("#prompt").fill(GROUNDED_QUESTION)
+    storage_failure.locator("#send-button").click()
+    storage_failure.locator(".message-status").wait_for(state="visible", timeout=10000)
+    assert storage_failure.locator(".message-row").count() == 2
+    assert storage_failure.locator("#send-button").is_enabled()
+    assert storage_failure.locator("#prompt").is_enabled()
+
     assert not console_errors, f"browser console errors: {console_errors}"
     browser.close()
     print("BROWSER_SMOKE: PASS")

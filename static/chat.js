@@ -40,8 +40,36 @@
     else state.activeId = state.conversations[0].id;
   }
 
+  function persistenceSnapshot(conversationLimit, messageLimit, contentLimit, citationTextLimit) {
+    return state.conversations.slice(0, conversationLimit).map((conversation) => ({
+      ...conversation,
+      messages: (conversation.messages || []).slice(-messageLimit).map((message) => ({
+        ...message,
+        content: String(message.content || "").slice(0, contentLimit),
+        citations: (message.citations || []).slice(0, 6).map((citation) => ({
+          ...citation,
+          text: String(citation.text || "").slice(0, citationTextLimit),
+        })),
+      })),
+    }));
+  }
+
   function persist() {
-    localStorage.setItem(`${STORAGE_PREFIX}-${state.profile}`, JSON.stringify(state.conversations.slice(0, 30)));
+    const key = `${STORAGE_PREFIX}-${state.profile}`;
+    const limits = [
+      [20, 8, 8000, 600],
+      [10, 6, 5000, 300],
+      [3, 4, 3000, 160],
+    ];
+    for (const limit of limits) {
+      try {
+        localStorage.setItem(key, JSON.stringify(persistenceSnapshot(...limit)));
+        return true;
+      } catch (_) {
+        // The active conversation remains usable when browser storage is full or unavailable.
+      }
+    }
+    return false;
   }
 
   function activeConversation() {
@@ -171,6 +199,7 @@
     }
     conversation.messages.push({ role: "assistant", content: "", loading: true });
     prompt.value = "";
+    updateComposer();
     state.controller = new AbortController();
     setBusy(true);
     persist();
@@ -300,6 +329,7 @@
   el("composer").addEventListener("submit", sendMessage);
   prompt.addEventListener("input", updateComposer);
   prompt.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
