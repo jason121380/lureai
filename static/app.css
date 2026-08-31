@@ -57,10 +57,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .primary-nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; stroke-width: 1.8; }
 .sidebar-label { margin: 0 10px 8px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .conversation-list { flex: 1; min-height: 0; overflow-y: auto; }
-.conversation-item { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 13px; }
+.conversation-item { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 13px; }
 .conversation-item:hover, .conversation-item.active { background: var(--hover); }
-.conversation-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-item svg { display: none; }
+.conversation-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-delete { width: 28px; height: 28px; flex: 0 0 28px; display: inline-grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
+.conversation-delete svg { width: 15px; height: 15px; }
+.conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
+.conversation-delete:hover { color: var(--warning); background: #e4e4e4; }
+@media (hover: none) {
+  .conversation-delete { opacity: 1; }
+}
 .sidebar-footer { display: grid; gap: 12px; padding: 14px 7px 5px; border-top: 1px solid var(--line); }
 .usage-panel { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }

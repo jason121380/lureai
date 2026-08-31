@@ -109,24 +109,50 @@
     return state.conversations.find((item) => item.id === state.activeId);
   }
 
+  function deleteConversation(id) {
+    if (!window.confirm("確定要刪除這個對話嗎？")) return;
+    state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+    if (!state.conversations.length) {
+      newConversation();
+      return;
+    }
+    if (state.activeId === id) state.activeId = state.conversations[0].id;
+    persist();
+    render();
+  }
+
   function renderSidebar() {
     const list = el("conversation-list");
     const query = el("conversation-search-input").value.trim().toLowerCase();
     list.replaceChildren();
     state.conversations.filter((conversation) => conversation.title.toLowerCase().includes(query)).forEach((conversation) => {
-      const button = document.createElement("button");
-      button.className = `conversation-item${conversation.id === state.activeId ? " active" : ""}`;
-      button.type = "button";
-      button.innerHTML = '<i data-lucide="message-square"></i>';
+      const item = document.createElement("div");
+      item.className = `conversation-item${conversation.id === state.activeId ? " active" : ""}`;
+      item.setAttribute("role", "button");
+      item.tabIndex = 0;
       const label = document.createElement("span");
       label.textContent = conversation.title;
-      button.append(label);
-      button.addEventListener("click", () => {
+      const remove = document.createElement("button");
+      remove.className = "conversation-delete";
+      remove.type = "button";
+      remove.title = "刪除對話";
+      remove.setAttribute("aria-label", `刪除對話：${conversation.title}`);
+      remove.innerHTML = '<i data-lucide="trash-2"></i>';
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteConversation(conversation.id);
+      });
+      const select = () => {
         state.activeId = conversation.id;
         render();
         closeSidebar();
+      };
+      item.addEventListener("click", select);
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
       });
-      list.append(button);
+      item.append(label, remove);
+      list.append(item);
     });
   }
 
