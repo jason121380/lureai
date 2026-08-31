@@ -10,6 +10,19 @@
 
   function token() { return el("admin-token").value.trim(); }
 
+  function showGate(message = "") {
+    el("admin-shell").hidden = true;
+    el("admin-gate").hidden = false;
+    el("admin-gate-status").textContent = message;
+    requestAnimationFrame(() => el("gate-token").focus());
+  }
+
+  function showAdmin() {
+    el("admin-gate").hidden = true;
+    el("admin-shell").hidden = false;
+    window.lucide?.createIcons();
+  }
+
   async function loadProfile() {
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
@@ -118,22 +131,48 @@
     finally { button.disabled = false; }
   }
 
-  async function authenticate() {
-    localStorage.setItem(TOKEN_KEY, token());
+  async function authenticate(suppliedToken = token()) {
+    const value = String(suppliedToken || "").trim();
+    if (!value) {
+      showGate("請輸入管理權杖");
+      return;
+    }
+    el("admin-token").value = value;
+    el("gate-token").value = value;
     if (await loadStats()) {
+      localStorage.setItem(TOKEN_KEY, value);
+      showAdmin();
       await Promise.all([loadKnowledge(), loadAudits()]);
       toast("管理權限已驗證");
-    } else toast("管理權杖無效", true);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      showGate("管理權杖無效");
+    }
   }
 
-  el("admin-token").value = localStorage.getItem(TOKEN_KEY) || "";
-  el("save-token").addEventListener("click", authenticate);
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    el("admin-token").value = "";
+    el("gate-token").value = "";
+    showGate("已登出管理後台");
+  }
+
+  const savedToken = localStorage.getItem(TOKEN_KEY) || "";
+  el("admin-token").value = savedToken;
+  el("gate-token").value = savedToken;
+  el("admin-login-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    authenticate(el("gate-token").value);
+  });
+  el("save-token").addEventListener("click", () => authenticate());
   el("admin-token").addEventListener("keydown", (event) => { if (event.key === "Enter") authenticate(); });
+  el("logout-admin").addEventListener("click", logout);
   el("retrieval-form").addEventListener("submit", retrieve);
   el("knowledge-form").addEventListener("submit", loadKnowledge);
   el("refresh-audits").addEventListener("click", loadAudits);
   el("reindex-button").addEventListener("click", reindex);
   window.lucide?.createIcons();
   loadProfile();
-  if (token()) authenticate();
+  if (savedToken) authenticate(savedToken);
+  else showGate();
 })();

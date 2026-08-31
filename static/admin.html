@@ -9,7 +9,21 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body class="admin-body">
-  <div class="admin-shell">
+  <section id="admin-gate" class="admin-gate" aria-labelledby="admin-login-title">
+    <form id="admin-login-form" class="admin-login-panel">
+      <div class="admin-login-mark" aria-hidden="true"><i data-lucide="shield-check"></i></div>
+      <span class="eyebrow">RESTRICTED ACCESS</span>
+      <h1 id="admin-login-title">管理者登入</h1>
+      <p>輸入管理權杖後，才能查看知識、檢索與查詢稽核。</p>
+      <label for="gate-token">管理權杖</label>
+      <div class="token-field gate-token-field"><input id="gate-token" type="password" autocomplete="current-password" placeholder="輸入管理權杖"><i data-lucide="key-round"></i></div>
+      <button id="admin-login-button" class="command-button admin-login-button" type="submit"><i data-lucide="log-in"></i><span>登入管理後台</span></button>
+      <p id="admin-gate-status" class="admin-gate-status" role="status" aria-live="polite"></p>
+      <a href="index.html" class="admin-return-link"><i data-lucide="arrow-left"></i><span>返回對話</span></a>
+    </form>
+  </section>
+
+  <div id="admin-shell" class="admin-shell" hidden>
     <aside class="admin-nav">
       <a href="index.html" class="brand-row admin-brand">
         <div class="brand-mark" aria-hidden="true">張</div>
@@ -29,7 +43,7 @@
         <div><span class="eyebrow">CONTROL DESK</span><h1>知識庫管理</h1></div>
         <div class="admin-auth">
           <label for="admin-token">管理權杖</label>
-          <div class="token-field"><input id="admin-token" type="password" autocomplete="current-password" placeholder="輸入權杖"><button id="save-token" class="icon-button" title="儲存權杖" aria-label="儲存權杖"><i data-lucide="key-round"></i></button></div>
+          <div class="token-field"><input id="admin-token" type="password" autocomplete="current-password" placeholder="輸入權杖"><button id="save-token" class="icon-button" title="更新權杖" aria-label="更新權杖"><i data-lucide="key-round"></i></button><button id="logout-admin" class="icon-button" title="登出管理後台" aria-label="登出管理後台"><i data-lucide="log-out"></i></button></div>
         </div>
       </header>
 

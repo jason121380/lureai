@@ -307,7 +307,6 @@
   });
   el("stop-button").addEventListener("click", () => state.controller?.abort());
   el("new-chat").addEventListener("click", newConversation);
-  el("composer-menu-button").addEventListener("click", () => { window.location.href = "admin.html"; });
   el("sidebar-search").addEventListener("click", () => {
     const search = el("conversation-search");
     search.hidden = !search.hidden;

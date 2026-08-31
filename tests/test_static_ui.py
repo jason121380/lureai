@@ -16,12 +16,13 @@ class StaticUiTests(unittest.TestCase):
         for element_id in ("conversation-list", "messages", "composer", "source-drawer"):
             self.assertIn(f'id="{element_id}"', html)
 
-    def test_chat_page_has_chatgpt_style_navigation_and_mode_switch(self):
+    def test_chat_page_only_exposes_conversation_navigation(self):
         html = INDEX.read_text(encoding="utf-8")
 
         self.assertIn('class="primary-nav"', html)
-        self.assertIn('class="mode-switch"', html)
         self.assertIn('id="conversation-search-input"', html)
+        self.assertNotIn('href="admin.html', html)
+        self.assertNotIn('id="composer-menu-button"', html)
 
     def test_chat_page_loads_lucide_and_chat_controller(self):
         html = INDEX.read_text(encoding="utf-8")
@@ -32,8 +33,9 @@ class StaticUiTests(unittest.TestCase):
     def test_admin_page_has_operational_views(self):
         html = ADMIN.read_text(encoding="utf-8")
 
-        for element_id in ("stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
+        for element_id in ("admin-gate", "admin-shell", "stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
             self.assertIn(f'id="{element_id}"', html)
+        self.assertIn('id="admin-shell" class="admin-shell" hidden', html)
 
     def test_css_has_mobile_breakpoint_and_stable_composer(self):
         css = CSS.read_text(encoding="utf-8")

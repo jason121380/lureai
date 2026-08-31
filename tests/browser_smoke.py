@@ -62,8 +62,8 @@ with sync_playwright() as playwright:
     assert_no_horizontal_overflow(page)
 
     page.goto(f"{BASE_URL}/admin.html", wait_until="networkidle")
-    page.locator("#admin-token").fill("local-admin")
-    page.locator("#save-token").click()
+    page.locator("#gate-token").fill("local-admin")
+    page.locator("#admin-login-button").click()
     page.wait_for_function(
         "expected => document.querySelector('#stat-chunks').textContent === expected",
         EXPECTED_CHUNKS,
@@ -93,8 +93,8 @@ with sync_playwright() as playwright:
     assert_no_horizontal_overflow(mobile)
 
     mobile.goto(f"{BASE_URL}/admin.html", wait_until="networkidle")
-    mobile.locator("#admin-token").fill("local-admin")
-    mobile.locator("#save-token").click()
+    mobile.locator("#gate-token").fill("local-admin")
+    mobile.locator("#admin-login-button").click()
     mobile.wait_for_function(
         "expected => document.querySelector('#stat-chunks').textContent === expected",
         EXPECTED_CHUNKS,
