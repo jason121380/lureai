@@ -45,11 +45,16 @@ def validate_chunk(
 
 
 def _search_text(row: dict) -> str:
+    aliases = row.get("aliases") or []
+    if not isinstance(aliases, list):
+        aliases = [str(aliases)]
     original = normalize_text(" ".join([
         row.get("title", ""),
         row.get("section_title", ""),
         row.get("category", ""),
         row.get("text", ""),
+        # 問法索引只進檢索欄位，不會出現在回答或引用內容裡。
+        " ".join(str(alias) for alias in aliases),
     ]))
     return " ".join(search_tokens(original))
 

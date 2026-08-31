@@ -115,7 +115,27 @@ class CustomerService:
             grounded_hits = historical_hits[:2]
         return hits, grounded_hits, None
 
-    def _escalated_result(self, trace_id: str, conversation_id: str | None, decision) -> dict:
+    @staticmethod
+    def _nearest_questions(hits: list, limit: int = 3) -> list[str]:
+        """Turn the closest chunks into questions the user can actually ask."""
+        questions: list[str] = []
+        for hit in hits:
+            title = " ".join(str(hit.section_title or "").split())
+            if not title or title in questions:
+                continue
+            questions.append(title)
+            if len(questions) >= limit:
+                break
+        return questions
+
+    def _escalated_result(
+        self,
+        trace_id: str,
+        conversation_id: str | None,
+        decision,
+        hits: list | None = None,
+    ) -> dict:
+        followups = self._nearest_questions(hits or [])
         return {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -123,6 +143,7 @@ class CustomerService:
             "reason": decision.reason,
             "answer": decision.message,
             "citations": [],
+            "followups": followups,
             "answer_mode": "policy",
         }
 
@@ -139,7 +160,7 @@ class CustomerService:
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
         if escalation is not None:
-            result = self._escalated_result(trace_id, conversation_id, escalation)
+            result = self._escalated_result(trace_id, conversation_id, escalation, hits)
             self._audit(question, result, hits, user_id=user_id)
             return result
         answer, mode, model_status, usage = self.answerer.answer(
@@ -180,7 +201,7 @@ class CustomerService:
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
         if escalation is not None:
-            result = self._escalated_result(trace_id, conversation_id, escalation)
+            result = self._escalated_result(trace_id, conversation_id, escalation, hits)
             self._audit(question, result, hits, user_id=user_id)
             yield {"type": "result", **result}
             return

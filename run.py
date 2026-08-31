@@ -31,7 +31,7 @@ PROFILES = {
             key: SENSITIVE_TOPICS[key]
             for key in ("personal_or_payment", "health_or_medical", "legal_refund_or_compensation", "labor_hr")
         },
-        "fallback_message": "目前內部知識庫沒有足夠且已核准的資料，請補充數據或交由輔導主管確認。",
+        "fallback_message": "這題我手上沒有夠明確的資料，換個問法可能就有了——你可以直接點下面的題目，或告訴我你目前的數字（私訊數、預約數、到店數）。",
     },
 }
 

@@ -6,7 +6,7 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 
 - ChatGPT 式聊天介面（串流回覆、AI 對話命名、關聯問題選項）、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
-- 公開部署索引：115 塊人工重點整理知識（輔導 44 ＋ 店務營運 71），本機可掛完整私人索引
+- 公開部署索引：209 塊人工重點整理知識（輔導 138 ＋ 店務營運 71）＋ 1.2 萬筆問法索引
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 個資、醫療、法律賠償與勞資話題轉人工
@@ -49,7 +49,7 @@ Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
 倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用；`ZBPACK_*` 變數在此情況下不再需要，留著也無妨。
 
-設計師輔導部署預設包含 115 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
+設計師輔導部署預設包含 209 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
 ```dotenv
 KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
@@ -133,18 +133,24 @@ python3 run.py
 
 | domain | 名稱 | 來源手冊 | 區塊 |
 | --- | --- | --- | --- |
-| `operations` | 店務營運管理 | `knowledge/salon_operations_playbook.md` | ops-01~71 |
-| `coaching` | 設計師一對一行銷輔導 | `knowledge/designer_coaching_process.md` | coach-01~44 |
+| `coaching` | 設計師一對一行銷輔導 | `designer_coaching_process.md` | coach-01~44 |
+| `coaching` | 私訊對話健檢與成交 | `messaging_audit_playbook.md` | chat-01~30 |
+| `coaching` | 廣告投放 | `ads_playbook.md` | ads-01~23 |
+| `coaching` | 社群與版面輔導 | `social_playbook.md` | social-01~25 |
+| `coaching` | 一對一輔導流程 | `session_playbook.md` | session-01~16 |
+| `operations` | 店務營運管理 | `salon_operations_playbook.md` | ops-01~71 |
+
+每塊知識另外帶一組「問法索引」（`aliases`）：設計師實際會怎麼問這塊知識，
+種子寫在 `config/question_bank.json`，編譯時展開成一萬多筆。問法只進檢索欄位，
+不會出現在回答或引用內容裡。
 
 兩本手冊都是人工重點整理：原始教材是掃描 OCR 與試算表傾印（`A1=` 儲存格、空白表單、公式），
 無法直接引用，已抽成完整句子的方法與流程，原始語料封存於 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 編譯方式：
 
 ```bash
-python3 scripts/build_coaching_knowledge.py knowledge/designer_coaching_process.md out.jsonl \
-  --evidence-name ... --evidence-sha256 ... --reviewed-at YYYY-MM-DD
-python3 scripts/build_operations_knowledge.py knowledge/salon_operations_playbook.md out.jsonl \
-  --reviewed-at YYYY-MM-DD
+python3 scripts/build_knowledge_index.py knowledge/designer_coaching_process.jsonl --reviewed-at YYYY-MM-DD
+python3 scripts/coverage_report.py    # 問法覆蓋率報告
 ```
 
 沒有 `domain` 的舊資料由 `app/domains.py` 依分類與來源檔推斷，重建索引後自動歸位。

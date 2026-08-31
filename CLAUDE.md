@@ -10,6 +10,8 @@ lure ai（原 hair_brain）：美髮沙龍的私有 RAG 助理，單一 profile 
 
 ```bash
 python3 -m unittest discover -s tests        # 全部測試（必須全綠才能 push）
+python3 scripts/build_knowledge_index.py knowledge/designer_coaching_process.jsonl --reviewed-at YYYY-MM-DD  # 改完 knowledge/*.md 必跑
+python3 scripts/coverage_report.py           # 檢索覆蓋率報告
 python3 run.py --reindex-only                # 重建索引
 python3 run.py --port 8765                   # 啟動（designer_coach）
 ```
@@ -32,12 +34,17 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
-| `knowledge/*.md` | 兩本人工整理的知識手冊：`designer_coaching_process.md`（coach-01~44）與 `salon_operations_playbook.md`（ops-01~71）|
+| `knowledge/*.md` | 六本人工整理的知識手冊（coach／chat／ads／social／session／ops），編譯後共 209 塊 |
+| `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.2 萬筆檢索別名 |
+| `scripts/build_knowledge_index.py` | 唯一的索引編譯器（手冊 → JSONL，含問法展開）|
+| `scripts/coverage_report.py` | 用問法索引量測檢索覆蓋率 |
 | `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` |
 
 ## 不可破壞的約定
 
 - **認證模型**：統一帳號登入。`/admin` 頁面只認 admin 角色 session（非 admin 直接導回 `/`）；`X-Admin-Token` header 仍可打管理 API（curl／測試／緊急用），UI 沒有權杖輸入。
+- **改知識就要重編索引**：`knowledge/*.md` 是唯一的知識來源，改完一定要跑 `scripts/build_knowledge_index.py`，否則測試會擋（`test_written_index_matches_the_playbooks`）。
+- **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_*_knowledge.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。
 - **知識治理**：匯入強制 `review_status=approved` + `access_level` 相符 + `rag_allowed=true`；任何一筆不合格整批拒絕。

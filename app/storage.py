@@ -43,7 +43,8 @@ class KnowledgeStore:
                 search_text TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
                 origin TEXT NOT NULL DEFAULT 'file',
-                domain TEXT NOT NULL DEFAULT 'operations'
+                domain TEXT NOT NULL DEFAULT 'operations',
+                aliases TEXT NOT NULL DEFAULT ''
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -100,6 +101,7 @@ class KnowledgeStore:
         )
         self._ensure_column("chunks", "origin", "TEXT NOT NULL DEFAULT 'file'")
         self._ensure_column("chunks", "domain", f"TEXT NOT NULL DEFAULT '{DEFAULT_DOMAIN}'")
+        self._ensure_column("chunks", "aliases", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("users", "role", "TEXT NOT NULL DEFAULT 'user'")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -329,8 +331,8 @@ class KnowledgeStore:
                 chunk_id, doc_id, locator, section_title, text, title,
                 source_file, source_sha256, category, access_level,
                 customer_service_allowed, review_status, reviewer,
-                reviewed_at, search_text, metadata_json, origin, domain
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reviewed_at, search_text, metadata_json, origin, domain, aliases
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["chunk_id"], row.get("doc_id"), row["locator"],
@@ -341,6 +343,8 @@ class KnowledgeStore:
                 row["review_status"], row.get("reviewer", ""),
                 row.get("reviewed_at", ""), row["search_text"],
                 json.dumps(row, ensure_ascii=False), origin, domain_of(row),
+                " ".join(row.get("aliases") or []) if isinstance(row.get("aliases"), list)
+                else str(row.get("aliases") or ""),
             ),
         )
         self.connection.execute(
