@@ -12,10 +12,20 @@ from tests.test_ingest import approved_chunk
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_public_host_requires_explicit_admin_token(self):
+    def test_public_host_without_a_token_falls_back_to_a_random_one(self):
+        # 少一個環境變數不可以讓整站打不開；後台走帳號登入，
+        # header 權杖變成沒人知道的隨機值等於關掉那條路。
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "ADMIN_TOKEN"):
-                admin_token_for_host("0.0.0.0")
+            first = admin_token_for_host("0.0.0.0")
+            second = admin_token_for_host("0.0.0.0")
+
+        self.assertGreaterEqual(len(first), 32)
+        self.assertNotEqual(first, "local-admin")
+        self.assertNotEqual(first, second)
+
+    def test_configured_admin_token_wins(self):
+        with patch.dict(os.environ, {"ADMIN_TOKEN": "from-env"}, clear=True):
+            self.assertEqual(admin_token_for_host("0.0.0.0"), "from-env")
 
     def test_local_host_can_use_development_admin_token(self):
         with patch.dict(os.environ, {}, clear=True):

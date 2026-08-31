@@ -589,9 +589,21 @@
     });
   }
 
+  // 伺服器沒回應時，fetch 會一直掛著，開機畫面就會停在轉圈。
+  // 開機用的請求一律給逾時，逾時就顯示登入頁與錯誤訊息。
+  async function fetchWithTimeout(path, options = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(path, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function checkHealth() {
     try {
-      const response = await fetch("/api/health", { cache: "no-store" });
+      const response = await fetchWithTimeout("/api/health", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error();
       applyProfile(body);
@@ -683,15 +695,19 @@
 
   async function restoreSession() {
     try {
-      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      const response = await fetchWithTimeout("/api/auth/me", { cache: "no-store" });
       if (!response.ok) {
         showLogin();
         return;
       }
       const body = await response.json();
       await initializeUser(body.user);
-    } catch (_) {
-      showLogin("目前無法連線，請稍後再試");
+    } catch (error) {
+      showLogin(
+        error?.name === "AbortError"
+          ? "伺服器沒有回應，請稍後再試一次"
+          : "目前無法連線，請稍後再試",
+      );
     }
   }
 
@@ -742,9 +758,21 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
 
   async function bootstrap() {
+    // 不論健康檢查或連線發生什麼事，10 秒內一定要有畫面可以操作。
+    const safety = setTimeout(() => {
+      if (el("app-shell").hidden && el("login-gate").hidden) {
+        showLogin("載入逾時，請重新整理再試一次");
+      }
+    }, 10000);
     registerServiceWorker();
-    await checkHealth();
-    await restoreSession();
+    try {
+      await checkHealth();
+      await restoreSession();
+    } catch (_) {
+      showLogin("目前無法連線，請稍後再試");
+    } finally {
+      clearTimeout(safety);
+    }
   }
 
   bootstrap();
