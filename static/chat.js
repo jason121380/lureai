@@ -197,6 +197,7 @@
     if (item.loading) {
       text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>';
     } else if (item.role === "assistant") {
+      text.classList.add("rich");
       text.innerHTML = renderAssistantMarkup(item.content, item.citations?.length || 0);
       text.querySelectorAll(".cite-ref").forEach((ref) => {
         ref.addEventListener("click", () => {
@@ -278,11 +279,14 @@
 
   // Minimal Markdown for model answers. Input is HTML-escaped first, so only
   // the markup generated here reaches innerHTML.
-  function renderAssistantMarkup(content, citationCount) {
-    let html = escapeHtml(content);
+  const BULLET_LINE = /^\s*[-*•]\s+(.*)$/;
+  const ORDERED_LINE = /^\s*(\d{1,2})[.)]\s+(.*)$/;
+  const HEADING_LINE = /^\s*#{1,3}\s+(.*)$/;
+
+  function inlineMarkup(text, citationCount) {
+    let html = escapeHtml(text);
     html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
     html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-    html = html.replace(/^#{1,3}\s+(.+)$/gm, '<span class="md-heading">$1</span>');
     if (citationCount > 0) {
       html = html.replace(/\[(\d{1,2})\]/g, (match, number) => (
         Number(number) >= 1 && Number(number) <= citationCount
@@ -291,6 +295,56 @@
       ));
     }
     return html;
+  }
+
+  // Answers come back as a one-line conclusion plus bullets; render the lists
+  // as real list elements so they stay scannable instead of one wall of text.
+  function renderAssistantMarkup(content, citationCount) {
+    const blocks = [];
+    let list = null;
+    let paragraph = [];
+
+    const flushParagraph = () => {
+      if (paragraph.length) blocks.push(`<p>${paragraph.join("<br>")}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (list) blocks.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`);
+      list = null;
+    };
+
+    for (const rawLine of String(content || "").split("\n")) {
+      const line = rawLine.trimEnd();
+      if (!line.trim()) {
+        flushParagraph();
+        flushList();
+        continue;
+      }
+      const heading = line.match(HEADING_LINE);
+      if (heading) {
+        flushParagraph();
+        flushList();
+        blocks.push(`<p class="md-heading">${inlineMarkup(heading[1], citationCount)}</p>`);
+        continue;
+      }
+      const bullet = line.match(BULLET_LINE);
+      const ordered = bullet ? null : line.match(ORDERED_LINE);
+      if (bullet || ordered) {
+        flushParagraph();
+        const tag = bullet ? "ul" : "ol";
+        if (!list || list.tag !== tag) {
+          flushList();
+          list = { tag, items: [] };
+        }
+        list.items.push(`<li>${inlineMarkup(bullet ? bullet[1] : ordered[2], citationCount)}</li>`);
+        continue;
+      }
+      flushList();
+      paragraph.push(inlineMarkup(line, citationCount));
+    }
+    flushParagraph();
+    flushList();
+    return blocks.join("");
   }
 
   // Reads the ndjson stream from /api/chat/stream: delta events update the
