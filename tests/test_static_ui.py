@@ -71,6 +71,17 @@ class StaticUiTests(unittest.TestCase):
         for element_id in ("users", "user-form", "user-username", "user-password", "user-results"):
             self.assertIn(f'id="{element_id}"', html)
 
+    def test_admin_page_splits_knowledge_into_the_two_domains(self):
+        html = ADMIN.read_text(encoding="utf-8")
+        script = ADMIN_JS.read_text(encoding="utf-8")
+
+        for element_id in ("domain-grid", "knowledge-domain", "editor-domain"):
+            self.assertIn(f'id="{element_id}"', html)
+        for label in ("店務營運管理", "設計師一對一行銷輔導"):
+            self.assertIn(label, html)
+            self.assertIn(label, script)
+        self.assertIn("domain=${domain}", script)
+
     def test_admin_token_is_kept_in_memory_only(self):
         script = ADMIN_JS.read_text(encoding="utf-8")
 

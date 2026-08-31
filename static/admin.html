@@ -41,8 +41,8 @@
           <div class="stat-card"><span>後台新增</span><strong id="stat-custom">—</strong></div>
           <div class="stat-card alert-stat"><span>待整理</span><strong id="stat-flagged">—</strong></div>
         </div>
-        <div class="pipeline-heading"><h3>主題涵蓋範圍</h3><p>每個主題目前有多少知識可以被引用</p></div>
-        <div id="category-grid" class="category-grid"><div class="empty-state">載入中</div></div>
+        <div class="pipeline-heading"><h3>兩大主題涵蓋範圍</h3><p>知識分成「店務營運管理」與「設計師一對一行銷輔導」，下面是各自的分類與數量</p></div>
+        <div id="domain-grid" class="domain-grid"><div class="empty-state">載入中</div></div>
       </section>
 
       <section id="knowledge" class="admin-section" hidden>
@@ -55,7 +55,11 @@
           <input type="hidden" id="editor-chunk-id">
           <div class="editor-row">
             <label>標題<input id="editor-title" maxlength="80" placeholder="例如：新客第一次回流的追蹤節奏" required></label>
-            <label>主題分類<input id="editor-category" maxlength="20" placeholder="例如：售後與回流"></label>
+            <label>大主題<select id="editor-domain">
+              <option value="operations">店務營運管理</option>
+              <option value="coaching">設計師一對一行銷輔導</option>
+            </select></label>
+            <label>分類<input id="editor-category" maxlength="20" placeholder="例如：售後與回流"></label>
           </div>
           <label class="editor-body">內容
             <textarea id="editor-text" rows="10" maxlength="8000" placeholder="用完整句子寫，建議包含：判斷標準、步驟、話術範例、常見錯誤、驗收方式。"></textarea>
@@ -69,6 +73,11 @@
 
         <form id="knowledge-form" class="admin-search-form compact-search">
           <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋知識">
+          <select id="knowledge-domain" aria-label="主題篩選">
+            <option value="">全部主題</option>
+            <option value="operations">店務營運管理</option>
+            <option value="coaching">設計師一對一行銷輔導</option>
+          </select>
           <select id="knowledge-origin" aria-label="來源篩選">
             <option value="">全部來源</option>
             <option value="custom">後台新增</option>

@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Iterable
 
+from .domains import DEFAULT_DOMAIN, DOMAIN_ORDER, domain_of, label as domain_label
+
 
 class KnowledgeStore:
     def __init__(self, db_path: str | Path):
@@ -40,7 +42,8 @@ class KnowledgeStore:
                 reviewed_at TEXT,
                 search_text TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
-                origin TEXT NOT NULL DEFAULT 'file'
+                origin TEXT NOT NULL DEFAULT 'file',
+                domain TEXT NOT NULL DEFAULT 'operations'
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -96,6 +99,7 @@ class KnowledgeStore:
             """
         )
         self._ensure_column("chunks", "origin", "TEXT NOT NULL DEFAULT 'file'")
+        self._ensure_column("chunks", "domain", f"TEXT NOT NULL DEFAULT '{DEFAULT_DOMAIN}'")
         self._ensure_column("users", "role", "TEXT NOT NULL DEFAULT 'user'")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -239,11 +243,11 @@ class KnowledgeStore:
         }
 
     def knowledge_composition(self) -> dict:
-        """Chunk counts by category and by origin, for the admin overview."""
+        """Chunk counts by domain, category and origin, for the admin overview."""
         with self._lock:
             categories = self.connection.execute(
-                "SELECT COALESCE(NULLIF(category, ''), '未分類') AS name, COUNT(*) AS count "
-                "FROM chunks GROUP BY name ORDER BY count DESC"
+                "SELECT domain, COALESCE(NULLIF(category, ''), '未分類') AS name, "
+                "COUNT(*) AS count FROM chunks GROUP BY domain, name ORDER BY count DESC"
             ).fetchall()
             origins = self.connection.execute(
                 "SELECT origin, COUNT(*) AS count FROM chunks GROUP BY origin"
@@ -251,8 +255,20 @@ class KnowledgeStore:
             sources = self.connection.execute(
                 "SELECT COUNT(DISTINCT source_file) AS count FROM chunks"
             ).fetchone()
+        by_domain: dict[str, list[dict]] = {key: [] for key in DOMAIN_ORDER}
+        for row in categories:
+            key = str(row["domain"]) if str(row["domain"]) in by_domain else DEFAULT_DOMAIN
+            by_domain[key].append({"name": row["name"], "count": int(row["count"])})
         return {
-            "categories": [{"name": row["name"], "count": int(row["count"])} for row in categories],
+            "domains": [
+                {
+                    "key": key,
+                    "label": domain_label(key),
+                    "count": sum(item["count"] for item in by_domain[key]),
+                    "categories": by_domain[key],
+                }
+                for key in DOMAIN_ORDER
+            ],
             "origins": {str(row["origin"]): int(row["count"]) for row in origins},
             "source_files": int(sources["count"]),
         }
@@ -281,11 +297,28 @@ class KnowledgeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def list_chunks(self, limit: int = 100, offset: int = 0) -> list[dict]:
+    def list_chunks(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        origin: str = "",
+        domain: str = "",
+    ) -> list[dict]:
+        # Filter in SQL so the limit applies to the filtered set, not to the
+        # first N rows of the whole corpus.
+        where = []
+        params: list = []
+        if origin:
+            where.append("origin = ?")
+            params.append(origin)
+        if domain:
+            where.append("domain = ?")
+            params.append(domain)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
         with self._lock:
             rows = self.connection.execute(
-                "SELECT * FROM chunks ORDER BY title, locator LIMIT ? OFFSET ?",
-                (limit, offset),
+                f"SELECT * FROM chunks {clause} ORDER BY title, locator LIMIT ? OFFSET ?",
+                (*params, limit, offset),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -296,8 +329,8 @@ class KnowledgeStore:
                 chunk_id, doc_id, locator, section_title, text, title,
                 source_file, source_sha256, category, access_level,
                 customer_service_allowed, review_status, reviewer,
-                reviewed_at, search_text, metadata_json, origin
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reviewed_at, search_text, metadata_json, origin, domain
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["chunk_id"], row.get("doc_id"), row["locator"],
@@ -307,7 +340,7 @@ class KnowledgeStore:
                 int(row.get("customer_service_allowed") is True),
                 row["review_status"], row.get("reviewer", ""),
                 row.get("reviewed_at", ""), row["search_text"],
-                json.dumps(row, ensure_ascii=False), origin,
+                json.dumps(row, ensure_ascii=False), origin, domain_of(row),
             ),
         )
         self.connection.execute(

@@ -357,6 +357,34 @@ class ApiTests(unittest.TestCase):
         self.assertIsNotNone(self.context.store.get_chunk(chunk_id))
         self.assertIsNotNone(self.context.store.get_chunk("chunk-1"))
 
+    def test_admin_chunks_can_be_filtered_by_domain(self):
+        self.request("POST", "/api/admin/knowledge", {
+            "section_title": "私訊回覆節奏",
+            "category": "私訊流程",
+            "domain": "coaching",
+            "text": "顧客私訊後一小時內先回一句，再問清楚想要的效果。",
+        }, token="secret-token")
+
+        status, body = self.request("GET", "/api/admin/chunks?domain=coaching", token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["items"])
+        self.assertTrue(all(item["domain"] == "coaching" for item in body["items"]))
+
+        status, body = self.request("GET", "/api/admin/chunks?domain=operations", token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertTrue(all(item["domain"] == "operations" for item in body["items"]))
+
+    def test_admin_stats_split_knowledge_into_the_two_domains(self):
+        status, body = self.request("GET", "/api/admin/stats", token="secret-token")
+
+        self.assertEqual(status, 200)
+        domains = body["composition"]["domains"]
+        self.assertEqual(
+            [item["label"] for item in domains],
+            ["店務營運管理", "設計師一對一行銷輔導"],
+        )
+        self.assertEqual(sum(item["count"] for item in domains), body["chunks"])
+
     def test_admin_knowledge_rejects_editing_imported_chunks(self):
         status, body = self.request("POST", "/api/admin/knowledge", {
             "chunk_id": "chunk-1", "section_title": "覆寫匯入知識", "text": "不應該被允許。",

@@ -66,10 +66,21 @@
       el("stat-sources").textContent = composition.source_files ?? "—";
       el("stat-custom").textContent = origins.custom || 0;
       el("admin-status").textContent = `${body.chunks} 個知識區塊 · ${composition.source_files || 0} 份來源`;
-      const categories = composition.categories || [];
-      el("category-grid").innerHTML = categories.length
-        ? categories.map((item) => `
-            <div class="category-card"><span>${escapeHtml(item.name)}</span><strong>${item.count}</strong></div>`).join("")
+      const domains = composition.domains || [];
+      el("domain-grid").innerHTML = domains.length
+        ? domains.map((domain) => `
+            <section class="domain-block">
+              <header class="domain-head">
+                <h4>${escapeHtml(domain.label)}</h4>
+                <span>${domain.count} 塊</span>
+              </header>
+              <div class="category-grid">${
+                (domain.categories || []).length
+                  ? domain.categories.map((item) => `
+                      <div class="category-card"><span>${escapeHtml(item.name)}</span><strong>${item.count}</strong></div>`).join("")
+                  : '<div class="empty-state">這個主題還沒有知識</div>'
+              }</div>
+            </section>`).join("")
         : '<div class="empty-state">尚無知識</div>';
       return true;
     } catch (error) {
@@ -172,6 +183,7 @@
         <div>
           <h3>${escapeHtml(title)}</h3>
           <div class="knowledge-meta">
+            <span class="domain-badge">${escapeHtml(domainLabels[item.domain] || "未分主題")}</span>
             <span class="origin-badge${custom ? " is-custom" : ""}">${custom ? "後台新增" : "匯入知識"}</span>
             <span>${escapeHtml(item.category || "未分類")}</span>
             <span class="source-locator">${escapeHtml(item.locator || "")}</span>
@@ -183,6 +195,11 @@
     </article>`;
   }
 
+  const domainLabels = {
+    operations: "店務營運管理",
+    coaching: "設計師一對一行銷輔導",
+  };
+
   let knowledgeCache = [];
 
   async function loadKnowledge(event) {
@@ -191,7 +208,8 @@
       el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
       const query = encodeURIComponent(el("knowledge-query").value.trim());
       const origin = encodeURIComponent(el("knowledge-origin").value);
-      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}`);
+      const domain = encodeURIComponent(el("knowledge-domain").value);
+      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}&domain=${domain}`);
       knowledgeCache = body.items || [];
       el("knowledge-results").innerHTML = knowledgeCache.length
         ? knowledgeCache.map(knowledgeCard).join("")
@@ -207,6 +225,7 @@
     el("editor-chunk-id").value = chunk?.chunk_id || "";
     el("editor-title").value = chunk?.section_title || "";
     el("editor-category").value = chunk?.category || "";
+    el("editor-domain").value = chunk?.domain || el("knowledge-domain").value || "coaching";
     let text = chunk?.text || "";
     if (chunk?.chunk_id) {
       // The list only carries an excerpt; fetch the full text before editing.
@@ -239,6 +258,7 @@
           chunk_id: el("editor-chunk-id").value || undefined,
           section_title: el("editor-title").value,
           category: el("editor-category").value,
+          domain: el("editor-domain").value,
           text: el("editor-text").value,
         }),
       });
@@ -371,6 +391,7 @@
 
   el("knowledge-form").addEventListener("submit", loadKnowledge);
   el("knowledge-origin").addEventListener("change", () => loadKnowledge());
+  el("knowledge-domain").addEventListener("change", () => loadKnowledge());
   el("new-knowledge").addEventListener("click", () => openEditor(null));
   el("editor-cancel").addEventListener("click", closeEditor);
   el("knowledge-editor").addEventListener("submit", saveKnowledge);

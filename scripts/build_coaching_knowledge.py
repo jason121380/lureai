@@ -3,7 +3,13 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.domains import COACHING
 
 
 SECTION_PATTERN = re.compile(
@@ -62,6 +68,7 @@ def build_rows(
             "evidence_source": evidence_name,
             "evidence_sha256": evidence_sha256,
             "category": section["category"],
+            "domain": COACHING,
             "access_level": "internal_coaching",
             "rag_allowed": True,
             "review_status": "approved",
