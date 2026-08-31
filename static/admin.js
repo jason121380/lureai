@@ -21,6 +21,7 @@
   function showAdmin() {
     el("admin-shell").hidden = false;
     showSection(location.hash.replace("#", ""));
+    enhanceSelects();
     window.lucide?.createIcons();
   }
 
@@ -35,11 +36,111 @@
     }
   }
 
-  async function api(path, options = {}) {
-    const response = await fetch(path, {
-      ...options,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  // The native <select> opens an OS picker that covers the page (and on iOS the
+  // page behind it stops repainting, so a list still loading looks stuck).
+  // Each select stays in the DOM as the source of truth; this renders it.
+  function enhanceSelect(select) {
+    if (!select || select.dataset.enhanced) return;
+    select.dataset.enhanced = "true";
+    const options = Array.from(select.options).map((option) => ({ value: option.value, label: option.textContent }));
+    const wrapper = document.createElement("div");
+    wrapper.className = "select-field";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "select-button";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
+    if (select.getAttribute("aria-label")) button.setAttribute("aria-label", select.getAttribute("aria-label"));
+    const label = document.createElement("span");
+    const caret = document.createElement("i");
+    caret.dataset.lucide = "chevron-down";
+    button.append(label, caret);
+    const menu = document.createElement("div");
+    menu.className = "select-menu";
+    menu.setAttribute("role", "listbox");
+    menu.hidden = true;
+
+    const paint = () => {
+      const current = options.find((option) => option.value === select.value) || options[0];
+      label.textContent = current ? current.label : "";
+      menu.querySelectorAll("button").forEach((item) => {
+        item.classList.toggle("is-selected", item.dataset.value === select.value);
+      });
+    };
+    const close = () => {
+      menu.hidden = true;
+      wrapper.classList.remove("is-open");
+      button.setAttribute("aria-expanded", "false");
+    };
+    const open = () => {
+      document.querySelectorAll(".select-field.is-open").forEach((other) => {
+        if (other !== wrapper) {
+          other.classList.remove("is-open");
+          other.querySelector(".select-menu").hidden = true;
+          other.querySelector(".select-button").setAttribute("aria-expanded", "false");
+        }
+      });
+      menu.hidden = false;
+      wrapper.classList.add("is-open");
+      button.setAttribute("aria-expanded", "true");
+    };
+
+    options.forEach((option) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.setAttribute("role", "option");
+      item.dataset.value = option.value;
+      item.textContent = option.label;
+      item.addEventListener("click", () => {
+        select.value = option.value;
+        paint();
+        close();
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      menu.append(item);
     });
+
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (menu.hidden) open(); else close();
+    });
+    document.addEventListener("click", (event) => {
+      if (!wrapper.contains(event.target)) close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+    });
+
+    select.hidden = true;
+    select.tabIndex = -1;
+    select.parentNode.insertBefore(wrapper, select);
+    wrapper.append(button, menu, select);
+    paint();
+    select.addEventListener("change", paint);
+  }
+
+  function enhanceSelects() {
+    document.querySelectorAll("select").forEach(enhanceSelect);
+    window.lucide?.createIcons();
+  }
+
+  async function api(path, options = {}) {
+    const { timeoutMs = 20000, ...init } = options;
+    // Without this a hung request leaves the panel on 「載入中…」 for ever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(path, {
+        ...init,
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+      });
+    } catch (error) {
+      throw new Error(error.name === "AbortError" ? "連線逾時，請重新整理再試一次" : "連線失敗，請檢查網路");
+    } finally {
+      clearTimeout(timer);
+    }
     const body = await response.json();
     if (response.status === 401) {
       window.location.replace("/");
@@ -206,17 +307,19 @@
     event?.preventDefault();
     try {
       el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
-      const query = encodeURIComponent(el("knowledge-query").value.trim());
-      const origin = encodeURIComponent(el("knowledge-origin").value);
-      const domain = encodeURIComponent(el("knowledge-domain").value);
-      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}&domain=${domain}`);
+      const query = encodeURIComponent(el("knowledge-query")?.value.trim() || "");
+      const origin = encodeURIComponent(el("knowledge-origin")?.value || "");
+      const domain = encodeURIComponent(el("knowledge-domain")?.value || "");
+      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}&domain=${domain}`, { timeoutMs: 15000 });
       knowledgeCache = body.items || [];
       el("knowledge-results").innerHTML = knowledgeCache.length
         ? knowledgeCache.map(knowledgeCard).join("")
         : '<div class="empty-state">沒有符合的知識</div>';
       window.lucide?.createIcons();
     } catch (error) {
-      el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}</div>`;
+      el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}
+        <button type="button" class="command-button ghost-button" data-retry-knowledge>重新載入</button></div>`;
+      el("knowledge-results").querySelector("[data-retry-knowledge]")?.addEventListener("click", () => loadKnowledge());
       toast(error.message, true);
     }
   }

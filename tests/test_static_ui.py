@@ -30,7 +30,11 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("mode-switch", html)
         # The settings link to /admin is hidden until chat.js confirms an
         # admin-role session.
-        self.assertIn('id="admin-link" class="icon-button" href="/admin" title="設定" aria-label="設定" hidden', html)
+        self.assertIn(
+            'id="admin-link" class="icon-button" href="/admin" target="_blank" rel="noopener"',
+            html,
+        )
+        self.assertIn('aria-label="設定（另開分頁）" hidden', html)
 
     def test_chat_page_requires_login_and_shows_private_usage(self):
         html = INDEX.read_text(encoding="utf-8")
@@ -81,6 +85,18 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('text.classList.add("rich")', script)
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
+
+    def test_admin_replaces_native_selects_with_in_page_dropdowns(self):
+        script = ADMIN_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        self.assertIn("function enhanceSelect", script)
+        self.assertIn("enhanceSelects()", script)
+        self.assertIn('role", "listbox"', script)
+        self.assertIn(".select-menu", css)
+        # A hung request must not leave the panel on 載入中 for ever.
+        self.assertIn("AbortController", script)
+        self.assertIn("data-retry-knowledge", script)
 
     def test_answer_policy_requires_short_action_focused_bullets(self):
         policy = (ROOT / "config" / "designer_coach_policy.md").read_text(encoding="utf-8")
