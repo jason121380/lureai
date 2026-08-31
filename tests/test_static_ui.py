@@ -37,12 +37,15 @@ class StaticUiTests(unittest.TestCase):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('id="admin-shell" class="admin-shell" hidden', html)
 
-    def test_css_has_mobile_breakpoint_and_stable_composer(self):
+    def test_css_has_mobile_breakpoint_and_touch_scroll_region(self):
         css = CSS.read_text(encoding="utf-8")
 
         self.assertIn("@media (max-width: 760px)", css)
         self.assertIn(".composer-shell", css)
-        self.assertIn("position: sticky", css)
+        self.assertIn("touch-action: pan-y", css)
+        self.assertIn("-webkit-overflow-scrolling: touch", css)
+        self.assertIn("overscroll-behavior-y: contain", css)
+        self.assertIn(".composer-shell { position: relative", css)
 
     def test_hidden_controls_cannot_be_overridden_by_component_display(self):
         css = CSS.read_text(encoding="utf-8")

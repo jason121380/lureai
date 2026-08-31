@@ -82,6 +82,39 @@ with sync_playwright() as playwright:
     mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
     mobile.on("console", lambda message: console_errors.append(f"{message.text} @ {message.location}") if message.type == "error" else None)
     mobile.goto(BASE_URL, wait_until="networkidle")
+
+    long_answer = "\n\n".join(
+        f"第 {index} 段：驗證手機版長對話可以正常向上與向下滾動。"
+        for index in range(1, 46)
+    )
+    mobile.evaluate(
+        """([profile, answer]) => localStorage.setItem(
+            `zhang-rag-conversations-v1-${profile}`,
+            JSON.stringify([{
+                id: 'mobile-scroll-test',
+                title: '手機滾動測試',
+                createdAt: new Date().toISOString(),
+                messages: [
+                    {role: 'user', content: '請提供完整分析'},
+                    {role: 'assistant', content: answer, status: 'answered', citations: []}
+                ]
+            }])
+        )""",
+        [PROFILE, long_answer],
+    )
+    mobile.reload(wait_until="networkidle")
+    mobile.wait_for_timeout(250)
+    scroll_metrics = mobile.locator("#messages").evaluate(
+        "node => ({top: node.scrollTop, client: node.clientHeight, full: node.scrollHeight, touch: getComputedStyle(node).touchAction})"
+    )
+    assert scroll_metrics["full"] > scroll_metrics["client"], "long conversation does not create a scroll region"
+    assert scroll_metrics["touch"] == "pan-y", "conversation does not allow vertical touch gestures"
+    mobile.locator("#messages").hover()
+    mobile.mouse.wheel(0, -500)
+    mobile.wait_for_timeout(300)
+    scrolled_top = mobile.locator("#messages").evaluate("node => node.scrollTop")
+    assert scrolled_top < scroll_metrics["top"], "conversation did not scroll upward"
+
     mobile.locator("#menu-button").click()
     assert mobile.locator("#sidebar.open").is_visible()
     mobile.wait_for_timeout(250)
