@@ -568,7 +568,8 @@
   function openSidebar() {
     el("sidebar").classList.remove("desktop-hidden");
     el("sidebar").classList.add("open");
-    el("drawer-overlay").hidden = false;
+    // 手機版選單是全螢幕，不需要壓暗背後的頁面（壓暗會在狀態列下緣
+    // 出現一條明顯交界）；來源抽屜仍然使用 overlay。
   }
 
   function closeSidebar() {
