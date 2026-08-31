@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -10,6 +11,25 @@ from .retrieval import SearchHit
 
 
 DEFAULT_POLICY = "你只能根據提供的已核准來源回答。每個主張必須附 [編號] 引用；資料不足時不得猜測。"
+
+
+def log_model_failure(stage: str, error: BaseException | None = None, detail: str = "") -> None:
+    """把降級原因寫到 stderr（Zeabur 的 Log 看得到），不含金鑰與問題內容。"""
+    parts = [f"[llm] {stage}"]
+    if isinstance(error, urllib.error.HTTPError):
+        body = ""
+        try:
+            body = error.read().decode("utf-8", "replace")[:300]
+        except Exception:  # noqa: BLE001 - 診斷用，讀不到就算了
+            body = ""
+        parts.append(f"http_status={error.code}")
+        if body:
+            parts.append(f"body={' '.join(body.split())}")
+    elif error is not None:
+        parts.append(f"error={type(error).__name__}: {str(error)[:200]}")
+    if detail:
+        parts.append(detail)
+    print(" | ".join(parts), file=sys.stderr, flush=True)
 
 # Appended at request time; app/service.py parses these lines back out of the
 # answer, so the marker here and FOLLOWUP_PATTERN there must stay in sync.
@@ -94,12 +114,18 @@ class AnswerEngine:
                 generated, usage = self._call_model(question, hits, history=history)
                 if generated and re.search(r"\[\d+\]", generated):
                     return generated.strip(), "llm", "used", usage
+                log_model_failure(
+                    "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}"
+                )
                 return self._extractive_answer(hits, model_failed=True), "extractive", "missing_citations", usage
             except urllib.error.HTTPError as exc:
+                log_model_failure("answer", exc, f"model={self.model_name}")
                 return self._extractive_answer(hits, model_failed=True), "extractive", f"http_{exc.code}", empty_usage
-            except TimeoutError:
+            except TimeoutError as exc:
+                log_model_failure("answer", exc, f"timeout={self.timeout}s model={self.model_name}")
                 return self._extractive_answer(hits, model_failed=True), "extractive", "timeout", empty_usage
-            except (OSError, ValueError, KeyError, urllib.error.URLError):
+            except (OSError, ValueError, KeyError, urllib.error.URLError) as exc:
+                log_model_failure("answer", exc, f"model={self.model_name}")
                 return self._extractive_answer(hits, model_failed=True), "extractive", "invalid_response", empty_usage
         return self._extractive_answer(hits), "extractive", "not_configured", empty_usage
 
@@ -193,7 +219,13 @@ class AnswerEngine:
                     usage = event.get("response", {}).get("usage")
                     yield ("usage", self._token_usage(usage if isinstance(usage, dict) else {}))
                 elif event_type in ("response.failed", "error"):
-                    raise ValueError("model stream failed")
+                    payload = event.get("response", event)
+                    message = ""
+                    if isinstance(payload, dict):
+                        error = payload.get("error")
+                        if isinstance(error, dict):
+                            message = str(error.get("message", ""))[:200]
+                    raise ValueError(f"model stream failed: {message}" if message else "model stream failed")
 
     def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:
         request = self._model_request(question, hits, history, stream=False)

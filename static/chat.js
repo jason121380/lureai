@@ -222,9 +222,15 @@
 
     if (item.status) {
       const status = document.createElement("div");
-      status.className = `message-status ${item.status}`;
       const answered = item.status === "answered";
-      status.innerHTML = `<i data-lucide="${answered ? "badge-check" : "user-round-check"}"></i><span>${answered ? "已根據知識庫回答" : "需要人工協助"}</span>`;
+      // 模型沒回應時走的是知識原文，要講清楚，不然看起來像 AI 亂答。
+      const degraded = answered && item.modelStatus && !["used", "not_configured"].includes(item.modelStatus);
+      status.className = `message-status ${degraded ? "degraded" : item.status}`;
+      const label = answered
+        ? (degraded ? `模型未回應，以下為知識原文（${escapeHtml(item.modelStatus)}）` : "已根據知識庫回答")
+        : "需要人工協助";
+      const icon = answered ? (degraded ? "triangle-alert" : "badge-check") : "user-round-check";
+      status.innerHTML = `<i data-lucide="${icon}"></i><span>${label}</span>`;
       content.append(status);
     }
 
