@@ -1,6 +1,7 @@
 import json
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from .storage import KnowledgeStore
@@ -32,6 +33,11 @@ def load_synonym_groups(path: str | Path | None = None) -> list[list[str]]:
 GENERIC_QUERY_TOKENS = {
     "如何", "何處", "什麼", "怎麼", "麼樣", "可以", "是否", "請問", "幫我",
     "一下", "現在", "今天", "明天", "知道", "告訴", "問題", "需要", "應該",
+    # 「怎麼算」「怎麼辦」這類問句在斷詞後會留下跨字的 bigram，任何題目都會
+    # 對上，導致不相關的問題也拿到高分。
+    "麼算", "麼辦", "麼做", "麼寫", "麼看", "麼用", "麼回", "麼講", "麼查",
+    "麼開", "麼分", "麼排", "麼選", "麼談", "要怎", "該怎", "怎樣", "我想",
+    "想知", "有沒", "沒有", "是不", "不是", "可不", "不可", "要不", "不要",
 }
 
 
@@ -41,6 +47,12 @@ def relevance_tokens(text: str) -> set[str]:
 
 def relevance_bigrams(text: str) -> set[str]:
     return {token for token in cjk_bigrams(text) if token not in GENERIC_QUERY_TOKENS}
+
+
+@lru_cache(maxsize=512)
+def alias_terms(text: str) -> frozenset[str]:
+    """問法索引的比對詞：中英文都要算，因為問句常混英文（emoji、roas）。"""
+    return frozenset(relevance_tokens(text))
 
 
 # Evidence is squashed into [0.5, 1.0) instead of being clipped, so strongly
@@ -115,17 +127,24 @@ class Retriever:
             section_bigrams = cjk_bigrams(f"{row['title']} {row['section_title']}")
             field_matches = len(query_bigrams & section_bigrams)
             content_matches = len(query_bigrams & cjk_bigrams(row["text"]))
+            # 問法索引：設計師實際會怎麼問這塊知識，對得上就加分。
+            alias_text = row["aliases"] if "aliases" in row.keys() else ""
+            alias_matches = len((query_tokens | query_bigrams) & alias_terms(str(alias_text or "")))
+            # 只靠問法模板對上（例如任何題目都有的「的做法」）不算數，必須同時
+            # 命中這塊知識的標題或內文，否則不相關的問題會被拉高分數。
+            grounded_in_content = bool(field_matches or content_matches)
+            alias_score = min(0.20, alias_matches * 0.025) if grounded_in_content else 0.0
             field_score = min(0.30, field_matches * 0.085)
             content_score = min(0.12, content_matches * 0.02)
             overlap_score = min(0.20, overlap * 0.65)
-            # Curated SOP chunks are short, so raw term overlap loses to long
-            # transcripts; weight the reviewed sources enough to compete, and
-            # reward a section title that actually matches the question.
+            # 索引裡若還混有未策展的原始資料（例如私人完整索引），策展內容要
+            # 夠力才不會被長逐字稿蓋過；全部都是策展內容時這個加分不影響排序。
             curated = str(row["source_file"]).startswith("knowledge/")
-            curated_score = 0.10 if curated else 0.0
+            curated_score = 0.06 if curated else 0.0
             section_focus = min(0.10, field_matches * 0.05) if curated else 0.0
             evidence = (
-                overlap_score + field_score + content_score + curated_score + section_focus
+                overlap_score + field_score + content_score + curated_score
+                + section_focus + alias_score
             )
             score = _compress(evidence)
             hits.append(SearchHit(
