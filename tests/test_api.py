@@ -315,6 +315,68 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["answer_mode"], "extractive")
         self.assertEqual(body["model_status"], "budget_exhausted")
 
+    def test_admin_can_author_edit_and_delete_knowledge(self):
+        status, body = self.request("POST", "/api/admin/knowledge", {
+            "section_title": "新客第一次回流的追蹤節奏",
+            "category": "售後與回流",
+            "text": "服務後第三天主動關心整理狀況，不推銷；第六週再給明確的下一步。",
+        }, token="secret-token")
+
+        self.assertEqual(status, 200)
+        chunk_id = body["chunk"]["chunk_id"]
+        self.assertTrue(chunk_id.startswith("admin:"))
+
+        # The new knowledge is immediately retrievable.
+        hits = self.context.retriever.retrieve("新客回流的追蹤節奏", limit=5)
+        self.assertIn(chunk_id, [hit.chunk_id for hit in hits])
+
+        # Editing keeps the same id.
+        status, body = self.request("POST", "/api/admin/knowledge", {
+            "chunk_id": chunk_id,
+            "section_title": "新客回流節奏（修訂）",
+            "text": "服務後第三天關心整理狀況，第六週給下一步建議與可預約時段。",
+        }, token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["chunk"]["chunk_id"], chunk_id)
+        self.assertEqual(self.context.store.get_chunk(chunk_id)["section_title"], "新客回流節奏（修訂）")
+
+        status, _ = self.request("POST", "/api/admin/knowledge/delete", {"chunk_id": chunk_id}, token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertIsNone(self.context.store.get_chunk(chunk_id))
+
+    def test_reindex_keeps_admin_authored_knowledge(self):
+        status, body = self.request("POST", "/api/admin/knowledge", {
+            "section_title": "後台知識應保留",
+            "text": "重建索引時，後台新增的知識不應該被匯入檔覆蓋掉。",
+        }, token="secret-token")
+        chunk_id = body["chunk"]["chunk_id"]
+
+        status, _ = self.request("POST", "/api/admin/reindex", {}, token="secret-token")
+
+        self.assertEqual(status, 200)
+        self.assertIsNotNone(self.context.store.get_chunk(chunk_id))
+        self.assertIsNotNone(self.context.store.get_chunk("chunk-1"))
+
+    def test_admin_knowledge_rejects_editing_imported_chunks(self):
+        status, body = self.request("POST", "/api/admin/knowledge", {
+            "chunk_id": "chunk-1", "section_title": "覆寫匯入知識", "text": "不應該被允許。",
+        }, token="secret-token")
+
+        self.assertEqual(status, 400)
+        self.assertIn("後台建立", body["message"])
+
+    def test_admin_quality_report_flags_unreadable_chunks(self):
+        status, body = self.request("GET", "/api/admin/knowledge/quality", token="secret-token")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["total"], 1)
+        self.assertIn("counts", body)
+        self.assertIn("fragment", body["labels"])
+
+    def test_removed_admin_endpoints_are_gone(self):
+        self.assertEqual(self.request("POST", "/api/admin/retrieve", {"message": "x"}, token="secret-token")[0], 404)
+        self.assertEqual(self.request("GET", "/api/admin/audits", token="secret-token")[0], 404)
+
     def test_chat_stream_returns_ndjson_result(self):
         self.request("POST", "/api/auth/login", {
             "username": "designer", "password": "designer-password",

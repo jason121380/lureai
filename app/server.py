@@ -13,10 +13,12 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from .answer import AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
+from .curation import quality_report
 from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
@@ -39,6 +41,50 @@ CONTENT_SECURITY_POLICY = (
     "frame-ancestors 'none'"
 )
 LONG_CACHE_SUFFIXES = {".png", ".svg", ".ico", ".woff", ".woff2", ".webmanifest"}
+
+CUSTOM_SOURCE_FILE = "knowledge/admin_authored.md"
+MAX_KNOWLEDGE_TEXT = 8000
+
+
+def build_custom_chunk(payload: dict, access_level: str) -> dict:
+    """Turn admin form input into an approved chunk the retriever can index."""
+    from .text_utils import search_tokens
+
+    title = " ".join(str(payload.get("title", "")).split())
+    section_title = " ".join(str(payload.get("section_title", "")).split())
+    category = " ".join(str(payload.get("category", "")).split())
+    text = str(payload.get("text", "")).strip()
+    if not section_title:
+        raise ValueError("標題不可為空")
+    if len(section_title) > 80:
+        raise ValueError("標題不可超過 80 個字")
+    if not text:
+        raise ValueError("內容不可為空")
+    if len(text) > MAX_KNOWLEDGE_TEXT:
+        raise ValueError(f"內容不可超過 {MAX_KNOWLEDGE_TEXT} 個字")
+    chunk_id = str(payload.get("chunk_id", "")).strip()
+    if chunk_id and not chunk_id.startswith("admin:"):
+        raise ValueError("只能編輯後台建立的知識")
+    if not chunk_id:
+        chunk_id = f"admin:{uuid4().hex[:12]}"
+    searchable = " ".join([title or "後台新增知識", section_title, category, text])
+    return {
+        "chunk_id": chunk_id,
+        "doc_id": "admin-authored",
+        "locator": chunk_id.split(":", 1)[1],
+        "section_title": section_title,
+        "text": text,
+        "title": title or "後台新增知識",
+        "source_file": CUSTOM_SOURCE_FILE,
+        "source_sha256": "",
+        "category": category or "後台新增",
+        "access_level": access_level,
+        "rag_allowed": True,
+        "review_status": "approved",
+        "reviewer": "管理後台",
+        "reviewed_at": datetime.now(timezone.utc).date().isoformat(),
+        "search_text": " ".join(search_tokens(searchable)),
+    }
 
 
 def load_pipeline_stats(knowledge_path: Path) -> dict:
@@ -319,25 +365,54 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if self._require_admin():
                     stats = context.store.stats()
                     stats["pipeline"] = context.pipeline_stats or {}
+                    stats["composition"] = context.store.knowledge_composition()
                     self._json(HTTPStatus.OK, stats)
+                return
+            if parsed.path == "/api/admin/knowledge/quality":
+                if self._require_admin():
+                    chunks = context.store.list_chunks(limit=100000)
+                    self._json(HTTPStatus.OK, quality_report(chunks))
+                return
+            if parsed.path == "/api/admin/knowledge/export":
+                if not self._require_admin():
+                    return
+                payloads = context.store.all_chunk_payloads()
+                body = "\n".join(
+                    json.dumps(payload, ensure_ascii=False) for payload in payloads
+                ).encode("utf-8") + b"\n"
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header(
+                    "Content-Disposition", 'attachment; filename="knowledge-export.jsonl"'
+                )
+                self._send_security_headers()
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if parsed.path == "/api/admin/health":
                 if self._require_admin():
                     self._json(HTTPStatus.OK, build_health_report(context))
                 return
-            if parsed.path == "/api/admin/audits":
-                if self._require_admin():
-                    self._json(HTTPStatus.OK, {"items": context.store.list_audits(100)})
-                return
             if parsed.path == "/api/admin/chunks":
                 if not self._require_admin():
                     return
-                query = parse_qs(parsed.query).get("q", [""])[0]
-                if query.strip():
-                    items = [hit.citation() for hit in context.retriever.retrieve(query, limit=50)]
+                params = parse_qs(parsed.query)
+                query = params.get("q", [""])[0].strip()
+                origin = params.get("origin", [""])[0].strip()
+                if query:
+                    hits = context.retriever.retrieve(query, limit=60)
+                    found = {hit.chunk_id for hit in hits}
+                    items = [
+                        chunk for chunk in context.store.list_chunks(limit=100000)
+                        if chunk["chunk_id"] in found
+                    ]
                 else:
-                    items = context.store.list_chunks(100)
-                self._json(HTTPStatus.OK, {"items": items})
+                    items = context.store.list_chunks(limit=200)
+                if origin in ("file", "custom"):
+                    items = [item for item in items if item.get("origin") == origin]
+                self._json(HTTPStatus.OK, {"items": items[:200]})
                 return
             if parsed.path.startswith("/api/"):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
@@ -509,11 +584,28 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "errors": report.errors,
                     })
                     return
-                if parsed.path == "/api/admin/retrieve":
+                if parsed.path == "/api/admin/knowledge":
                     if not self._require_admin():
                         return
-                    hits = context.retriever.retrieve(payload.get("message", ""), limit=6)
-                    self._json(HTTPStatus.OK, {"items": [hit.citation() for hit in hits]})
+                    chunk = build_custom_chunk(payload, context.access_level)
+                    context.store.upsert_custom_chunk(chunk)
+                    self._json(HTTPStatus.OK, {"chunk": {
+                        "chunk_id": chunk["chunk_id"],
+                        "section_title": chunk["section_title"],
+                        "category": chunk["category"],
+                    }})
+                    return
+                if parsed.path == "/api/admin/knowledge/delete":
+                    if not self._require_admin():
+                        return
+                    chunk_id = str(payload.get("chunk_id", "")).strip()
+                    if not context.store.delete_custom_chunk(chunk_id):
+                        self._json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": "not_found", "message": "只能刪除後台建立的知識"},
+                        )
+                        return
+                    self._json(HTTPStatus.OK, {"status": "deleted", "chunk_id": chunk_id})
                     return
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
             except ValueError as exc:

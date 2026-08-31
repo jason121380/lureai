@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#ffffff">
-  <title>知識庫管理｜lure ai</title>
+  <title>知識庫管理｜LUREAI</title>
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="app-icon.png">
   <link rel="stylesheet" href="app.css">
@@ -15,34 +15,78 @@
       <a href="/" class="brand-row admin-brand">
         <img class="brand-logo" src="logo.svg" alt="lure ai">
       </a>
-      <div class="admin-nav-label">管理後台</div>
+      <div class="admin-nav-label">知識庫管理</div>
       <nav class="admin-nav-links">
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
-        <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
+        <a href="#knowledge"><i data-lucide="library"></i><span>知識庫</span></a>
+        <a href="#quality"><i data-lucide="sparkles"></i><span>品質檢查</span></a>
         <a href="#users"><i data-lucide="users"></i><span>使用者帳號</span></a>
-        <a href="#retrieval"><i data-lucide="scan-search"></i><span>檢索測試</span></a>
-        <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
-        <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
+        <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
       </nav>
       <a class="sidebar-link admin-chat-link" href="/"><i data-lucide="messages-square"></i><span id="admin-chat-label">返回輔導對話</span></a>
     </aside>
 
     <main class="admin-main">
       <section id="overview" class="admin-section">
-        <div class="section-heading"><div><h2>運作狀態</h2><p id="admin-status">載入中</p></div><button id="reindex-button" class="command-button"><i data-lucide="refresh-cw"></i><span>重新建立索引</span></button></div>
+        <div class="section-heading">
+          <div><h2>知識庫總覽</h2><p id="admin-status">載入中</p></div>
+          <div class="heading-actions">
+            <a id="export-button" class="command-button ghost-button" href="/api/admin/knowledge/export"><i data-lucide="download"></i><span>匯出 JSONL</span></a>
+            <button id="reindex-button" class="command-button"><i data-lucide="refresh-cw"></i><span>重建索引</span></button>
+          </div>
+        </div>
         <div id="stats-grid" class="stats-grid">
-          <div class="stat-card"><span>核准區塊</span><strong id="stat-chunks">—</strong></div>
-          <div class="stat-card"><span>累計查詢</span><strong id="stat-audits">—</strong></div>
-          <div class="stat-card"><span>已回答</span><strong id="stat-answered">—</strong></div>
-          <div class="stat-card alert-stat"><span>轉人工</span><strong id="stat-escalated">—</strong></div>
+          <div class="stat-card"><span>知識區塊</span><strong id="stat-chunks">—</strong></div>
+          <div class="stat-card"><span>來源檔案</span><strong id="stat-sources">—</strong></div>
+          <div class="stat-card"><span>後台新增</span><strong id="stat-custom">—</strong></div>
+          <div class="stat-card alert-stat"><span>待整理</span><strong id="stat-flagged">—</strong></div>
         </div>
-        <div class="pipeline-heading"><h3>來源處理完整度</h3><p>完整資料只會在已掛載私人知識檔的環境顯示</p></div>
-        <div class="stats-grid pipeline-grid">
-          <div class="stat-card"><span>來源檔案</span><strong id="stat-source-files">—</strong></div>
-          <div class="stat-card"><span>Markdown</span><strong id="stat-markdown-files">—</strong></div>
-          <div class="stat-card"><span>去識別對話案例</span><strong id="stat-conversation-cases">—</strong></div>
-          <div class="stat-card alert-stat"><span>受密碼保護</span><strong id="stat-protected-files">—</strong></div>
+        <div class="pipeline-heading"><h3>主題涵蓋範圍</h3><p>每個主題目前有多少知識可以被引用</p></div>
+        <div id="category-grid" class="category-grid"><div class="empty-state">載入中</div></div>
+      </section>
+
+      <section id="knowledge" class="admin-section" hidden>
+        <div class="section-heading">
+          <div><h2>知識庫</h2><p id="admin-knowledge-scope">目前可被引用的知識；後台新增的可直接編輯</p></div>
+          <button id="new-knowledge" class="command-button" type="button"><i data-lucide="plus"></i><span>新增知識</span></button>
         </div>
+
+        <form id="knowledge-editor" class="knowledge-editor" hidden>
+          <input type="hidden" id="editor-chunk-id">
+          <div class="editor-row">
+            <label>標題<input id="editor-title" maxlength="80" placeholder="例如：新客第一次回流的追蹤節奏" required></label>
+            <label>主題分類<input id="editor-category" maxlength="20" placeholder="例如：售後與回流"></label>
+          </div>
+          <label class="editor-body">內容
+            <textarea id="editor-text" rows="10" maxlength="8000" placeholder="用完整句子寫，建議包含：判斷標準、步驟、話術範例、常見錯誤、驗收方式。"></textarea>
+          </label>
+          <div class="editor-actions">
+            <span id="editor-hint" class="editor-hint">寫得越像「人講話」，AI 回答就越自然</span>
+            <button type="button" id="editor-cancel" class="command-button ghost-button">取消</button>
+            <button type="submit" class="command-button"><i data-lucide="check"></i><span>儲存知識</span></button>
+          </div>
+        </form>
+
+        <form id="knowledge-form" class="admin-search-form compact-search">
+          <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋知識">
+          <select id="knowledge-origin" aria-label="來源篩選">
+            <option value="">全部來源</option>
+            <option value="custom">後台新增</option>
+            <option value="file">匯入知識</option>
+          </select>
+          <button class="icon-button bordered-icon" type="submit" title="搜尋" aria-label="搜尋"><i data-lucide="search"></i></button>
+        </form>
+        <div id="knowledge-results" class="knowledge-list"><div class="empty-state">載入中</div></div>
+      </section>
+
+      <section id="quality" class="admin-section" hidden>
+        <div class="section-heading">
+          <div><h2>品質檢查</h2><p>找出讀起來零碎、遮罩過多或標題無意義的知識</p></div>
+          <button id="refresh-quality" class="command-button" type="button"><i data-lucide="refresh-cw"></i><span>重新檢查</span></button>
+        </div>
+        <div id="quality-summary" class="stats-grid"><div class="empty-state">載入中</div></div>
+        <div class="pipeline-heading"><h3>需要整理的知識</h3><p>點「編輯」可改寫成完整句子；匯入知識需在原始檔調整</p></div>
+        <div id="quality-list" class="knowledge-list"><div class="empty-state">載入中</div></div>
       </section>
 
       <section id="users" class="admin-section" hidden>
@@ -76,29 +120,6 @@
         <div id="health-grid" class="health-grid" aria-live="polite">
           <div class="empty-state">載入中</div>
         </div>
-      </section>
-
-      <section id="retrieval" class="admin-section" hidden>
-        <div class="section-heading"><div><h2>檢索測試</h2><p>只顯示 RAG 命中，不呼叫語言模型</p></div></div>
-        <form id="retrieval-form" class="admin-search-form">
-          <input id="retrieval-query" type="search" placeholder="輸入測試問題" aria-label="輸入檢索測試問題">
-          <button class="command-button" type="submit"><i data-lucide="scan-search"></i><span>執行檢索</span></button>
-        </form>
-        <div id="retrieval-results" class="result-list empty-state">尚無檢索結果</div>
-      </section>
-
-      <section id="knowledge" class="admin-section" hidden>
-        <div class="section-heading"><div><h2>核准知識</h2><p id="admin-knowledge-scope">目前可使用的來源區塊</p></div></div>
-        <form id="knowledge-form" class="admin-search-form compact-search">
-          <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋核准知識">
-          <button class="icon-button bordered-icon" type="submit" title="搜尋知識" aria-label="搜尋知識"><i data-lucide="search"></i></button>
-        </form>
-        <div id="knowledge-results" class="table-shell"><div class="empty-state">載入中</div></div>
-      </section>
-
-      <section id="audits" class="admin-section" hidden>
-        <div class="section-heading"><div><h2>查詢稽核</h2><p>最近 100 筆問題與處理狀態</p></div><button id="refresh-audits" class="icon-button bordered-icon" title="重新整理稽核" aria-label="重新整理稽核"><i data-lucide="refresh-cw"></i></button></div>
-        <div id="audit-results" class="table-shell"><div class="empty-state">載入中</div></div>
       </section>
     </main>
   </div>
