@@ -16,6 +16,27 @@ from .service import CustomerService
 from .storage import KnowledgeStore
 
 
+def load_pipeline_stats(knowledge_path: Path) -> dict:
+    candidates = [knowledge_path.parent / "manifest.json"]
+    if knowledge_path.parent.name == "rag":
+        candidates.insert(0, knowledge_path.parent.parent / "manifest.json")
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        statuses = payload.get("status_counts", {})
+        return {
+            "source_files": int(payload.get("source_files", 0)),
+            "markdown_files": int(payload.get("markdown_files", 0)),
+            "conversation_cases": int(payload.get("conversation_cases", 0)),
+            "protected_files": int(statuses.get("protected", 0)),
+        }
+    return {}
+
+
 @dataclass
 class AppContext:
     store: KnowledgeStore
@@ -29,6 +50,7 @@ class AppContext:
     app_name: str = "張副總 AI 客服"
     assistant_name: str = "AI 客服"
     welcome_prompts: tuple[str, ...] = ()
+    pipeline_stats: dict | None = None
     max_request_bytes: int = 65536
 
     @classmethod
@@ -66,8 +88,18 @@ class AppContext:
             top_k=top_k,
         )
         return cls(
-            store, service, retriever, knowledge, Path(static_dir), admin_token,
-            profile, access_level, app_name, assistant_name, welcome_prompts,
+            store=store,
+            service=service,
+            retriever=retriever,
+            knowledge_path=knowledge,
+            static_dir=Path(static_dir),
+            admin_token=admin_token,
+            profile=profile,
+            access_level=access_level,
+            app_name=app_name,
+            assistant_name=assistant_name,
+            welcome_prompts=welcome_prompts,
+            pipeline_stats=load_pipeline_stats(knowledge),
         )
 
     def close(self) -> None:
@@ -130,7 +162,9 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             if parsed.path == "/api/admin/stats":
                 if self._require_admin():
-                    self._json(HTTPStatus.OK, context.store.stats())
+                    stats = context.store.stats()
+                    stats["pipeline"] = context.pipeline_stats or {}
+                    self._json(HTTPStatus.OK, stats)
                 return
             if parsed.path == "/api/admin/audits":
                 if self._require_admin():

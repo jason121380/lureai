@@ -52,7 +52,12 @@
       el("stat-audits").textContent = body.audits;
       el("stat-answered").textContent = body.statuses.answered || 0;
       el("stat-escalated").textContent = body.statuses.escalated || 0;
-      el("admin-status").textContent = `管理權限已驗證 · ${body.chunks} 個客服知識區塊`;
+      const pipeline = body.pipeline || {};
+      el("stat-source-files").textContent = pipeline.source_files ?? "—";
+      el("stat-markdown-files").textContent = pipeline.markdown_files ?? "—";
+      el("stat-conversation-cases").textContent = pipeline.conversation_cases ?? "—";
+      el("stat-protected-files").textContent = pipeline.protected_files ?? "—";
+      el("admin-status").textContent = `管理權限已驗證 · ${body.chunks} 個知識區塊`;
       return true;
     } catch (error) {
       el("admin-status").textContent = error.message;

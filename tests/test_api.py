@@ -21,6 +21,12 @@ class ApiTests(unittest.TestCase):
             title="燙髮居家照護",
             text="燙髮後整理時，依照設計師示範方向吹整。",
         ), ensure_ascii=False), encoding="utf-8")
+        (root / "manifest.json").write_text(json.dumps({
+            "source_files": 267,
+            "markdown_files": 537,
+            "conversation_cases": 270,
+            "status_counts": {"protected": 15},
+        }), encoding="utf-8")
         self.context = AppContext.create(
             db_path=root / "knowledge.db",
             knowledge_path=source,
@@ -76,6 +82,8 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["chunks"], 1)
+        self.assertEqual(body["pipeline"]["source_files"], 267)
+        self.assertEqual(body["pipeline"]["conversation_cases"], 270)
 
 
 if __name__ == "__main__":

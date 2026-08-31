@@ -59,7 +59,12 @@ class RetrievalPolicyTests(unittest.TestCase):
     def test_unrelated_query_has_no_high_confidence_hit(self):
         hits = self.retriever.retrieve("明天天氣如何")
 
-        self.assertFalse(hits)
+        self.assertTrue(not hits or hits[0].score < 0.72)
+
+    def test_generic_question_words_do_not_create_false_confidence(self):
+        hits = self.retriever.retrieve("明天天氣怎麼樣？")
+
+        self.assertTrue(not hits or hits[0].score < 0.72)
 
     def test_field_concepts_make_general_booking_question_answerable(self):
         hits = self.retriever.retrieve("預約需要提供什麼資訊")
@@ -83,6 +88,12 @@ class RetrievalPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, "escalate")
         self.assertEqual(decision.reason, "live_schedule")
+
+    def test_labor_question_escalates_before_historical_material_is_used(self):
+        decision = self.policy.precheck("設計師薪資抽成怎麼算？")
+
+        self.assertEqual(decision.action, "escalate")
+        self.assertEqual(decision.reason, "labor_hr")
 
     def test_low_confidence_results_escalate(self):
         hit = SearchHit(

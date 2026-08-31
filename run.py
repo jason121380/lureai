@@ -45,7 +45,7 @@ PROFILES = {
         ),
         "blocked_topics": {
             key: SENSITIVE_TOPICS[key]
-            for key in ("personal_or_payment", "health_or_medical", "legal_refund_or_compensation")
+            for key in ("personal_or_payment", "health_or_medical", "legal_refund_or_compensation", "labor_hr")
         },
         "fallback_message": "目前內部知識庫沒有足夠且已核准的資料，請補充數據或交由輔導主管確認。",
     },
@@ -67,9 +67,12 @@ def default_paths(
     profile_config = load_profile(profile_name)
     configured_knowledge = os.environ.get("KNOWLEDGE_JSONL")
     bundled_knowledge = root / "knowledge" / profile_config["knowledge_file"]
+    private_full_knowledge = root / "private_sources" / "full" / "rag" / f"{profile_name}_full.jsonl"
     sibling_knowledge = root.parent / "張副總知識庫大腦-v3" / "rag" / "active_customer_service.jsonl"
     if configured_knowledge:
         knowledge = Path(configured_knowledge)
+    elif private_full_knowledge.is_file():
+        knowledge = private_full_knowledge
     elif bundled_knowledge.is_file() or profile_name != "customer_service":
         knowledge = bundled_knowledge
     else:

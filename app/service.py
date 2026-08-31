@@ -62,6 +62,12 @@ class CustomerService:
             return result
 
         grounded_hits = [hit for hit in hits if hit.score >= self.policy.minimum_score]
+        primary_hits = [hit for hit in grounded_hits if hit.category != "歷史輔導案例"]
+        historical_hits = [hit for hit in grounded_hits if hit.category == "歷史輔導案例"]
+        if primary_hits:
+            grounded_hits = (primary_hits + historical_hits[:1])[:self.top_k]
+        else:
+            grounded_hits = historical_hits[:2]
         answer, mode = self.answerer.answer(question, grounded_hits)
         result = {
             "trace_id": trace_id,

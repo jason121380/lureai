@@ -13,6 +13,14 @@ from app.storage import KnowledgeStore
 from tests.test_ingest import approved_chunk
 
 
+class StubRetriever:
+    def __init__(self, hits):
+        self.hits = hits
+
+    def retrieve(self, _question, limit=6):
+        return self.hits[:limit]
+
+
 class ServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -79,6 +87,18 @@ class ServiceTests(unittest.TestCase):
         audits = self.store.list_audits()
         self.assertEqual(audits[0]["trace_id"], result["trace_id"])
         self.assertEqual(audits[0]["status"], "escalated")
+
+    def test_curated_sources_are_ordered_before_historical_cases(self):
+        from app.retrieval import SearchHit
+
+        historical = SearchHit("case", "案例", "private.md", "case-1", "案例", "歷史內容", "歷史輔導案例", 0.99)
+        curated = SearchHit("sop", "流程", "knowledge/sop.md", "sop-1", "流程", "核准流程", "核心原則", 0.90)
+        self.service.retriever = StubRetriever([historical, curated])
+
+        result = self.service.chat("燙髮後怎麼整理？")
+
+        self.assertEqual(result["citations"][0]["chunk_id"], "sop")
+        self.assertEqual(result["citations"][1]["chunk_id"], "case")
 
 
 if __name__ == "__main__":

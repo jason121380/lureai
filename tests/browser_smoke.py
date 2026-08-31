@@ -10,6 +10,10 @@ QA.mkdir(exist_ok=True)
 BASE_URL = os.getenv("BROWSER_BASE_URL", "http://127.0.0.1:8765")
 PROFILE = os.getenv("BROWSER_PROFILE", "customer_service")
 EXPECTED_CHUNKS = os.getenv("BROWSER_EXPECTED_CHUNKS", "15")
+EXPECTED_SOURCE_FILES = os.getenv("BROWSER_EXPECTED_SOURCE_FILES")
+EXPECTED_MARKDOWN_FILES = os.getenv("BROWSER_EXPECTED_MARKDOWN_FILES")
+EXPECTED_CONVERSATION_CASES = os.getenv("BROWSER_EXPECTED_CONVERSATION_CASES")
+EXPECTED_PROTECTED_FILES = os.getenv("BROWSER_EXPECTED_PROTECTED_FILES")
 COACHING = PROFILE == "designer_coach"
 GROUNDED_QUESTION = (
     "設計師私訊很多但預約很少，先查什麼？"
@@ -64,6 +68,14 @@ with sync_playwright() as playwright:
         "expected => document.querySelector('#stat-chunks').textContent === expected",
         EXPECTED_CHUNKS,
     )
+    for selector, expected in [
+        ("#stat-source-files", EXPECTED_SOURCE_FILES),
+        ("#stat-markdown-files", EXPECTED_MARKDOWN_FILES),
+        ("#stat-conversation-cases", EXPECTED_CONVERSATION_CASES),
+        ("#stat-protected-files", EXPECTED_PROTECTED_FILES),
+    ]:
+        if expected:
+            assert page.locator(selector).inner_text() == expected
     page.screenshot(path=QA / f"{PROFILE}-admin-desktop.png", full_page=True)
     assert_no_horizontal_overflow(page)
 
@@ -87,6 +99,8 @@ with sync_playwright() as playwright:
         "expected => document.querySelector('#stat-chunks').textContent === expected",
         EXPECTED_CHUNKS,
     )
+    if EXPECTED_SOURCE_FILES:
+        assert mobile.locator("#stat-source-files").inner_text() == EXPECTED_SOURCE_FILES
     mobile.screenshot(path=QA / f"{PROFILE}-admin-mobile.png", full_page=True)
     assert_no_horizontal_overflow(mobile)
 

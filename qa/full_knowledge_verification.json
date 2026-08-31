@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-08-31T05:46:47.955381+00:00",
+  "passed": true,
+  "checks": {
+    "source_manifest_matches": true,
+    "every_source_has_markdown": true,
+    "conversation_manifest_matches": true,
+    "every_conversation_has_markdown": true,
+    "markdown_total_matches": true,
+    "no_failed_extractions": true,
+    "no_email_in_conversations": true,
+    "no_url_in_conversations": true,
+    "no_mobile_in_conversations": true,
+    "no_address_in_conversations": true,
+    "no_raw_conversation_ids": true,
+    "no_known_names": true,
+    "customer_jsonl_valid": true,
+    "coach_jsonl_valid": true,
+    "historical_rag_numbers_masked": true,
+    "customer_relevant_above_threshold": true,
+    "coach_relevant_above_threshold": true,
+    "customer_unrelated_below_threshold": true,
+    "coach_unrelated_below_threshold": true
+  },
+  "counts": {
+    "source_files": 267,
+    "source_markdown": 267,
+    "conversation_markdown": 270,
+    "total_markdown": 537,
+    "customer_chunks": 549,
+    "coach_chunks": 2443,
+    "protected_files": 15,
+    "corrupt_or_unknown": 1,
+    "leaked_names": 0,
+    "leaked_ids": 0
+  },
+  "retrieval_scores": {
+    "customer_aftercare": 0.8544,
+    "customer_unrelated_weather": 0.6772,
+    "coach_private_message": 1.0,
+    "coach_unrelated_weather": 0.6772
+  }
+}

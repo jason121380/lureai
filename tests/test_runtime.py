@@ -20,6 +20,20 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(paths["knowledge"], bundled)
             self.assertEqual(paths["database"], root / "data/knowledge.db")
 
+    def test_default_paths_prefer_private_full_index_when_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private_index = root / "private_sources/full/rag/customer_service_full.jsonl"
+            private_index.parent.mkdir(parents=True)
+            private_index.write_text("", encoding="utf-8")
+            bundled = root / "knowledge/active_customer_service.jsonl"
+            bundled.parent.mkdir()
+            bundled.write_text("", encoding="utf-8")
+
+            paths = default_paths(root)
+
+            self.assertEqual(paths["knowledge"], private_index)
+
     def test_environment_can_override_knowledge_path(self):
         with patch.dict(os.environ, {"KNOWLEDGE_JSONL": "/tmp/custom.jsonl"}):
             paths = default_paths(Path("/tmp/project"))

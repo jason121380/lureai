@@ -6,8 +6,9 @@ ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG pro
 
 - 客服聊天介面、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
-- 15 個已核准客服知識 chunks
-- 25 個去識別化、附來源雜湊的設計師輔導 chunks
+- 本機完整索引：549 個客服 chunks、2,443 個設計師輔導 chunks
+- 公開倉庫安全種子：15 個客服 chunks、25 個輔導流程 chunks
+- 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `customer_service`／`designer_coach` 雙 profile 隔離
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 價格、療效、退款、賠償、個資與即時預約轉人工
@@ -43,7 +44,16 @@ LLM_API_KEY=你的OpenAI_API_Key
 LLM_MODEL=gpt-5.6-luna
 ```
 
-Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。若部署客服版本，將 `APP_PROFILE` 改成 `customer_service`。不要設定 `KNOWLEDGE_JSONL` 或 `APP_DB_PATH`，讓 profile 自動選擇隨附知識與獨立資料庫。
+Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。若部署客服版本，將 `APP_PROFILE` 改成 `customer_service`。
+
+公開 GitHub 倉庫只包含安全種子知識。要讓 Zeabur 使用完整私人索引，必須先透過私人 Git 倉庫、私有物件儲存或持久化 Volume 把對應 JSONL 放進服務，再設定：
+
+```dotenv
+KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
+APP_DB_PATH=/data/hair-brain/designer_coach.db
+```
+
+客服部署則改用 `customer_service_full.jsonl` 與 `knowledge.db`。SQLite 只負責本機索引及稽核紀錄，不需要另外建立 PostgreSQL；若 Pod 沒有持久化 Volume，重新部署時稽核紀錄會重置。
 
 ## 系統需求
 
@@ -100,9 +110,15 @@ export LLM_MODEL="gpt-5.6-luna"
 python3 run.py
 ```
 
-## 知識資料
+## 知識資料架構
 
-預設載入：
+程式依以下順序選擇知識檔：
+
+1. `KNOWLEDGE_JSONL` 指定的檔案
+2. 本機存在的 `private_sources/full/rag/{profile}_full.jsonl`
+3. 公開倉庫的安全種子 JSONL
+
+公開種子：
 
 ```text
 knowledge/active_customer_service.jsonl
@@ -114,7 +130,19 @@ knowledge/active_customer_service.jsonl
 knowledge/designer_coaching_process.jsonl
 ```
 
-其人工審核來源為 `knowledge/designer_coaching_process.md`。原始對話匯出含個資、帳務、法律個案、歷史價格及逐筆業績，只保留在 Git 忽略的 `private_sources/`，不會進入正式索引或 GitHub。
+其人工審核來源為 `knowledge/designer_coaching_process.md`。完整資料產物位於 Git 忽略的 `private_sources/full/`：
+
+```text
+private_sources/full/
+├── extracted/       # 267 份來源各一份 MD，保留頁碼、投影片、工作表或段落定位
+├── conversations/   # 270 份去識別化 1 對 1 輔導案例 MD
+├── rag/             # 客服與內部輔導兩份完整 JSONL
+└── manifest.json    # 每檔雜湊、狀態、摘要、警告與統計
+```
+
+對話原始匯出共有 270 個對話、12,664 則訊息，經去識別化及有重疊的長度切分後形成 491 個案例 chunks，再與簡報、試算表、文件、PDF、圖片 OCR 及核准流程知識合併。歷史教材中的價格、時程、制度、活動與效果只作案例，不能當現行資訊。
+
+完整處理結果：243 份成功抽取、5 份暫存檔略過、3 份系統檔只記錄中繼資料、15 份密碼保護檔無法讀取內文、1 份損壞舊簡報無法復原。所有 267 份仍各自具有狀態 MD；系統不會把無法讀取的檔案標成已抽取。
 
 匯入器只接受同時符合以下條件的資料：
 
@@ -131,6 +159,25 @@ python3 run.py --reindex-only
 ```
 
 完整內部索引不會被客服程式讀取。
+
+### 重建完整私人知識
+
+完整抽取需要 Python 的 `python-pptx`、`openpyxl`、`python-docx`、`pypdf`、Pillow，以及 LibreOffice `soffice`。macOS 圖片與影片畫面 OCR 使用內附 Swift 程式：
+
+```bash
+mkdir -p private_sources/bin
+swiftc scripts/vision_ocr.swift -o private_sources/bin/vision_ocr
+swiftc scripts/video_frame_ocr.swift -o private_sources/bin/video_frame_ocr
+python3 scripts/build_full_knowledge.py \
+  /absolute/path/to/source-folder private_sources/full \
+  --ocr-binary private_sources/bin/vision_ocr \
+  --video-ocr-binary private_sources/bin/video_frame_ocr
+python3 run.py --profile customer_service --reindex-only
+python3 run.py --profile designer_coach --reindex-only
+python3 scripts/verify_full_knowledge.py
+```
+
+驗證報告在 `qa/full_knowledge_verification.json`。影片目前抽取檔案中繼資料與取樣畫面的 OCR，不包含語音轉錄。
 
 ### Profile 對照
 
