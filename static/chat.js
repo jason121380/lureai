@@ -448,7 +448,6 @@
       : state.welcomePrompts;
     const appName = body.app_name || "張副總 AI 客服";
     document.title = appName;
-    el("app-subtitle").textContent = appName;
     prompt.placeholder = state.profile === "designer_coach" ? "輸入輔導問題" : "輸入客服問題";
     el("knowledge-scope").textContent = state.profile === "designer_coach"
       ? "回答僅使用已核准內部輔導知識"
