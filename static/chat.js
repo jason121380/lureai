@@ -199,7 +199,7 @@
         const button = document.createElement("button");
         button.className = "citation-button";
         button.type = "button";
-        button.innerHTML = `<span class="citation-number">${index + 1}</span><span>${escapeHtml(citation.title)}</span>`;
+        button.innerHTML = `<span class="citation-number">${index + 1}</span><span>${escapeHtml(citation.section_title || citation.title)}</span>`;
         button.addEventListener("click", () => openSources(item.citations, index));
         citations.append(button);
       });
@@ -322,8 +322,8 @@
       if (index === selectedIndex) block.dataset.selected = "true";
       block.innerHTML = `
         <div class="source-topline"><span class="source-index">[${index + 1}]</span><span class="source-score">信心 ${Math.round((citation.score || 0) * 100)}%</span></div>
-        <h3>${escapeHtml(citation.title)}</h3>
-        <div class="source-locator">${escapeHtml(citation.source_file)} · ${escapeHtml(citation.locator)}</div>
+        <h3>${escapeHtml(citation.section_title || citation.title)}</h3>
+        <div class="source-locator">${escapeHtml(citation.title)} · ${escapeHtml(citation.locator)}</div>
         <p class="source-excerpt">${escapeHtml(citation.text)}</p>`;
       content.append(block);
     });

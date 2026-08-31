@@ -77,6 +77,9 @@ def deployable_row(row: dict, names: set[str] | None = None) -> dict | None:
         output[field] = sanitize_deployable_text(
             sanitize_message(str(output.get(field, "")), names or set())
         )
+    # A masked name at the start of a title ("[人名] 1 對 1 輔導流程") makes
+    # every citation look identical; the title works without it.
+    output["title"] = re.sub(r"^\[人名\]\s*", "", output["title"])
     if str(output.get("chunk_id", "")).startswith("source-doc:"):
         digest = str(output.get("source_sha256", ""))[:16] or "unknown"
         category = str(output.get("category", "企業知識"))
