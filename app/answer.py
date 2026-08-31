@@ -31,17 +31,15 @@ def model_url(base_url: str, model: str) -> str:
 
 
 DEFAULT_MODEL_TIMEOUT = 60.0
-# Reasoning tokens count against max_output_tokens on the Responses API, so
-# the cap must leave room for both thinking and the visible answer.
-DEFAULT_MAX_OUTPUT_TOKENS = 4000
-
-
-def max_output_tokens() -> int:
+# Reasoning tokens count against max_output_tokens on the Responses API.
+# No cap by default so answers are never cut off; set LLM_MAX_OUTPUT_TOKENS
+# to a positive number to enforce one.
+def max_output_tokens() -> int | None:
     try:
-        value = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "") or DEFAULT_MAX_OUTPUT_TOKENS)
+        value = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "") or 0)
     except ValueError:
-        return DEFAULT_MAX_OUTPUT_TOKENS
-    return value if value > 0 else DEFAULT_MAX_OUTPUT_TOKENS
+        return None
+    return value if value > 0 else None
 
 
 def model_timeout() -> float:
@@ -130,9 +128,11 @@ class AnswerEngine:
             "instructions": self.policy,
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
-            "max_output_tokens": max_output_tokens(),
             "store": False,
         }
+        cap = max_output_tokens()
+        if cap is not None:
+            payload["max_output_tokens"] = cap
         if stream:
             payload["stream"] = True
         return urllib.request.Request(
