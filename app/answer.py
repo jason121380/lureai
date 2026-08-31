@@ -33,12 +33,29 @@ def log_model_failure(stage: str, error: BaseException | None = None, detail: st
 
 # Appended at request time; app/service.py parses these lines back out of the
 # answer, so the marker here and FOLLOWUP_PATTERN there must stay in sync.
+# 模型偶爾會漏掉引用編號；重試那一次把要求講到最白。
+CITATION_RETRY_NOTE = (
+    "\n\n注意：你上一次的回答因為沒有附 [編號] 引用被整篇丟棄。"
+    "這次每一個條列點的結尾都必須有對應來源的半形引用，例如「先算出回覆率 [1]」。"
+)
+
 FOLLOWUP_INSTRUCTION = (
     "\n\n回答結束後空一行，另外輸出恰好 3 行，每行以「▷ 」開頭，"
     "各寫一個「設計師本人」最可能接著問你的問題，用他的第一人稱口吻"
     "（例如「那我第一步該做什麼？」「我的數字要記多久才夠？」）。"
     "每行 20 字內、繁體中文、不加引用編號、不加其他說明。"
 )
+
+
+CITATION_MARK = re.compile(r"[【〔\[（(]\s*([0-9０-９]{1,2})\s*[】〕\]）)]")
+FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+
+def normalize_citation_marks(text: str) -> str:
+    """中文輸出常寫成【1】（1），統一成 [1]，避免被誤判成沒附引用。"""
+    return CITATION_MARK.sub(
+        lambda match: f"[{match.group(1).translate(FULLWIDTH_DIGITS)}]", str(text or "")
+    )
 
 
 def responses_url(base_url: str) -> str:
@@ -112,11 +129,16 @@ class AnswerEngine:
         if self.model_enabled:
             try:
                 generated, usage = self._call_model(question, hits, history=history)
+                generated = normalize_citation_marks(generated)
                 if generated and re.search(r"\[\d+\]", generated):
                     return generated.strip(), "llm", "used", usage
                 log_model_failure(
-                    "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}"
+                    "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"
                 )
+                retried, retry_usage = self.retry_with_citations(question, hits, history=history)
+                usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
+                if retried:
+                    return retried, "llm", "used", usage
                 return self._extractive_answer(hits, model_failed=True), "extractive", "missing_citations", usage
             except urllib.error.HTTPError as exc:
                 log_model_failure("answer", exc, f"model={self.model_name}")
@@ -139,12 +161,33 @@ class AnswerEngine:
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
+    def retry_with_citations(self, question, hits, history=None):
+        """缺引用時的最後一搏：加上明確警語重打一次，仍失敗就回空字串。"""
+        try:
+            generated, usage = self._call_model(
+                question, hits, history=history, extra_instruction=CITATION_RETRY_NOTE
+            )
+        except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
+            log_model_failure("citation-retry", exc, f"model={self.model_name}")
+            return "", {
+                "input_tokens": 0, "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0, "output_tokens": 0,
+            }
+        generated = normalize_citation_marks(generated)
+        if generated and re.search(r"\[\d+\]", generated):
+            return generated.strip(), usage
+        log_model_failure(
+            "citation-retry", detail=f"still missing citations chars={len(generated or '')} model={self.model_name}"
+        )
+        return "", usage
+
     def _model_request(
         self,
         question: str,
         hits: list[SearchHit],
         history: list[dict] | None,
         stream: bool,
+        extra_instruction: str = "",
     ) -> urllib.request.Request:
         source_text = "\n\n".join(
             f"<source id=\"{index}\" title=\"{hit.title}\" locator=\"{hit.locator}\">\n{hit.text}\n</source>"
@@ -160,7 +203,7 @@ class AnswerEngine:
         })
         payload = {
             "model": os.environ["LLM_MODEL"],
-            "instructions": self.policy + FOLLOWUP_INSTRUCTION,
+            "instructions": self.policy + FOLLOWUP_INSTRUCTION + extra_instruction,
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
             "store": False,
@@ -227,8 +270,14 @@ class AnswerEngine:
                             message = str(error.get("message", ""))[:200]
                     raise ValueError(f"model stream failed: {message}" if message else "model stream failed")
 
-    def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:
-        request = self._model_request(question, hits, history, stream=False)
+    def _call_model(
+        self,
+        question: str,
+        hits: list[SearchHit],
+        history: list[dict] | None = None,
+        extra_instruction: str = "",
+    ) -> tuple[str, dict]:
+        request = self._model_request(question, hits, history, stream=False, extra_instruction=extra_instruction)
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read())
         usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
