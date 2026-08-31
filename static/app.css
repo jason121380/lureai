@@ -310,7 +310,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .prompt-suggestion { font-size: 13px; }
   .message-row { margin-top: 22px; }
   .message-row.user .message-content { max-width: 86%; }
-  .message-text { font-size: 14px; }
+  .message-text { font-size: 16px; line-height: 1.75; }
   .composer-shell { padding: 9px 11px max(10px, env(safe-area-inset-bottom)); }
   .is-empty .composer-shell { top: 35%; padding: 0 14px; }
   .composer { min-height: 52px; padding: 5px 6px 5px 10px; }
