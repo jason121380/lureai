@@ -47,6 +47,8 @@ MONTHLY_BUDGET_TWD=1000
 
 Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
+倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用；`ZBPACK_*` 變數在此情況下不再需要，留著也無妨。
+
 設計師輔導部署預設包含 2,393 個已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
 ```dotenv
