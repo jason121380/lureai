@@ -31,6 +31,17 @@ def model_url(base_url: str, model: str) -> str:
 
 
 DEFAULT_MODEL_TIMEOUT = 60.0
+# Reasoning tokens count against max_output_tokens on the Responses API, so
+# the cap must leave room for both thinking and the visible answer.
+DEFAULT_MAX_OUTPUT_TOKENS = 4000
+
+
+def max_output_tokens() -> int:
+    try:
+        value = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "") or DEFAULT_MAX_OUTPUT_TOKENS)
+    except ValueError:
+        return DEFAULT_MAX_OUTPUT_TOKENS
+    return value if value > 0 else DEFAULT_MAX_OUTPUT_TOKENS
 
 
 def model_timeout() -> float:
@@ -90,8 +101,8 @@ class AnswerEngine:
         lines = [heading]
         for index, hit in enumerate(hits[:3], start=1):
             text = " ".join(hit.text.split())
-            if len(text) > 260:
-                text = text[:257].rstrip() + "..."
+            if len(text) > 600:
+                text = text[:597].rstrip() + "..."
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
@@ -119,7 +130,7 @@ class AnswerEngine:
             "instructions": self.policy,
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
-            "max_output_tokens": 1200,
+            "max_output_tokens": max_output_tokens(),
             "store": False,
         }
         if stream:
@@ -167,10 +178,12 @@ class AnswerEngine:
                     delta = event.get("delta")
                     if isinstance(delta, str) and delta:
                         yield ("delta", delta)
-                elif event_type == "response.completed":
+                elif event_type in ("response.completed", "response.incomplete"):
+                    # An incomplete response (e.g. output-token cap reached) still
+                    # carries useful streamed text and usage; keep what we have.
                     usage = event.get("response", {}).get("usage")
                     yield ("usage", self._token_usage(usage if isinstance(usage, dict) else {}))
-                elif event_type in ("response.failed", "response.incomplete", "error"):
+                elif event_type in ("response.failed", "error"):
                     raise ValueError("model stream failed")
 
     def _call_model(self, question: str, hits: list[SearchHit], history: list[dict] | None = None) -> tuple[str, dict]:
