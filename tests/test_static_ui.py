@@ -86,6 +86,15 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
 
+    def test_installed_app_keeps_a_white_status_bar(self):
+        for page in (INDEX, ADMIN):
+            html = page.read_text(encoding="utf-8")
+            # 深色模式沒有對應的 theme-color 時，iOS 會用灰底畫狀態列。
+            self.assertIn('content="#ffffff" media="(prefers-color-scheme: dark)"', html)
+            self.assertIn('content="#ffffff" media="(prefers-color-scheme: light)"', html)
+            self.assertIn('name="color-scheme" content="light"', html)
+        self.assertIn("color-scheme: light;", CSS.read_text(encoding="utf-8"))
+
     def test_admin_replaces_native_selects_with_in_page_dropdowns(self):
         script = ADMIN_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
