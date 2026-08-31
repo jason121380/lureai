@@ -82,6 +82,10 @@ def load_settings(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def default_port() -> int:
+    return int(os.getenv("APP_PORT") or os.getenv("PORT") or "8765")
+
+
 def reindex(root: Path = PROJECT_ROOT, profile: str = "customer_service") -> dict:
     profile_config = load_profile(profile)
     paths = default_paths(root, profile=profile)
@@ -114,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         default=os.getenv("APP_PROFILE", "customer_service"),
     )
     parser.add_argument("--host", default=os.getenv("APP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("APP_PORT", "8765")))
+    parser.add_argument("--port", type=int, default=default_port())
     parser.add_argument("--reindex-only", action="store_true")
     args = parser.parse_args(argv)
 

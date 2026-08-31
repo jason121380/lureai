@@ -27,6 +27,24 @@ python3 run.py --profile designer_coach --port 8766
 
 macOS 也可以執行 `./start-coach.command`。客服與輔導可分別使用 `8765`、`8766` 同時運作。
 
+## Zeabur 部署
+
+在服務的環境變數使用 Raw 編輯模式貼上：
+
+```dotenv
+ZBPACK_PYTHON_ENTRY=run.py
+ZBPACK_PYTHON_VERSION=3.12
+ZBPACK_START_COMMAND="python3 run.py --reindex-only && _startup"
+APP_HOST=0.0.0.0
+APP_PROFILE=designer_coach
+ADMIN_TOKEN=請換成長且不可猜測的隨機值
+LLM_BASE_URL=https://api.openai.com
+LLM_API_KEY=你的OpenAI_API_Key
+LLM_MODEL=gpt-5.6-luna
+```
+
+Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。若部署客服版本，將 `APP_PROFILE` 改成 `customer_service`。不要設定 `KNOWLEDGE_JSONL` 或 `APP_DB_PATH`，讓 profile 自動選擇隨附知識與獨立資料庫。
+
 ## 系統需求
 
 - Python 3.11 或更新版本

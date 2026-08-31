@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from run import default_paths, load_profile, load_settings
+from run import default_paths, default_port, load_profile, load_settings
 
 
 class RuntimeTests(unittest.TestCase):
@@ -37,6 +37,14 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(profile["access_level"], "internal_coaching")
         self.assertEqual(profile["assistant_name"], "AI 輔導教練")
+
+    def test_zeabur_port_is_used_when_app_port_is_not_set(self):
+        with patch.dict(os.environ, {"PORT": "4321"}, clear=True):
+            self.assertEqual(default_port(), 4321)
+
+    def test_app_port_overrides_platform_port(self):
+        with patch.dict(os.environ, {"APP_PORT": "8766", "PORT": "4321"}, clear=True):
+            self.assertEqual(default_port(), 8766)
 
     def test_settings_file_loads_retrieval_threshold(self):
         with tempfile.TemporaryDirectory() as directory:
