@@ -14,22 +14,6 @@ from app.storage import KnowledgeStore
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 PROFILES = {
-    "customer_service": {
-        "knowledge_file": "active_customer_service.jsonl",
-        "database_file": "knowledge.db",
-        "policy_file": "customer_policy.md",
-        "access_level": "customer_service",
-        "app_name": "張副總 AI 客服",
-        "assistant_name": "AI 客服",
-        "welcome_prompts": (
-            "顧客不滿意怎麼處理？",
-            "臉型可以直接決定髮型嗎？",
-            "預約需要提供什麼資訊？",
-            "染髮多少錢？",
-        ),
-        "blocked_topics": SENSITIVE_TOPICS,
-        "fallback_message": "目前知識庫沒有足夠且已核准的資料，我幫您轉由專人確認。",
-    },
     "designer_coach": {
         "knowledge_file": "designer_coaching_process.jsonl",
         "database_file": "designer_coach.db",
@@ -63,20 +47,17 @@ def default_paths(
     root: Path = PROJECT_ROOT,
     profile: str | None = None,
 ) -> dict[str, Path]:
-    profile_name = profile or os.environ.get("APP_PROFILE", "customer_service")
+    profile_name = profile or os.environ.get("APP_PROFILE", "designer_coach")
     profile_config = load_profile(profile_name)
     configured_knowledge = os.environ.get("KNOWLEDGE_JSONL")
     bundled_knowledge = root / "knowledge" / profile_config["knowledge_file"]
     private_full_knowledge = root / "private_sources" / "full" / "rag" / f"{profile_name}_full.jsonl"
-    sibling_knowledge = root.parent / "張副總知識庫大腦-v3" / "rag" / "active_customer_service.jsonl"
     if configured_knowledge:
         knowledge = Path(configured_knowledge)
     elif private_full_knowledge.is_file():
         knowledge = private_full_knowledge
-    elif bundled_knowledge.is_file() or profile_name != "customer_service":
-        knowledge = bundled_knowledge
     else:
-        knowledge = sibling_knowledge
+        knowledge = bundled_knowledge
     database = Path(os.environ.get("APP_DB_PATH", root / "data" / profile_config["database_file"]))
     return {"knowledge": knowledge, "database": database}
 
@@ -98,7 +79,7 @@ def admin_token_for_host(host: str) -> str:
     raise ValueError("正式環境必須設定 ADMIN_TOKEN")
 
 
-def reindex(root: Path = PROJECT_ROOT, profile: str = "customer_service") -> dict:
+def reindex(root: Path = PROJECT_ROOT, profile: str = "designer_coach") -> dict:
     profile_config = load_profile(profile)
     paths = default_paths(root, profile=profile)
     if not paths["knowledge"].is_file():
@@ -123,11 +104,11 @@ def reindex(root: Path = PROJECT_ROOT, profile: str = "customer_service") -> dic
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="張副總 AI 客服 RAG")
+    parser = argparse.ArgumentParser(description="lure ai 輔導大腦 RAG")
     parser.add_argument(
         "--profile",
         choices=tuple(PROFILES),
-        default=os.getenv("APP_PROFILE", "customer_service"),
+        default=os.getenv("APP_PROFILE", "designer_coach"),
     )
     parser.add_argument("--host", default=os.getenv("APP_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=default_port())

@@ -10,6 +10,10 @@
 
 ## 產品決策
 
+- **2026-08-31 移除客服版**：只保留 `designer_coach` profile；客服知識檔、customer_policy.md、start.command 已刪除，預設 profile 改為 designer_coach。
+- **2026-08-31 關聯問題**：模型在同一次生成結尾以「▷ 」行輸出 3 個追問，service 解析為 `followups`，前端顯示為可點選項。
+- **2026-08-31 輸出無上限**：預設不設 max_output_tokens（`LLM_MAX_OUTPUT_TOKENS` 可選擇性限制）。
+
 - **2026-08-31 統一登入**：廢除管理權杖登入頁。所有人走同一個帳號登入；admin 角色帳號在側欄看到「設定」icon（僅 admin 可見）→ 進 `/admin`；非 admin 開 `/admin` 直接導回 `/`。`ADMIN_TOKEN` 只保留給 API header（curl／測試／緊急）。
 - **2026-08-31 角色制**：帳號分「一般用戶 user／管理者 admin」；後台建帳號時選權限；`USER_ROLE` 可指定 bootstrap 帳號權限。
 - **2026-08-31 密碼門檻**：最低 4 個字（使用者要求，接受安全取捨；scrypt + 登入限流仍在）。

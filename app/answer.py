@@ -11,6 +11,13 @@ from .retrieval import SearchHit
 
 DEFAULT_POLICY = "你只能根據提供的已核准來源回答。每個主張必須附 [編號] 引用；資料不足時不得猜測。"
 
+# Appended at request time; app/service.py parses these lines back out of the
+# answer, so the marker here and FOLLOWUP_PATTERN there must stay in sync.
+FOLLOWUP_INSTRUCTION = (
+    "\n\n回答結束後空一行，另外輸出恰好 3 行，每行以「▷ 」開頭，"
+    "各提出一個使用者最可能接著問的相關問題（20 字內、繁體中文、不加引用編號、不加其他說明）。"
+)
+
 
 def responses_url(base_url: str) -> str:
     base = str(base_url).rstrip("/")
@@ -125,7 +132,7 @@ class AnswerEngine:
         })
         payload = {
             "model": os.environ["LLM_MODEL"],
-            "instructions": self.policy,
+            "instructions": self.policy + FOLLOWUP_INSTRUCTION,
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
             "store": False,

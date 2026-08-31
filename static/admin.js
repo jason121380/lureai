@@ -29,12 +29,9 @@
       const response = await fetch("/api/health", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) return;
-      const coaching = body.profile === "designer_coach";
       document.title = `知識庫管理｜${body.app_name}`;
-      el("admin-chat-label").textContent = coaching ? "返回輔導對話" : "返回客服對話";
-      el("admin-knowledge-scope").textContent = coaching
-        ? "內部輔導目前可使用的來源區塊"
-        : "客服目前可使用的來源區塊";
+      el("admin-chat-label").textContent = "返回輔導對話";
+      el("admin-knowledge-scope").textContent = "內部輔導目前可使用的來源區塊";
     } catch (_) {
       // Keep the static labels when the health endpoint is unavailable.
     }
