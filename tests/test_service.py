@@ -183,6 +183,40 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result["model_status"], "missing_citations")
         self.assertIn("原文", result["answer"])
 
+    def test_citations_cap_chunks_per_source_document(self):
+        from app.retrieval import SearchHit
+
+        same_doc = [
+            SearchHit(f"sop-{i}", "流程", "knowledge/sop.md", f"sop-{i}", f"段落{i}", "核准流程", "核心原則", 0.95 - i * 0.01)
+            for i in range(4)
+        ]
+        other = SearchHit("edu", "教材", "source_documents/abc.md", "s-1", "教材段", "教材內容", "企業知識", 0.90)
+        self.service.retriever = StubRetriever(same_doc + [other])
+
+        result = self.service.chat("燙髮後怎麼整理？")
+
+        sources = [item["source_file"] for item in result["citations"]]
+        self.assertEqual(sources.count("knowledge/sop.md"), 2)
+        self.assertIn("source_documents/abc.md", sources)
+
+    def test_full_question_retrieves_without_history_bias(self):
+        captured = {}
+
+        class CapturingRetriever:
+            def retrieve(self, query, limit=6):
+                captured["query"] = query
+                return []
+
+        self.service.retriever = CapturingRetriever()
+        self.service.chat(
+            "設計師私訊很多但預約很少，先查什麼？",
+            history=[{"role": "user", "content": "廣告成效要看哪些指標？"}],
+        )
+        self.assertNotIn("廣告成效", captured["query"])
+
+        self.service.chat("然後呢？", history=[{"role": "user", "content": "廣告成效要看哪些指標？"}])
+        self.assertIn("廣告成效", captured["query"])
+
     def test_curated_sources_are_ordered_before_historical_cases(self):
         from app.retrieval import SearchHit
 

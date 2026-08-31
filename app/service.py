@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from .answer import AnswerEngine
 from .policy import PolicyEngine
-from .retrieval import Retriever
+from .retrieval import Retriever, relevance_tokens
 from .storage import KnowledgeStore
 from .usage import UsagePricing
 
@@ -72,21 +72,42 @@ class CustomerService:
             and not SENSITIVE_HISTORY_PATTERN.search(item["content"])
         ]
 
+    @staticmethod
+    def _diversify(hits: list, per_source: int = 2) -> list:
+        """Cap chunks per source document so citations aren't one file repeated."""
+        counts: dict[str, int] = {}
+        diverse = []
+        for hit in hits:
+            source = str(hit.source_file)
+            if counts.get(source, 0) >= per_source:
+                continue
+            counts[source] = counts.get(source, 0) + 1
+            diverse.append(hit)
+        return diverse
+
     def _route(self, question: str, recent_history: list[dict]) -> tuple[list, list, object | None]:
         """Return (all_hits, grounded_hits, escalation_decision_or_None)."""
         precheck = self.policy.precheck(question)
         if precheck.action == "escalate":
             return [], [], precheck
-        previous_questions = [
-            item["content"] for item in recent_history if item["role"] == "user"
-        ][-2:]
-        retrieval_query = "\n".join(previous_questions + [question])
-        hits = self.retriever.retrieve(retrieval_query, limit=self.top_k)
+        # A self-contained question retrieves on its own terms; earlier turns
+        # only pad the query for thin follow-ups ("然後呢？"), otherwise every
+        # answer in a conversation keeps citing the previous question's sources.
+        if len(relevance_tokens(question)) >= 5:
+            retrieval_query = question
+        else:
+            previous_questions = [
+                item["content"] for item in recent_history if item["role"] == "user"
+            ][-2:]
+            retrieval_query = "\n".join(previous_questions + [question])
+        hits = self.retriever.retrieve(retrieval_query, limit=self.top_k * 2)
         decision = self.policy.evaluate(hits)
         if decision.action == "escalate":
             return hits, [], decision
         grounded_hits = [hit for hit in hits if hit.score >= self.policy.minimum_score]
-        primary_hits = [hit for hit in grounded_hits if hit.category != "歷史輔導案例"]
+        primary_hits = self._diversify(
+            [hit for hit in grounded_hits if hit.category != "歷史輔導案例"]
+        )
         historical_hits = [hit for hit in grounded_hits if hit.category == "歷史輔導案例"]
         if primary_hits:
             grounded_hits = (primary_hits + historical_hits[:1])[:self.top_k]
