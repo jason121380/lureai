@@ -187,6 +187,60 @@ class ServiceTests(unittest.TestCase):
             hits = self.service.retriever.retrieve(question, limit=1)
             self.assertTrue(hits and hits[0].score >= self.service.policy.minimum_score, question)
 
+    def test_stream_with_fullwidth_citations_is_accepted(self):
+        class FullwidthAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None):
+                yield ("delta", "先算回覆率【1】，再改第一句（2）。")
+                yield ("usage", {
+                    "input_tokens": 1, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 1,
+                })
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = FullwidthAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
+
+        self.assertEqual(result["answer_mode"], "llm")
+        self.assertEqual(result["answer"], "先算回覆率[1]，再改第一句[2]。")
+
+    def test_stream_missing_citations_retries_once_before_falling_back(self):
+        calls = []
+
+        class RetryingAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None):
+                yield ("delta", "答案沒有引用編號。")
+                yield ("usage", {
+                    "input_tokens": 1, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 1,
+                })
+
+            def retry_with_citations(self, question, hits, history=None):
+                calls.append(question)
+                return "重試後有引用了 [1]", {
+                    "input_tokens": 2, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 2,
+                }
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = RetryingAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
+
+        self.assertEqual(calls, ["燙髮後怎麼整理？"])
+        self.assertEqual(result["answer_mode"], "llm")
+        self.assertEqual(result["model_status"], "used")
+        self.assertEqual(result["answer"], "重試後有引用了 [1]")
+        self.assertEqual(result["usage"]["output_tokens"], 3)
+
     def test_chat_stream_falls_back_when_stream_lacks_citations(self):
         class UncitedAnswerer:
             model_enabled = True

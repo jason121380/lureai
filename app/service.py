@@ -3,7 +3,7 @@ import re
 from typing import Iterator
 from uuid import uuid4
 
-from .answer import AnswerEngine, log_model_failure
+from .answer import AnswerEngine, log_model_failure, normalize_citation_marks
 from .followups import FollowupPlanner
 from .policy import PolicyEngine
 from .retrieval import Retriever
@@ -242,19 +242,31 @@ class CustomerService:
             except Exception as exc:  # noqa: BLE001 - 任何失敗都要降級，但要留下原因
                 log_model_failure("stream", exc, f"model={self.answerer.model_name}")
                 model_status = "stream_failed"
-            candidate, followups = split_followups(partial.strip())
+            candidate, followups = split_followups(normalize_citation_marks(partial.strip()))
             if model_status == "used" and candidate and re.search(r"\[\d+\]", candidate):
                 answer = candidate
                 mode = "llm"
             else:
                 if model_status == "used":
+                    # 模型有回但沒附引用：加上警語重打一次再放棄。
                     log_model_failure(
                         "stream",
-                        detail=f"missing_citations chars={len(candidate or '')} model={self.answerer.model_name}",
+                        detail=f"missing_citations chars={len(candidate or '')} model={self.answerer.model_name}; retrying",
                     )
-                    model_status = "missing_citations"
-                answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
-                followups = []
+                    retry = getattr(self.answerer, "retry_with_citations", None)
+                    retried, retry_usage = retry(
+                        question, grounded_hits, history=recent_history
+                    ) if retry else ("", empty_usage)
+                    usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
+                    if retried:
+                        answer, followups = split_followups(retried)
+                        mode = "llm"
+                        model_status = "used"
+                    else:
+                        model_status = "missing_citations"
+                if mode != "llm":
+                    answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
+                    followups = []
         else:
             answer, mode, model_status, usage = self.answerer.answer(
                 question, grounded_hits, history=recent_history, allow_model=allow_model

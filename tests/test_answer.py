@@ -99,8 +99,9 @@ class AnswerTests(unittest.TestCase):
 
         self.assertEqual(mode, "extractive")
         self.assertEqual(model_status, "missing_citations")
-        self.assertEqual(usage["input_tokens"], 75)
-        self.assertEqual(usage["output_tokens"], 10)
+        # 缺引用會自動重試一次，兩次呼叫的用量都要記帳。
+        self.assertEqual(usage["input_tokens"], 150)
+        self.assertEqual(usage["output_tokens"], 20)
 
     def test_budget_exhausted_skips_model_call(self):
         hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
