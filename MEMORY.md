@@ -10,6 +10,14 @@
 
 ## 產品決策
 
+- **2026-08-31 手機版選單全螢幕純白**（PWA 展開選單時頂端出現陰影與白色交界）：手機版側欄改成 `inset:0` 全螢幕、底色 `--surface` 純白、不壓暗背景也不加陰影——任何壓暗或陰影都會在狀態列下緣形成可見交界。關閉靠右上角 X 或 Escape，`drawer-overlay` 只留給來源抽屜。
+
+- **2026-08-31 PWA 淺色鎖定**（使用者要求狀態列全白、無分割線）：`theme-color` meta 三份（light media／dark media／無 media）全部 `#ffffff`，再加 `<meta name="color-scheme" content="light">` 與 CSS `:root { color-scheme: light; }`，避免系統深色模式把狀態列或捲軸染色。注意：iOS 在「加入主畫面」當下快取 theme-color，改版後既有使用者要刪掉圖示重新加入才會生效。
+
+- **2026-08-31 開場建議隨機**（使用者要求「每次建議問題都要不一樣」）：`run.py` 內建 24 題開場題庫（每題經 `tests/test_welcome_prompts.py` 逐題驗證答得出來），`/api/health` 回傳隨機打散的 12 題（`welcome_questions`，題庫不足時從問法索引跨主題輪流補），前端每次渲染空白對話再從中抽 3 題。
+
+- **2026-08-31 模型降級可觀測＋檢索先用問題本身**（使用者兩度回報「模型無法生成」查不出原因）：(1) `app/answer.py` 新增 `log_model_failure(stage, error, detail)`，LLM 失敗原因寫 stderr（不含金鑰與問題內容），Zeabur Log 搜 `[llm]` 即可定位；前端狀態列顯示降級原因標籤（如 `missing_citations`）。(2) 檢索改成先只用當題問題，top-1 低於門檻才補前兩題使用者問題重試並取較好者——修正短追問（「客人沒回」）被歷史脈絡拖去引用不相干知識。
+
 - **2026-08-31 missing_citations 三重防護**（正式環境模型常「未回應」，狀態列顯示 missing_citations——模型有回但沒附 [n] 引用被整篇丟棄）：(1) 全形引用視同有效，【1】（1）〔１〕正規化成 [1]；(2) 缺引用時自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）；(3) policy 輸出格式明定「每點結尾附半形 [1]，沒有引用整篇作廢」。
 
 - **2026-08-31 部署韌性**（使用者回報「進不去，一直轉」）：三個會讓整站打不開的地雷——(1) Dockerfile 沒指定 host，`APP_HOST` 一旦沒設就只綁 127.0.0.1，平台流量進不來；(2) `CMD` 用 `reindex-only && exec`，索引重建失敗（例如 Volume 唯讀）容器直接結束；(3) 少設 `ADMIN_TOKEN` 會讓 `run.py` 直接 exit 1。現在：Dockerfile `ENV APP_HOST=0.0.0.0`、重建失敗只記錄不中斷、沒有 ADMIN_TOKEN 就改用隨機權杖（後台本來就走帳號登入）。開機會印 `[boot] profile=… chunks=… db=… model=…`，Zeabur Log 一眼看得出卡在哪。前端也加了開機逾時，伺服器沒回應時顯示錯誤而不是一直轉。
@@ -64,6 +72,6 @@
 - 2026-08-31：修復去識別化過度遮罩——coach 區塊由 knowledge/designer_coaching_process.md 重建；export_deploy_knowledge.py 加入角色詞/縮寫停用表、knowledge/* 來源不再重遮罩。歷史教材/案例的 [人名][歷史數值] 屬隱私設計，完整版需在使用者 Mac 重跑匯出或掛私人 KNOWLEDGE_JSONL。
 - 2026-08-31：登入頁極簡化為 LOGO + "Your Private Brain" + 表單。
 
-- 生產環境曾出現 LLM 呼叫失敗降級（timeout 20s 時代）；調至 60s 後需實測確認。
-- 歷史輔導案例 chunks 有少量雜訊（test/hi 對話、全遮罩片段，約 1-5%）；檢索已將歷史案例降權（最多附 1 筆），必要時可清洗 `knowledge/designer_coaching_process.jsonl`。
-- 可考慮：回答串流輸出（SSE）讓長生成有即時回饋。
+- LLM 降級除錯：Zeabur Log 搜 `[llm]` 看失敗階段與原因、搜 `[boot]` 看開機摘要（chunks 數可判斷正式站索引是否為最新版）。
+- 待與使用者確認：正式站索引是否為 209 塊最新版、PWA 白色狀態列是否已重新加入主畫面圖示、missing_citations 是否還會出現。
+- 未動工需求（使用者早前提出）：聊天可上傳圖片＋文字讓 AI 讀。

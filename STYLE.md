@@ -56,3 +56,9 @@
 
 - 側欄在手機版開成全螢幕純白（`--surface`），不用壓暗背景與陰影：任何壓暗都會在狀態列下緣形成交界。
 - 關閉靠右上角 X 或 Escape；`drawer-overlay` 只留給來源抽屜。
+
+## PWA 淺色鎖定
+
+- `theme-color` meta 三份（light media／dark media／無 media）全部 `#ffffff`，讓 PWA 狀態列與頁面同色、無分割線。
+- 搭配 `<meta name="color-scheme" content="light">` 與 CSS `:root { color-scheme: light; }`，系統深色模式也不變色。
+- iOS 在「加入主畫面」當下快取 theme-color：改了 meta 之後，既有使用者要刪掉圖示重新加入才會生效。

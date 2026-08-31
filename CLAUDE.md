@@ -47,7 +47,10 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **改知識就要重編索引**：`knowledge/*.md` 是唯一的知識來源，改完一定要跑 `scripts/build_knowledge_index.py`，否則測試會擋（`test_written_index_matches_the_playbooks`）。
 - **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **追問不能斷**：建議問題一律經 `FollowupPlanner` 驗證（政策不擋＋撈得到夠格知識），`tests/test_followup_chain.py` 會實跑 50 輪連續追問，任何一輪轉人工就算失敗。
-- **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_*_knowledge.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
+- **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks` 與 `retry_with_citations`。
+- **開場題庫**：`run.py` 的歡迎題庫每題都必須答得出來，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳隨機 12 題、前端每次抽 3 題。
+- **ADMIN_TOKEN 可以不設**：未設定時自動改用隨機權杖（stderr 有警語），等於停用 header 管理 API，後台仍走 admin 帳號登入——這是部署韌性設計，不要改回缺少就 exit。
+- **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_knowledge_index.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。
 - **知識治理**：匯入強制 `review_status=approved` + `access_level` 相符 + `rag_allowed=true`；任何一筆不合格整批拒絕。
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
@@ -61,3 +64,4 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - 分支：`claude/codex-review-optimization-sw0j31`（或當前指定分支）→ push → **開 PR 併入 main（使用者已授權每次 push 後自動 merge）**。main 一更新 Zeabur 就自動部署。
 - push 前：`python3 -m unittest discover -s tests` 必須全綠；UI 改動用 Playwright 截圖驗證（chromium 在 `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`）。
 - commit 訊息、PR、程式註解不得出現模型名稱。
+- 正式環境除錯：Zeabur Log 搜 `[boot]`（開機摘要：profile／chunks／db／model）與 `[llm]`（模型失敗階段與原因，不含金鑰與問題內容）。
