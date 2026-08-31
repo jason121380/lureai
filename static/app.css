@@ -42,7 +42,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .brand-row { min-height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 7px; }
 .brand-logo { display: block; width: 94px; height: 28px; object-fit: contain; object-position: left center; }
 .brand-row .brand-logo { margin-right: auto; }
-.sidebar-close { display: none; margin-left: auto; }
+.sidebar-close { display: none; }
 .sidebar-search, .sidebar-panel { flex: 0 0 34px; }
 .icon-button { width: 34px; height: 34px; display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-decoration: none; }
 .icon-button:hover { background: var(--hover); }
