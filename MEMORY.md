@@ -1,0 +1,36 @@
+# MEMORY.md — 決策與偏好紀錄
+
+跨 session 的專案記憶。新的決策往上加，帶日期。
+
+## 工作流程偏好（使用者指定）
+
+- **每次 push 後一律開 PR 併入 main**（2026-08-31 授權），main 更新後 Zeabur 自動部署。
+- 測試必須全綠才能 push；UI 改動用 Playwright 截圖驗證後再交付。
+- Repo 已改名 `jason121380/lureai`（舊名 hair_brain 自動轉向）。
+
+## 產品決策
+
+- **2026-08-31 統一登入**：廢除管理權杖登入頁。所有人走同一個帳號登入；admin 角色帳號在側欄看到「設定」icon（僅 admin 可見）→ 進 `/admin`；非 admin 開 `/admin` 直接導回 `/`。`ADMIN_TOKEN` 只保留給 API header（curl／測試／緊急）。
+- **2026-08-31 角色制**：帳號分「一般用戶 user／管理者 admin」；後台建帳號時選權限；`USER_ROLE` 可指定 bootstrap 帳號權限。
+- **2026-08-31 密碼門檻**：最低 4 個字（使用者要求，接受安全取捨；scrypt + 登入限流仍在）。
+- **2026-08-31 全站視覺**：複製 ChatGPT 風格（見 STYLE.md）。對話：使用者訊息右側灰氣泡、AI 左側純文字、無頭像無角色標籤。
+- 移除項目：側欄使用者名下的應用名稱副標、右上角連線狀態圈圈、後台頂部「知識庫管理＋管理權杖」列、後台的權杖輸入 UI。
+- 用量面板做成獨立卡片，與帳號列視覺分離。
+- 後台為分頁式導覽（hash 路由），進入後所有分頁資料自動載入，不需任何手動觸發。
+
+## 技術決策
+
+- 零第三方依賴維持不變（stdlib + SQLite FTS5）。
+- SQLite 即正式資料庫，不上 PostgreSQL；Zeabur 需掛持久化 Volume + `APP_DB_PATH`，否則帳號／用量／稽核在重新部署時歸零（**尚未確認使用者已掛 Volume**）。
+- 月預算（`MONTHLY_BUDGET_TWD`）為硬限制：超標自動停用模型、降級抽取式（`model_status: budget_exhausted`）。
+- 聊天限流 `CHAT_RATE_LIMIT_PER_MINUTE`（預設 20/分）。
+- LLM timeout `LLM_TIMEOUT_SECONDS`（預設 60；曾因 20 秒太短導致推理模型全數降級「模型暫時無法完成生成」）。
+- scrypt 參數 N=2^15/r=8/p=4（OWASP 等效、單次驗證 ~32MB），驗證在鎖外執行、入庫前鎖內重驗 hash。
+- 稽核 log 的問題欄位自動遮罩 PII。
+- loading 佔位訊息不落地：載入 localStorage 時過濾 `loading` 訊息（修復「重新整理後永遠轉圈」）。
+
+## 已知待辦／觀察
+
+- 生產環境曾出現 LLM 呼叫失敗降級（timeout 20s 時代）；調至 60s 後需實測確認。
+- 歷史輔導案例 chunks 有少量雜訊（test/hi 對話、全遮罩片段，約 1-5%）；檢索已將歷史案例降權（最多附 1 筆），必要時可清洗 `knowledge/designer_coaching_process.jsonl`。
+- 可考慮：回答串流輸出（SSE）讓長生成有即時回饋。

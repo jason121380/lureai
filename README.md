@@ -15,7 +15,7 @@ ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG pro
 - 管理端知識搜尋、檢索測試、重新索引與 audit log
 - OpenAI Responses API 與 GPT-5.6 Luna
 - 使用者帳密登入、HttpOnly session、後台帳號建立與密碼重設
-- 帳號權限分「一般用戶」與「管理者」；管理者帳號登入後可直接使用 `/admin` 管理後台
+- 統一帳號登入；帳號權限分「一般用戶」與「管理者」，管理者登入後由側欄「設定」icon 進入 `/admin` 管理後台（非管理者會被導回對話頁）
 - 每位使用者本月 token、台幣花費與預算進度；超出 `MONTHLY_BUDGET_TWD` 時自動停用模型生成、改用抽取式回答
 - 聊天每分鐘限流（`CHAT_RATE_LIMIT_PER_MINUTE`）、登入失敗限流、安全標頭與同源檢查
 - 未設定 API Key 時可使用離線抽取式回答
@@ -50,6 +50,7 @@ LLM_BASE_URL=https://api.openai.com
 LLM_API_KEY=你的OpenAI_API_Key
 LLM_MODEL=gpt-5.6-luna
 LLM_REASONING_EFFORT=low
+LLM_TIMEOUT_SECONDS=60
 LLM_INPUT_USD_PER_MILLION=0.20
 LLM_CACHED_INPUT_USD_PER_MILLION=0.02
 LLM_CACHE_WRITE_USD_PER_MILLION=0.25
@@ -85,10 +86,9 @@ python3 run.py --port 8765
 ```
 
 - 客服介面：<http://127.0.0.1:8765>
-- 管理後台：<http://127.0.0.1:8765/admin>（`/admin.html` 仍可使用）
-- 本機預設管理權杖：`local-admin`；具「管理者」權限的帳號登入後也可直接進入管理後台
+- 管理後台：<http://127.0.0.1:8765/admin>（需以「管理者」權限帳號登入；非管理者會被導回對話頁）
 
-正式部署必須以 `ADMIN_TOKEN` 更換預設管理權杖。
+`ADMIN_TOKEN` 僅用於 API（`X-Admin-Token` header，供 curl、測試與緊急操作）；本機綁 127.0.0.1 時預設 `local-admin`，正式部署必須更換為長且不可猜測的值。
 
 ## 串接 OpenAI GPT-5.6 Luna
 
@@ -113,7 +113,7 @@ curl http://127.0.0.1:8765/api/health
 
 應回傳 `"model_enabled": true`。系統透過 OpenAI Responses API 生成答案；模型呼叫失敗或輸出缺少引用時，API 會回傳 `model_status` 並清楚標示已降級為來源抽取式回答。
 
-管理後台提供完整健康檢查，需使用管理權杖：
+管理後台的系統健康分頁提供完整檢查；也可以用管理權杖直接打 API：
 
 ```bash
 curl -H "X-Admin-Token: $ADMIN_TOKEN" \

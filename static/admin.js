@@ -7,15 +7,6 @@
     return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
   }
 
-  function token() { return el("admin-token").value.trim(); }
-
-  function showGate(message = "") {
-    el("admin-shell").hidden = true;
-    el("admin-gate").hidden = false;
-    el("admin-gate-status").textContent = message;
-    requestAnimationFrame(() => el("gate-token").focus());
-  }
-
   const SECTIONS = ["overview", "health", "users", "retrieval", "knowledge", "audits"];
 
   function showSection(id) {
@@ -28,7 +19,6 @@
   }
 
   function showAdmin() {
-    el("admin-gate").hidden = true;
     el("admin-shell").hidden = false;
     showSection(location.hash.replace("#", ""));
     window.lucide?.createIcons();
@@ -53,9 +43,13 @@
   async function api(path, options = {}) {
     const response = await fetch(path, {
       ...options,
-      headers: { "Content-Type": "application/json", "X-Admin-Token": token(), ...(options.headers || {}) },
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     });
     const body = await response.json();
+    if (response.status === 401) {
+      window.location.replace("/");
+      throw new Error(body.message || "請先以管理者帳號登入");
+    }
     if (!response.ok) throw new Error(body.message || "管理請求失敗");
     return body;
   }
@@ -261,29 +255,6 @@
     finally { button.disabled = false; }
   }
 
-  async function authenticate(suppliedToken = token()) {
-    const value = String(suppliedToken || "").trim();
-    if (!value) {
-      showGate("請輸入管理權杖");
-      return;
-    }
-    el("admin-token").value = value;
-    el("gate-token").value = value;
-    if (await loadStats()) {
-      showAdmin();
-      await Promise.all([loadKnowledge(), loadAudits(), loadHealth(), loadUsers()]);
-      toast("管理權限已驗證");
-    } else {
-      showGate("管理權杖無效");
-    }
-  }
-
-  function logout() {
-    el("admin-token").value = "";
-    el("gate-token").value = "";
-    showGate("已登出管理後台");
-  }
-
   async function tryAccountSession() {
     try {
       const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -293,22 +264,12 @@
       if (!(await loadStats())) return false;
       showAdmin();
       await Promise.all([loadKnowledge(), loadAudits(), loadHealth(), loadUsers()]);
-      toast(`以管理者帳號 ${body.user.username} 進入`);
       return true;
     } catch (_) {
       return false;
     }
   }
 
-  el("admin-token").value = "";
-  el("gate-token").value = "";
-  el("admin-login-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    authenticate(el("gate-token").value);
-  });
-  el("save-token").addEventListener("click", () => authenticate());
-  el("admin-token").addEventListener("keydown", (event) => { if (event.key === "Enter") authenticate(); });
-  el("logout-admin").addEventListener("click", logout);
   el("retrieval-form").addEventListener("submit", retrieve);
   el("knowledge-form").addEventListener("submit", loadKnowledge);
   el("refresh-audits").addEventListener("click", loadAudits);
@@ -320,5 +281,7 @@
   });
   window.lucide?.createIcons();
   loadProfile();
-  tryAccountSession().then((entered) => { if (!entered) showGate(); });
+  tryAccountSession().then((entered) => {
+    if (!entered) window.location.replace("/");
+  });
 })();

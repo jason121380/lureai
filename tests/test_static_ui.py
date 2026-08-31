@@ -28,7 +28,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn('href="admin.html', html)
         self.assertNotIn('id="composer-menu-button"', html)
         self.assertNotIn("mode-switch", html)
-        self.assertNotIn("settings", html)
+        # The settings link to /admin is hidden until chat.js confirms an
+        # admin-role session.
+        self.assertIn('id="admin-link" class="icon-button" href="/admin" title="設定" aria-label="設定" hidden', html)
 
     def test_chat_page_requires_login_and_shows_private_usage(self):
         html = INDEX.read_text(encoding="utf-8")
@@ -63,7 +65,7 @@ class StaticUiTests(unittest.TestCase):
     def test_admin_page_has_operational_views(self):
         html = ADMIN.read_text(encoding="utf-8")
 
-        for element_id in ("admin-gate", "admin-shell", "stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
+        for element_id in ("admin-shell", "stats-grid", "knowledge-results", "audit-results", "retrieval-results"):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('id="admin-shell" class="admin-shell" hidden', html)
         for element_id in ("users", "user-form", "user-username", "user-password", "user-results"):

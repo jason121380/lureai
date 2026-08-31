@@ -30,9 +30,20 @@ def model_url(base_url: str, model: str) -> str:
     return f"{base}/models/{quote(model, safe='')}"
 
 
+DEFAULT_MODEL_TIMEOUT = 60.0
+
+
+def model_timeout() -> float:
+    try:
+        value = float(os.getenv("LLM_TIMEOUT_SECONDS", "") or DEFAULT_MODEL_TIMEOUT)
+    except ValueError:
+        return DEFAULT_MODEL_TIMEOUT
+    return value if value > 0 else DEFAULT_MODEL_TIMEOUT
+
+
 class AnswerEngine:
-    def __init__(self, policy_path: str | Path | None = None, timeout: float = 20.0):
-        self.timeout = timeout
+    def __init__(self, policy_path: str | Path | None = None, timeout: float | None = None):
+        self.timeout = model_timeout() if timeout is None else timeout
         self.policy = DEFAULT_POLICY
         if policy_path and Path(policy_path).is_file():
             self.policy = Path(policy_path).read_text(encoding="utf-8")
