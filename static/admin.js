@@ -1,6 +1,5 @@
 (() => {
   "use strict";
-  const TOKEN_KEY = "zhang-rag-admin-token";
   const el = (id) => document.getElementById(id);
   let toastTimer;
 
@@ -106,6 +105,8 @@
     approved_records: "核准筆數", duplicate_chunk_ids: "重複 ID", indexed_records: "索引筆數",
     missing_from_index: "索引缺少", extra_in_index: "索引多出", changed_records: "內容變更", in_sync: "同步",
     error_type: "錯誤類型",
+    users: "使用者", active_users: "啟用帳號", sessions: "Sessions",
+    password_storage: "密碼儲存", session_storage: "Session 儲存",
   };
 
   function healthDetail(value) {
@@ -199,6 +200,42 @@
     } catch (error) { toast(error.message, true); }
   }
 
+  async function loadUsers() {
+    try {
+      const body = await api("/api/admin/users");
+      const rows = body.items.map((item) => `
+        <tr><td><strong>${escapeHtml(item.username)}</strong></td><td>${item.active ? "啟用" : "停用"}</td><td>${escapeHtml(new Date(item.updated_at).toLocaleString("zh-TW"))}</td></tr>`).join("");
+      el("user-results").innerHTML = rows
+        ? `<table class="data-table"><thead><tr><th>帳號</th><th>狀態</th><th>最後更新</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="empty-state">尚未建立使用者帳號</div>';
+    } catch (error) {
+      el("user-results").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  async function saveUser(event) {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const body = await api("/api/admin/users", {
+        method: "POST",
+        body: JSON.stringify({
+          username: el("user-username").value.trim(),
+          password: el("user-password").value,
+        }),
+      });
+      el("user-username").value = "";
+      el("user-password").value = "";
+      toast(`帳號 ${body.user.username} 已建立或重設`);
+      await loadUsers();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function reindex() {
     const button = el("reindex-button");
     button.disabled = true;
@@ -219,26 +256,22 @@
     el("admin-token").value = value;
     el("gate-token").value = value;
     if (await loadStats()) {
-      localStorage.setItem(TOKEN_KEY, value);
       showAdmin();
-      await Promise.all([loadKnowledge(), loadAudits(), loadHealth()]);
+      await Promise.all([loadKnowledge(), loadAudits(), loadHealth(), loadUsers()]);
       toast("管理權限已驗證");
     } else {
-      localStorage.removeItem(TOKEN_KEY);
       showGate("管理權杖無效");
     }
   }
 
   function logout() {
-    localStorage.removeItem(TOKEN_KEY);
     el("admin-token").value = "";
     el("gate-token").value = "";
     showGate("已登出管理後台");
   }
 
-  const savedToken = localStorage.getItem(TOKEN_KEY) || "";
-  el("admin-token").value = savedToken;
-  el("gate-token").value = savedToken;
+  el("admin-token").value = "";
+  el("gate-token").value = "";
   el("admin-login-form").addEventListener("submit", (event) => {
     event.preventDefault();
     authenticate(el("gate-token").value);
@@ -251,8 +284,8 @@
   el("refresh-audits").addEventListener("click", loadAudits);
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
+  el("user-form").addEventListener("submit", saveUser);
   window.lucide?.createIcons();
   loadProfile();
-  if (savedToken) authenticate(savedToken);
-  else showGate();
+  showGate();
 })();

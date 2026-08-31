@@ -4,6 +4,7 @@
   const STORAGE_PREFIX = "zhang-rag-conversations-v1";
   const state = {
     conversations: [], activeId: null, controller: null,
+    user: null,
     profile: "customer_service",
     assistantName: "AI 客服",
     welcomePrompts: [
@@ -16,6 +17,28 @@
   const el = (id) => document.getElementById(id);
   const messages = el("messages");
   const prompt = el("prompt");
+
+  function storageKey() {
+    return `${STORAGE_PREFIX}-${state.profile}-${state.user?.id || "anonymous"}`;
+  }
+
+  function showLogin(message = "") {
+    state.user = null;
+    el("app-shell").hidden = true;
+    el("login-gate").hidden = false;
+    el("login-status").textContent = message;
+    el("login-password").value = "";
+    requestAnimationFrame(() => el("login-username").focus());
+    window.lucide?.createIcons();
+  }
+
+  function showApp(user) {
+    state.user = user;
+    el("login-gate").hidden = true;
+    el("app-shell").hidden = false;
+    el("user-name").textContent = user.username;
+    el("profile-avatar").textContent = Array.from(user.username)[0]?.toUpperCase() || "U";
+  }
 
   function makeId() {
     return globalThis.crypto?.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -32,7 +55,7 @@
 
   function load() {
     try {
-      state.conversations = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}-${state.profile}`) || "[]");
+      state.conversations = JSON.parse(localStorage.getItem(storageKey()) || "[]");
     } catch (_) {
       state.conversations = [];
     }
@@ -55,7 +78,7 @@
   }
 
   function persist() {
-    const key = `${STORAGE_PREFIX}-${state.profile}`;
+    const key = storageKey();
     const limits = [
       [20, 8, 8000, 600],
       [10, 6, 5000, 300],
@@ -205,23 +228,34 @@
     persist();
     render();
     try {
+      const history = conversation.messages
+        .slice(0, -2)
+        .filter((item) => !item.loading && item.role === "user" && item.content)
+        .slice(-8)
+        .map((item) => ({ role: item.role, content: String(item.content).slice(0, 1200) }));
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: value, conversation_id: conversation.id }),
+        body: JSON.stringify({ message: value, conversation_id: conversation.id, history }),
         signal: state.controller.signal,
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.message || "服務暫時無法處理請求");
+      if (!response.ok) {
+        const requestError = new Error(body.message || "服務暫時無法處理請求");
+        requestError.status = response.status;
+        throw requestError;
+      }
       conversation.messages[conversation.messages.length - 1] = {
         role: "assistant",
         content: body.answer,
         status: body.status,
         reason: body.reason,
+        modelStatus: body.model_status,
         citations: body.citations || [],
         traceId: body.trace_id,
       };
     } catch (error) {
+      if (error.status === 401) showLogin("登入已過期，請重新登入");
       conversation.messages[conversation.messages.length - 1] = {
         role: "assistant",
         content: error.name === "AbortError" ? "已停止這次查詢。" : "目前無法連線到客服知識庫，請稍後再試。",
@@ -233,6 +267,7 @@
       setBusy(false);
       persist();
       render();
+      if (state.user) loadUsage();
     }
   }
 
@@ -307,6 +342,101 @@
     }
   }
 
+  function formatTwd(value) {
+    return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(Number(value || 0));
+  }
+
+  function formatTokens(value) {
+    return new Intl.NumberFormat("zh-TW").format(Number(value || 0));
+  }
+
+  async function loadUsage() {
+    try {
+      const response = await fetch("/api/usage", { cache: "no-store" });
+      if (response.status === 401) {
+        showLogin("登入已過期，請重新登入");
+        return;
+      }
+      const body = await response.json();
+      if (!response.ok) throw new Error();
+      const percent = Math.min(100, Math.max(0, Number(body.progress_percent || 0)));
+      el("usage-progress").style.width = `${percent}%`;
+      el("usage-percent").textContent = `${percent.toFixed(percent < 10 ? 1 : 0)}%`;
+      el("usage-spend").textContent = `NT$${formatTwd(body.spend_twd)} / NT$${formatTwd(body.budget_twd)}`;
+      el("usage-tokens").textContent = `${formatTokens(body.total_tokens)} tokens · ${body.month}`;
+      const progress = el("usage-progress").parentElement;
+      progress.setAttribute("aria-valuenow", String(percent));
+      progress.setAttribute("aria-valuetext", `本月已使用新台幣 ${formatTwd(body.spend_twd)} 元`);
+    } catch (_) {
+      el("usage-spend").textContent = "用量暫時無法取得";
+      el("usage-tokens").textContent = "—";
+    }
+  }
+
+  async function initializeUser(user) {
+    showApp(user);
+    state.conversations = [];
+    state.activeId = null;
+    load();
+    render();
+    updateComposer();
+    await loadUsage();
+    prompt.focus();
+  }
+
+  async function login(event) {
+    event.preventDefault();
+    const button = el("login-button");
+    button.disabled = true;
+    el("login-status").textContent = "";
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: el("login-username").value.trim(),
+          password: el("login-password").value,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "登入失敗");
+      await initializeUser(body.user);
+    } catch (error) {
+      el("login-status").textContent = error.message;
+      el("login-password").select();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function logout() {
+    state.controller?.abort();
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+    } catch (_) {
+      // The local login screen still locks the UI if the network is unavailable.
+    }
+    state.conversations = [];
+    state.activeId = null;
+    showLogin("已登出");
+  }
+
+  async function restoreSession() {
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) {
+        showLogin();
+        return;
+      }
+      const body = await response.json();
+      await initializeUser(body.user);
+    } catch (_) {
+      showLogin("目前無法連線，請稍後再試");
+    }
+  }
+
   function applyProfile(body) {
     state.profile = body.profile || "customer_service";
     state.assistantName = body.assistant_name || "AI 客服";
@@ -315,7 +445,6 @@
       : state.welcomePrompts;
     const appName = body.app_name || "張副總 AI 客服";
     document.title = appName;
-    el("brand-title").textContent = "Hair Brain";
     el("app-subtitle").textContent = appName;
     prompt.placeholder = state.profile === "designer_coach" ? "輸入輔導問題" : "輸入客服問題";
     el("knowledge-scope").textContent = state.profile === "designer_coach"
@@ -348,13 +477,13 @@
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);
   el("sidebar-close").addEventListener("click", closeSidebar);
+  el("login-form").addEventListener("submit", login);
+  el("logout-button").addEventListener("click", logout);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
 
   async function bootstrap() {
     await checkHealth();
-    load();
-    render();
-    updateComposer();
+    await restoreSession();
   }
 
   bootstrap();

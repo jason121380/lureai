@@ -89,6 +89,15 @@ def default_port() -> int:
     return int(os.getenv("APP_PORT") or os.getenv("PORT") or "8765")
 
 
+def admin_token_for_host(host: str) -> str:
+    configured = os.getenv("ADMIN_TOKEN", "").strip()
+    if configured:
+        return configured
+    if str(host).strip().lower() in {"127.0.0.1", "localhost", "::1"}:
+        return "local-admin"
+    raise ValueError("正式環境必須設定 ADMIN_TOKEN")
+
+
 def reindex(root: Path = PROJECT_ROOT, profile: str = "customer_service") -> dict:
     profile_config = load_profile(profile)
     paths = default_paths(root, profile=profile)
@@ -139,7 +148,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"找不到客服知識檔：{paths['knowledge']}", file=sys.stderr)
         return 1
     settings = load_settings(PROJECT_ROOT / "config" / "settings.json")
-    admin_token = os.getenv("ADMIN_TOKEN", "local-admin")
+    try:
+        admin_token = admin_token_for_host(args.host)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     context = AppContext.create(
         db_path=paths["database"],
         knowledge_path=paths["knowledge"],
@@ -159,7 +172,8 @@ def main(argv: list[str] | None = None) -> int:
     server = create_server(args.host, args.port, context)
     print(f"{profile['app_name']}：http://{args.host}:{server.server_port}")
     print(f"管理後台：http://{args.host}:{server.server_port}/admin.html")
-    print("本機預設管理權杖：local-admin（可用 ADMIN_TOKEN 變更）")
+    if admin_token == "local-admin":
+        print("本機預設管理權杖：local-admin（正式部署必須設定 ADMIN_TOKEN）")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -14,6 +14,7 @@
   --caution: #a86608;
   --caution-soft: #fff4da;
   --focus: #2f6fca;
+  --brand-orange: #f36b32;
   --sidebar-width: 254px;
   --drawer-width: 420px;
   --radius: 8px;
@@ -36,7 +37,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar { min-width: 0; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid #f0f0f0; z-index: 30; transition: margin-left 180ms ease; }
 .sidebar.desktop-hidden { margin-left: calc(var(--sidebar-width) * -1); }
 .brand-row { min-height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 7px; }
-.brand-row strong { min-width: 0; flex: 1; font-size: 18px; line-height: 1.2; }
+.brand-logo { display: block; width: 94px; height: 28px; object-fit: contain; object-position: left center; }
+.brand-row .brand-logo { margin-right: auto; }
 .sidebar-close { display: none; margin-left: auto; }
 .sidebar-search, .sidebar-panel { flex: 0 0 34px; }
 .icon-button { width: 34px; height: 34px; display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; border-radius: 7px; cursor: pointer; text-decoration: none; }
@@ -56,12 +58,37 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-item:hover, .conversation-item.active { background: #ececec; color: #111; }
 .conversation-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-item svg { display: none; }
-.sidebar-footer { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 8px 7px 4px; border-top: 1px solid var(--line); }
+.sidebar-footer { display: grid; gap: 12px; padding: 14px 7px 5px; border-top: 1px solid var(--line); }
+.usage-panel { min-width: 0; }
+.usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }
+.usage-heading strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
+.usage-track { height: 6px; margin: 8px 0; overflow: hidden; background: #e7e7e7; border-radius: 3px; }
+.usage-track span { display: block; width: 0; height: 100%; background: var(--brand-orange); border-radius: inherit; transition: width 220ms ease; }
+.usage-spend, .usage-tokens { display: block; }
+.usage-spend { font-size: 11px; font-weight: 650; }
+.usage-tokens { margin-top: 3px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
+.user-account { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.user-account .icon-button { flex: 0 0 30px; width: 30px; height: 30px; color: var(--muted); }
 .profile-avatar { width: 31px; height: 31px; flex: 0 0 31px; display: grid; place-items: center; color: #fff; background: #222; border-radius: 50%; font-size: 13px; font-weight: 700; }
 .profile-copy { min-width: 0; flex: 1; }
 .profile-copy strong, .profile-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-copy strong { font-size: 12px; }
 .profile-copy span { margin-top: 3px; color: #7b7b7b; font-size: 10px; }
+
+.login-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #f6f6f6; }
+.login-panel { width: min(390px, 100%); padding: 32px; background: #fff; border: 1px solid #dedede; border-radius: var(--radius); box-shadow: 0 10px 34px rgba(0, 0, 0, .08); }
+.login-logo { display: block; width: 122px; height: 37px; object-fit: contain; object-position: left center; }
+.login-heading { margin: 42px 0 26px; }
+.login-heading > span { color: var(--brand-orange); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; font-weight: 800; }
+.login-heading h1 { margin: 7px 0 0; font-size: 25px; font-weight: 650; }
+.login-heading p { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+.login-panel > label { display: block; margin: 12px 0 6px; color: #505050; font-size: 11px; font-weight: 600; }
+.login-field { height: 43px; display: flex; align-items: center; gap: 9px; padding: 0 11px; background: #fff; border: 1px solid #dcdcdc; border-radius: 6px; }
+.login-field:focus-within { border-color: #999; box-shadow: 0 0 0 3px rgba(17, 17, 17, .06); }
+.login-field svg { width: 16px; color: var(--muted); }
+.login-field input { min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; outline: 0; }
+.login-button { width: 100%; margin-top: 18px; }
+.login-status { min-height: 18px; margin: 10px 0 0; color: var(--warning); font-size: 11px; }
 
 .chat-main { position: relative; min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 66px minmax(0, 1fr) auto; overflow: hidden; background: var(--surface); }
 .topbar { position: relative; min-height: 66px; display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; }
@@ -162,7 +189,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-body { overflow: auto; }
 .admin-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--canvas); }
 .admin-login-panel { width: min(420px, 100%); padding: 30px; background: #fff; border: 1px solid #dedede; border-radius: var(--radius); box-shadow: 0 4px 18px rgba(0, 0, 0, .08); }
-.admin-login-brand { display: block; margin-bottom: 30px; font-size: 18px; }
+.admin-login-brand { display: block; width: 112px; height: 34px; margin-bottom: 30px; object-fit: contain; object-position: left center; }
 .admin-login-panel h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
 .admin-login-panel > p { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .admin-login-panel label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; }
@@ -177,7 +204,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-shell { min-height: 100%; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
 .admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid #f0f0f0; }
 .admin-brand { min-height: 48px; padding: 0 7px; color: var(--ink); text-decoration: none; }
-.admin-brand strong { font-size: 18px; }
+.admin-brand .brand-logo { width: 94px; }
 .admin-nav-label { margin: 13px 10px 8px; color: #8c8c8c; font-size: 11px; font-weight: 600; }
 .admin-nav-links { display: grid; gap: 2px; margin-top: 0; }
 .admin-nav-links a { min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 8px 10px; color: #252525; border-radius: 8px; text-decoration: none; font-size: 13px; }
@@ -247,6 +274,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-search-form input { min-width: 0; height: 40px; flex: 1; padding: 0 12px; background: #fff; border: 1px solid var(--line); border-radius: 6px; outline: 0; }
 .admin-search-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .compact-search { max-width: 600px; margin-bottom: 14px; }
+.user-form { max-width: 840px; margin-bottom: 14px; }
 .bordered-icon { color: var(--ink-soft); background: #fff; border: 1px solid var(--line); }
 .result-list { display: grid; gap: 8px; margin-top: 14px; }
 .result-row { padding: 14px 0; border-top: 1px solid var(--line); }
@@ -318,6 +346,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .health-item-meta > div { justify-content: flex-start; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-search-form { align-items: stretch; }
+  .user-form { flex-direction: column; }
   .admin-search-form .command-button span { display: none; }
 }
 

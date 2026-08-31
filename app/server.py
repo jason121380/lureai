@@ -1,21 +1,30 @@
 import hmac
+import hashlib
 import json
 import mimetypes
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 from .answer import AnswerEngine
+from .auth import AuthManager, LoginRateLimiter
 from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
 from .retrieval import Retriever
 from .service import CustomerService
 from .storage import KnowledgeStore
+from .usage import UsagePricing
+
+
+SESSION_COOKIE = "hairbrain_session"
 
 
 def load_pipeline_stats(knowledge_path: Path) -> dict:
@@ -47,6 +56,9 @@ class AppContext:
     knowledge_path: Path
     static_dir: Path
     admin_token: str
+    auth: AuthManager
+    pricing: UsagePricing
+    login_limiter: LoginRateLimiter
     profile: str = "customer_service"
     access_level: str = "customer_service"
     app_name: str = "張副總 AI 客服"
@@ -76,9 +88,31 @@ class AppContext:
     ) -> "AppContext":
         store = KnowledgeStore(db_path)
         knowledge = Path(knowledge_path)
-        if store.count_chunks() == 0 and knowledge.is_file():
-            ingest_jsonl(store, knowledge, expected_access_level=access_level)
+        knowledge_digest = hashlib.sha256(knowledge.read_bytes()).hexdigest() if knowledge.is_file() else ""
+        indexed_digest = store.get_metadata("knowledge_sha256")
+        indexed_access_level = store.get_metadata("knowledge_access_level")
+        needs_reindex = (
+            store.count_chunks() == 0
+            or indexed_digest != knowledge_digest
+            or indexed_access_level != access_level
+        )
+        if knowledge.is_file() and needs_reindex:
+            try:
+                ingest_jsonl(store, knowledge, expected_access_level=access_level)
+            except Exception:
+                store.close()
+                raise
         retriever = Retriever(store)
+        pricing = UsagePricing.from_env()
+        auth = AuthManager(store)
+        login_limiter = LoginRateLimiter()
+        bootstrap_username = os.getenv("USER_USERNAME", "").strip()
+        bootstrap_password = os.getenv("USER_PASSWORD", "")
+        if bootstrap_username or bootstrap_password:
+            if not bootstrap_username or not bootstrap_password:
+                store.close()
+                raise ValueError("USER_USERNAME 與 USER_PASSWORD 必須同時設定")
+            auth.ensure_bootstrap_user(bootstrap_username, bootstrap_password)
         service = CustomerService(
             store=store,
             retriever=retriever,
@@ -89,6 +123,7 @@ class AppContext:
             ),
             answerer=AnswerEngine(policy_path=policy_path),
             top_k=top_k,
+            pricing=pricing,
         )
         return cls(
             store=store,
@@ -97,6 +132,9 @@ class AppContext:
             knowledge_path=knowledge,
             static_dir=Path(static_dir),
             admin_token=admin_token,
+            auth=auth,
+            pricing=pricing,
+            login_limiter=login_limiter,
             profile=profile,
             access_level=access_level,
             app_name=app_name,
@@ -117,12 +155,14 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             if os.getenv("APP_QUIET") != "1":
                 super().log_message(format_string, *args)
 
-        def _json(self, status: int, payload: dict) -> None:
+        def _json(self, status: int, payload: dict, headers: dict | None = None) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for key, value in (headers or {}).items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
 
@@ -151,6 +191,56 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized", "message": "管理權杖無效"})
             return False
 
+        def _session_token(self) -> str:
+            cookie = SimpleCookie()
+            try:
+                cookie.load(self.headers.get("Cookie", ""))
+            except Exception:
+                return ""
+            morsel = cookie.get(SESSION_COOKIE)
+            return morsel.value if morsel else ""
+
+        def _current_user(self) -> dict | None:
+            return context.auth.authenticate(self._session_token())
+
+        def _require_user(self) -> dict | None:
+            user = self._current_user()
+            if user:
+                return user
+            self._json(
+                HTTPStatus.UNAUTHORIZED,
+                {"error": "authentication_required", "message": "請先登入"},
+            )
+            return None
+
+        def _session_cookie(self, token: str, max_age: int) -> str:
+            forwarded_https = (
+                self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip() == "https"
+            )
+            host = self.headers.get("Host", "").split(":", 1)[0].strip("[]").lower()
+            secure = forwarded_https or host not in {"localhost", "127.0.0.1", "::1"}
+            parts = [
+                f"{SESSION_COOKIE}={token}", "Path=/", "HttpOnly", "SameSite=Lax",
+                f"Max-Age={max_age}",
+            ]
+            if secure:
+                parts.append("Secure")
+            return "; ".join(parts)
+
+        def _usage_summary(self, user_id: int) -> dict:
+            now = datetime.now(ZoneInfo("Asia/Taipei"))
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if month_start.month == 12:
+                next_month = month_start.replace(year=month_start.year + 1, month=1)
+            else:
+                next_month = month_start.replace(month=month_start.month + 1)
+            totals = context.store.usage_totals(
+                user_id,
+                month_start.astimezone(timezone.utc).isoformat(),
+                next_month.astimezone(timezone.utc).isoformat(),
+            )
+            return context.pricing.summary(month=f"{now.year:04d}-{now.month:02d}", **totals)
+
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path == "/api/health":
@@ -162,6 +252,20 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     "assistant_name": context.assistant_name,
                     "welcome_prompts": list(context.welcome_prompts),
                 })
+                return
+            if parsed.path == "/api/auth/me":
+                user = self._require_user()
+                if user:
+                    self._json(HTTPStatus.OK, {"user": user})
+                return
+            if parsed.path == "/api/usage":
+                user = self._require_user()
+                if user:
+                    self._json(HTTPStatus.OK, self._usage_summary(user["id"]))
+                return
+            if parsed.path == "/api/admin/users":
+                if self._require_admin():
+                    self._json(HTTPStatus.OK, {"items": context.auth.list_users()})
                 return
             if parsed.path == "/api/admin/stats":
                 if self._require_admin():
@@ -196,9 +300,61 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             parsed = urlparse(self.path)
             try:
                 payload = self._read_json()
+                if parsed.path == "/api/auth/login":
+                    username = str(payload.get("username", "")).strip().casefold()
+                    login_key = f"{self.client_address[0]}|{username}"
+                    if not context.login_limiter.allowed(login_key):
+                        self._json(
+                            HTTPStatus.TOO_MANY_REQUESTS,
+                            {"error": "too_many_attempts", "message": "登入嘗試過多，請稍後再試"},
+                            {"Retry-After": "300"},
+                        )
+                        return
+                    try:
+                        token, user = context.auth.login(
+                            payload.get("username", ""), payload.get("password", "")
+                        )
+                    except ValueError:
+                        context.login_limiter.failed(login_key)
+                        self._json(
+                            HTTPStatus.UNAUTHORIZED,
+                            {"error": "invalid_credentials", "message": "帳號或密碼錯誤"},
+                        )
+                        return
+                    context.login_limiter.succeeded(login_key)
+                    self._json(
+                        HTTPStatus.OK,
+                        {"user": user},
+                        {"Set-Cookie": self._session_cookie(token, context.auth.session_days * 86400)},
+                    )
+                    return
+                if parsed.path == "/api/auth/logout":
+                    context.auth.logout(self._session_token())
+                    self._json(
+                        HTTPStatus.OK,
+                        {"status": "ok"},
+                        {"Set-Cookie": self._session_cookie("", 0)},
+                    )
+                    return
                 if parsed.path == "/api/chat":
-                    result = context.service.chat(payload.get("message", ""), payload.get("conversation_id"))
+                    user = self._require_user()
+                    if not user:
+                        return
+                    result = context.service.chat(
+                        payload.get("message", ""),
+                        payload.get("conversation_id"),
+                        payload.get("history"),
+                        user_id=user["id"],
+                    )
                     self._json(HTTPStatus.OK, result)
+                    return
+                if parsed.path == "/api/admin/users":
+                    if not self._require_admin():
+                        return
+                    user = context.auth.create_or_reset_user(
+                        payload.get("username", ""), payload.get("password", "")
+                    )
+                    self._json(HTTPStatus.OK, {"user": user})
                     return
                 if parsed.path == "/api/admin/reindex":
                     if not self._require_admin():

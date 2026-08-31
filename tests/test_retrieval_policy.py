@@ -121,6 +121,29 @@ class RetrievalPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.message, "請補充輔導數據。")
 
+    def test_authoritative_tie_break_never_preempts_a_higher_score(self):
+        rows = [
+            {
+                "chunk_id": "authoritative", "title": "一般資料", "source_file": "knowledge/sop.md",
+                "locator": "sop", "section_title": "", "text": "私訊", "category": "流程",
+                "search_text": "私訊",
+            },
+            {
+                "chunk_id": "specific", "title": "私訊預約流程", "source_file": "private/case.md",
+                "locator": "case", "section_title": "私訊轉預約", "text": "私訊很多但預約很少",
+                "category": "歷史輔導案例", "search_text": "私訊 預約 私訊很多 預約很少",
+            },
+        ]
+
+        class RowsStore:
+            def search_fts(self, _query, limit=50):
+                return rows[:limit]
+
+        hits = Retriever(RowsStore()).retrieve("私訊很多但預約很少", limit=2)
+
+        self.assertGreater(hits[0].score, hits[1].score)
+        self.assertEqual(hits[0].chunk_id, "specific")
+
 
 if __name__ == "__main__":
     unittest.main()

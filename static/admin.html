@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <title>知識庫管理｜張副總 AI 客服</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="app-icon.png">
   <link rel="stylesheet" href="app.css">
 </head>
 <body class="admin-body">
   <section id="admin-gate" class="admin-gate" aria-labelledby="admin-login-title">
     <form id="admin-login-form" class="admin-login-panel">
-      <strong class="admin-login-brand">Hair Brain</strong>
+      <img class="admin-login-brand" src="logo.svg" alt="lure ai">
       <h1 id="admin-login-title">管理者登入</h1>
       <p>輸入管理權杖後，才能查看知識、檢索與查詢稽核。</p>
       <label for="gate-token">管理權杖</label>
@@ -25,12 +26,13 @@
   <div id="admin-shell" class="admin-shell" hidden>
     <aside class="admin-nav">
       <a href="index.html" class="brand-row admin-brand">
-        <strong>Hair Brain</strong>
+        <img class="brand-logo" src="logo.svg" alt="lure ai">
       </a>
       <div class="admin-nav-label">管理後台</div>
       <nav class="admin-nav-links">
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
         <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
+        <a href="#users"><i data-lucide="users"></i><span>使用者帳號</span></a>
         <a href="#retrieval"><i data-lucide="scan-search"></i><span>檢索測試</span></a>
         <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
         <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
@@ -62,6 +64,16 @@
           <div class="stat-card"><span>去識別對話案例</span><strong id="stat-conversation-cases">—</strong></div>
           <div class="stat-card alert-stat"><span>受密碼保護</span><strong id="stat-protected-files">—</strong></div>
         </div>
+      </section>
+
+      <section id="users" class="admin-section">
+        <div class="section-heading"><div><h2>使用者帳號</h2><p>建立登入帳號；輸入既有帳號可重設密碼並登出其舊 session</p></div></div>
+        <form id="user-form" class="admin-search-form user-form">
+          <input id="user-username" autocomplete="off" placeholder="帳號（至少 2 個字）" aria-label="使用者帳號" required>
+          <input id="user-password" type="password" autocomplete="new-password" placeholder="新密碼（至少 8 個字）" aria-label="使用者密碼" required>
+          <button class="command-button" type="submit"><i data-lucide="user-plus"></i><span>建立或重設</span></button>
+        </form>
+        <div id="user-results" class="table-shell"><div class="empty-state">驗證管理權杖後載入帳號</div></div>
       </section>
 
       <section id="health" class="admin-section">

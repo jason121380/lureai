@@ -16,6 +16,8 @@ FRONTEND_ASSETS = (
     "app.css",
     "chat.js",
     "admin.js",
+    "logo.svg",
+    "manifest.webmanifest",
     "vendor/lucide.min.js",
 )
 
@@ -94,6 +96,8 @@ def _frontend_check(context) -> tuple[str, str, dict]:
         "app.css": (".chat-main", ".admin-shell"),
         "chat.js": ("/api/chat",),
         "admin.js": ("/api/admin/health",),
+        "logo.svg": ("<svg", "lure ai"),
+        "manifest.webmanifest": ('"name"', "lure ai"),
         "vendor/lucide.min.js": ("lucide",),
     }
     missing = []
@@ -135,6 +139,28 @@ def _database_check(context) -> tuple[str, str, dict]:
         "writable": details["writable"],
         "size_bytes": details["size_bytes"],
     }
+
+
+def _auth_check(context) -> tuple[str, str, dict]:
+    manager = getattr(context, "auth", None)
+    operations = ("login", "authenticate", "logout", "create_or_reset_user", "list_users")
+    missing = [name for name in operations if not callable(getattr(manager, name, None))]
+    if missing:
+        return "error", "使用者驗證服務未完整就緒", {"missing": missing}
+    users = context.store.connection.execute(
+        "SELECT COUNT(*) AS total, COALESCE(SUM(active), 0) AS active FROM users"
+    ).fetchone()
+    sessions = int(context.store.connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0])
+    details = {
+        "users": int(users["total"]),
+        "active_users": int(users["active"]),
+        "sessions": sessions,
+        "password_storage": "scrypt",
+        "session_storage": "sha256",
+    }
+    if details["active_users"] == 0:
+        return "warning", "尚未建立可登入的使用者帳號", details
+    return "ok", "帳密驗證與 session 儲存已就緒", details
 
 
 def _rag_check(context) -> tuple[str, str, dict]:
@@ -218,7 +244,11 @@ def _llm_check(context) -> tuple[str, str, dict]:
     if base_url:
         details["provider_host"] = urlparse(base_url).hostname or "invalid"
     if all(configured.values()) and details["provider_host"] != "invalid":
-        return "ok", "LLM 設定完整，連線會在回答時驗證", details
+        access = context.service.answerer.check_model_access()
+        details.update(access)
+        if access.get("reachable"):
+            return "ok", "LLM 金鑰與模型存取權已驗證", details
+        return "error", "LLM 模型連線或權限驗證失敗", details
     if any(configured.values()):
         return "warning", "LLM 設定不完整，目前使用抽取式回答", details
     return "warning", "未設定 LLM，目前使用抽取式回答", details
@@ -230,6 +260,7 @@ def build_health_report(context) -> dict:
         _timed_check("api", "API", lambda: _api_check(context)),
         _timed_check("frontend", "Frontend", lambda: _frontend_check(context)),
         _timed_check("database", "Database", lambda: _database_check(context)),
+        _timed_check("auth", "Auth", lambda: _auth_check(context)),
         _timed_check("rag", "RAG", lambda: _rag_check(context)),
         _timed_check("knowledge", "Knowledge", lambda: _knowledge_check(context)),
         _timed_check("llm", "LLM", lambda: _llm_check(context)),

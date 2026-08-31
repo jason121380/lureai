@@ -74,5 +74,10 @@ class Retriever:
                 category=row["category"],
                 score=round(score, 4),
             ))
-        hits.sort(key=lambda hit: (-hit.score, hit.title, hit.locator))
+        hits.sort(key=lambda hit: (
+            -hit.score,
+            not hit.source_file.startswith("knowledge/"),
+            hit.title,
+            hit.locator,
+        ))
         return hits[:limit]

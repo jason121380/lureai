@@ -1,4 +1,5 @@
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,18 +42,17 @@ class IngestTests(unittest.TestCase):
         path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows), encoding="utf-8")
         return path
 
-    def test_ingest_accepts_only_approved_customer_chunks(self):
+    def test_ingest_rejects_entire_batch_when_any_chunk_is_invalid(self):
         path = self.write_jsonl([
             approved_chunk(),
             approved_chunk(chunk_id="chunk-2", review_status="pending"),
             approved_chunk(chunk_id="chunk-3", access_level="restricted"),
         ])
 
-        report = ingest_jsonl(self.store, path)
+        with self.assertRaisesRegex(ValueError, "知識檔包含 2 筆未核准或無效資料"):
+            ingest_jsonl(self.store, path)
 
-        self.assertEqual(report.imported, 1)
-        self.assertEqual(report.rejected, 2)
-        self.assertEqual(self.store.count_chunks(), 1)
+        self.assertEqual(self.store.count_chunks(), 0)
 
     def test_validate_chunk_requires_citation_fields(self):
         valid, errors = validate_chunk(approved_chunk(locator=""))
@@ -81,15 +81,13 @@ class IngestTests(unittest.TestCase):
                 customer_service_allowed=False,
                 rag_allowed=True,
             ),
-            approved_chunk(chunk_id="customer-1"),
         ])
 
         report = ingest_jsonl(self.store, path, expected_access_level="internal_coaching")
 
         self.assertEqual(report.imported, 1)
-        self.assertEqual(report.rejected, 1)
+        self.assertEqual(report.rejected, 0)
         self.assertIsNotNone(self.store.get_chunk("coach-1"))
-        self.assertIsNone(self.store.get_chunk("customer-1"))
 
     def test_reindex_replaces_previous_knowledge_atomically(self):
         ingest_jsonl(self.store, self.write_jsonl([approved_chunk()]))
@@ -100,6 +98,27 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(self.store.count_chunks(), 1)
         self.assertEqual(self.store.get_chunk("chunk-new")["text"], "新的核准內容")
         self.assertIsNone(self.store.get_chunk("chunk-1"))
+
+    def test_ingest_records_source_digest(self):
+        source = self.write_jsonl([approved_chunk()])
+
+        ingest_jsonl(self.store, source)
+
+        expected = hashlib.sha256(source.read_bytes()).hexdigest()
+        self.assertEqual(self.store.get_metadata("knowledge_sha256"), expected)
+
+    def test_invalid_update_preserves_last_known_good_index_and_digest(self):
+        original = self.write_jsonl([approved_chunk()])
+        ingest_jsonl(self.store, original)
+        original_digest = self.store.get_metadata("knowledge_sha256")
+        invalid = self.write_jsonl([approved_chunk(chunk_id="bad", review_status="pending")])
+
+        with self.assertRaises(ValueError):
+            ingest_jsonl(self.store, invalid)
+
+        self.assertIsNotNone(self.store.get_chunk("chunk-1"))
+        self.assertIsNone(self.store.get_chunk("bad"))
+        self.assertEqual(self.store.get_metadata("knowledge_sha256"), original_digest)
 
 
 if __name__ == "__main__":

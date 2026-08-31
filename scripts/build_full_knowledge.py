@@ -55,6 +55,10 @@ CUSTOMER_EXCLUDE = re.compile(
 RAG_EXCLUDE = re.compile(
     r"客資料|名單|業績報表|設計師業績表|客數表|薪資|人事規章|財務|損益|離職|請假單|員工介紹|月行事曆"
 )
+DEPLOY_IDENTITY_FIELD = re.compile(
+    r"((?:編號|姓名|店家|店名|店長|輔導人|電話|手機|地址|身分證(?:字號)?|帳號)\s*[:：]\s*)"
+    r"([^|｜\n]{1,60})"
+)
 
 
 @dataclass
@@ -480,6 +484,11 @@ def sanitize_message(
     return clean_text(value)
 
 
+def sanitize_deployable_text(text: str) -> str:
+    value = sanitize_message(text, set())
+    return DEPLOY_IDENTITY_FIELD.sub(lambda match: f"{match.group(1)}[已移除]", value)
+
+
 def write_conversations(data: dict, output_root: Path) -> tuple[list[dict], list[dict]]:
     conversations = data.get("conversations", [])
     names = collect_names(conversations)
@@ -609,7 +618,7 @@ def document_chunks(relative: Path, digest: str, extracted: Extracted, access_le
     category = infer_category(relative)
     for section_index, (heading, text) in enumerate(extracted.sections, 1):
         for chunk_index, chunk in enumerate(split_text(text), 1):
-            chunk = sanitize_message(chunk, set())
+            chunk = sanitize_deployable_text(chunk)
             if len(chunk) < 30:
                 continue
             warning = "【歷史教材：僅供方法與流程參考；其中價格、時程、制度、效果與活動不得視為現行資訊。】"

@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,5 +83,11 @@ def ingest_jsonl(
             prepared["search_text"] = _search_text(prepared)
             accepted.append(prepared)
 
+    if errors:
+        raise ValueError(f"知識檔包含 {rejected} 筆未核准或無效資料")
+    if not accepted:
+        raise ValueError("知識檔沒有可匯入的核准資料")
     store.replace_chunks(accepted)
+    store.set_metadata("knowledge_sha256", hashlib.sha256(source.read_bytes()).hexdigest())
+    store.set_metadata("knowledge_access_level", expected_access_level)
     return IngestReport(imported=len(accepted), rejected=rejected, errors=errors)

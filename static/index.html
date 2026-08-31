@@ -5,14 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <title>張副總 AI 客服</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="app-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <div class="app-shell">
+  <section id="login-gate" class="login-gate" aria-labelledby="login-title">
+    <form id="login-form" class="login-panel">
+      <img class="login-logo" src="logo.svg" alt="lure ai">
+      <div class="login-heading">
+        <span>PRIVATE COACHING BRAIN</span>
+        <h1 id="login-title">登入 AI 輔導</h1>
+        <p>使用管理員提供的帳號與密碼。</p>
+      </div>
+      <label for="login-username">帳號</label>
+      <div class="login-field"><i data-lucide="user"></i><input id="login-username" name="username" autocomplete="username" required></div>
+      <label for="login-password">密碼</label>
+      <div class="login-field"><i data-lucide="lock-keyhole"></i><input id="login-password" name="password" type="password" autocomplete="current-password" required></div>
+      <button id="login-button" class="command-button login-button" type="submit"><i data-lucide="log-in"></i><span>登入</span></button>
+      <p id="login-status" class="login-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
     <aside class="sidebar" id="sidebar" aria-label="對話側邊欄">
       <div class="brand-row">
-        <strong id="brand-title">Hair Brain</strong>
+        <img class="brand-logo" src="logo.svg" alt="lure ai">
         <button class="icon-button sidebar-search" id="sidebar-search" type="button" title="搜尋對話" aria-label="搜尋對話"><i data-lucide="search"></i></button>
         <button class="icon-button sidebar-panel" id="sidebar-panel" type="button" title="收合側邊欄" aria-label="收合側邊欄"><i data-lucide="panel-left-close"></i></button>
         <button class="icon-button sidebar-close" id="sidebar-close" title="關閉側邊欄" aria-label="關閉側邊欄"><i data-lucide="x"></i></button>
@@ -27,8 +46,17 @@
       <div class="sidebar-label">最近</div>
       <nav id="conversation-list" class="conversation-list" aria-label="最近對話"></nav>
       <div class="sidebar-footer">
-        <div class="profile-avatar" aria-hidden="true">張</div>
-        <div class="profile-copy"><strong id="app-subtitle">張副總 AI 客服</strong><span id="index-scope">客服索引已隔離</span></div>
+        <section class="usage-panel" aria-labelledby="usage-title">
+          <div class="usage-heading"><span id="usage-title">本月用量</span><strong id="usage-percent">0%</strong></div>
+          <div class="usage-track" role="progressbar" aria-label="本月預算用量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="usage-progress"></span></div>
+          <strong id="usage-spend" class="usage-spend">NT$0 / NT$0</strong>
+          <span id="usage-tokens" class="usage-tokens">0 tokens</span>
+        </section>
+        <div class="user-account">
+          <div id="profile-avatar" class="profile-avatar" aria-hidden="true">U</div>
+          <div class="profile-copy"><strong id="user-name">使用者</strong><span id="app-subtitle">AI 輔導</span><span id="index-scope" hidden>索引已隔離</span></div>
+          <button id="logout-button" class="icon-button" type="button" title="登出" aria-label="登出"><i data-lucide="log-out"></i></button>
+        </div>
       </div>
     </aside>
 

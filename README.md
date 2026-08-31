@@ -7,13 +7,15 @@ ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG pro
 - 客服聊天介面、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
 - 本機完整索引：549 個客服 chunks、2,443 個設計師輔導 chunks
-- 公開倉庫安全種子：15 個客服 chunks、25 個輔導流程 chunks
+- 公開部署索引：15 個客服 chunks、2,393 個去識別化輔導 chunks
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `customer_service`／`designer_coach` 雙 profile 隔離
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 價格、療效、退款、賠償、個資與即時預約轉人工
 - 管理端知識搜尋、檢索測試、重新索引與 audit log
-- OpenAI Chat Completions 相容接口
+- OpenAI Responses API 與 GPT-5.6 Luna
+- 使用者帳密登入、HttpOnly session、後台帳號建立與密碼重設
+- 每位使用者本月 token、台幣花費與預算進度
 - 未設定 API Key 時可使用離線抽取式回答
 
 ## 啟動設計師 AI 輔導
@@ -39,21 +41,30 @@ ZBPACK_START_COMMAND="python3 run.py --reindex-only && _startup"
 APP_HOST=0.0.0.0
 APP_PROFILE=designer_coach
 ADMIN_TOKEN=請換成長且不可猜測的隨機值
+USER_USERNAME=designer
+USER_PASSWORD=請換成至少8字的強密碼
 LLM_BASE_URL=https://api.openai.com
 LLM_API_KEY=你的OpenAI_API_Key
 LLM_MODEL=gpt-5.6-luna
+LLM_REASONING_EFFORT=low
+LLM_INPUT_USD_PER_MILLION=0.20
+LLM_CACHED_INPUT_USD_PER_MILLION=0.02
+LLM_CACHE_WRITE_USD_PER_MILLION=0.25
+LLM_OUTPUT_USD_PER_MILLION=1.20
+USD_TO_TWD=32.5
+MONTHLY_BUDGET_TWD=1000
 ```
 
 Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。若部署客服版本，將 `APP_PROFILE` 改成 `customer_service`。
 
-公開 GitHub 倉庫只包含安全種子知識。要讓 Zeabur 使用完整私人索引，必須先透過私人 Git 倉庫、私有物件儲存或持久化 Volume 把對應 JSONL 放進服務，再設定：
+設計師輔導部署預設包含 2,393 個已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
 ```dotenv
 KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
 APP_DB_PATH=/data/hair-brain/designer_coach.db
 ```
 
-客服部署則改用 `customer_service_full.jsonl` 與 `knowledge.db`。SQLite 只負責本機索引及稽核紀錄，不需要另外建立 PostgreSQL；若 Pod 沒有持久化 Volume，重新部署時稽核紀錄會重置。
+客服部署則改用 `customer_service_full.jsonl` 與 `knowledge.db`。SQLite 負責索引、使用者、session、用量與稽核紀錄，不需要另外建立 PostgreSQL；正式環境建議掛載持久化 Volume，否則重新部署時後四項紀錄會重置。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
 
 ## 系統需求
 
@@ -84,7 +95,10 @@ API Key 只放在後端環境變數，不要放進 JavaScript、Git 或瀏覽器
 export LLM_BASE_URL="https://api.openai.com"
 export LLM_API_KEY="你的 OpenAI API Key"
 export LLM_MODEL="gpt-5.6-luna"
+export LLM_REASONING_EFFORT="low"
 export ADMIN_TOKEN="請設定長且不可猜測的管理權杖"
+export USER_USERNAME="designer"
+export USER_PASSWORD="請設定至少8字的強密碼"
 python3 run.py --port 8765
 ```
 
@@ -94,7 +108,7 @@ python3 run.py --port 8765
 curl http://127.0.0.1:8765/api/health
 ```
 
-應回傳 `"model_enabled": true`。模型呼叫失敗或輸出缺少引用時，系統會降級為來源抽取式回答。
+應回傳 `"model_enabled": true`。系統透過 OpenAI Responses API 生成答案；模型呼叫失敗或輸出缺少引用時，API 會回傳 `model_status` 並清楚標示已降級為來源抽取式回答。
 
 管理後台提供完整健康檢查，需使用管理權杖：
 
@@ -103,7 +117,9 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" \
   http://127.0.0.1:8765/api/admin/health
 ```
 
-回傳 Server、內部 API、Frontend、SQLite Database、RAG、Knowledge 與 LLM 七項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。健康檢查不會回傳 API Key 或完整本機路徑，也不會主動發送付費模型請求。
+回傳 Server、內部 API、Frontend、SQLite Database、Auth、RAG、Knowledge 與 LLM 八項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
+
+用量成本以 Responses API 回傳的 input、cached input、cache write 與 output tokens 計算。各 token 類型費率、台幣換算率與月預算都能由 `.env` 對應變數調整；模型費率或匯率變動時只需更新環境變數。
 
 ### macOS Keychain
 
@@ -116,6 +132,7 @@ unset OPENAI_KEY
 export LLM_API_KEY="$(security find-generic-password -a "$USER" -s "hair-brain-openai" -w)"
 export LLM_BASE_URL="https://api.openai.com"
 export LLM_MODEL="gpt-5.6-luna"
+export LLM_REASONING_EFFORT="low"
 python3 run.py
 ```
 
@@ -125,12 +142,13 @@ python3 run.py
 
 1. `KNOWLEDGE_JSONL` 指定的檔案
 2. 本機存在的 `private_sources/full/rag/{profile}_full.jsonl`
-3. 公開倉庫的安全種子 JSONL
+3. 公開倉庫的去識別化部署 JSONL
 
-公開種子：
+部署索引：
 
 ```text
 knowledge/active_customer_service.jsonl
+knowledge/designer_coaching_process.jsonl
 ```
 
 設計師教練載入：
@@ -195,7 +213,7 @@ python3 scripts/verify_full_knowledge.py
 | `customer_service` | `customer_service` | `active_customer_service.jsonl` | `data/knowledge.db` |
 | `designer_coach` | `internal_coaching` | `designer_coaching_process.jsonl` | `data/designer_coach.db` |
 
-自己的介面呼叫方式相同：`POST /api/chat`，JSON body 為 `{"message":"問題","conversation_id":"可選 ID"}`。前端可先讀取 `GET /api/health` 確認目前 profile、知識筆數與模型是否啟用。
+聊天與用量 API 需要先透過 `POST /api/auth/login` 建立 session。登入後呼叫 `POST /api/chat`，JSON body 為 `{"message":"問題","conversation_id":"可選 ID"}`；`GET /api/usage` 只回傳目前登入使用者的本月用量。前端可先讀取公開的 `GET /api/health` 確認目前 profile、知識筆數與模型是否啟用。
 
 ## 設定
 

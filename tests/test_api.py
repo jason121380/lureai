@@ -5,6 +5,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from http.cookiejar import CookieJar
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,6 +37,8 @@ class ApiTests(unittest.TestCase):
             "app.css": ".chat-main {} .admin-shell {}",
             "chat.js": 'fetch("/api/chat")',
             "admin.js": 'fetch("/api/admin/health")',
+            "logo.svg": '<svg aria-label="lure ai"></svg>',
+            "manifest.webmanifest": '{"name":"lure ai"}',
             "vendor/lucide.min.js": "const lucide = {};",
         }
         for relative, content in frontend_assets.items():
@@ -48,10 +51,12 @@ class ApiTests(unittest.TestCase):
             static_dir=root,
             admin_token="secret-token",
         )
+        self.context.auth.create_or_reset_user("designer", "designer-password")
         self.server = create_server("127.0.0.1", 0, self.context)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.server.server_port}"
+        self.client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
     def tearDown(self):
         self.server.shutdown()
@@ -66,7 +71,7 @@ class ApiTests(unittest.TestCase):
             headers["X-Admin-Token"] = token
         request = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=3) as response:
+            with self.client.open(request, timeout=3) as response:
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())
@@ -80,11 +85,97 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["profile"], "customer_service")
 
     def test_chat_returns_grounded_answer(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
         status, body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
 
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "answered")
         self.assertEqual(body["citations"][0]["locator"], "aftercare-1")
+
+    def test_chat_requires_login(self):
+        status, body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+
+        self.assertEqual(status, 401)
+        self.assertEqual(body["error"], "authentication_required")
+
+    def test_login_cookie_unlocks_current_user_and_logout(self):
+        status, body = self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["username"], "designer")
+        self.assertEqual(self.request("GET", "/api/auth/me")[1]["user"]["username"], "designer")
+
+        self.assertEqual(self.request("POST", "/api/auth/logout", {})[0], 200)
+        self.assertEqual(self.request("GET", "/api/auth/me")[0], 401)
+
+    def test_public_host_login_cookie_is_secure(self):
+        payload = json.dumps({
+            "username": "designer", "password": "designer-password",
+        }).encode()
+        request = urllib.request.Request(
+            self.base + "/api/auth/login",
+            data=payload,
+            headers={"Content-Type": "application/json", "Host": "hairbrain.zeabur.app"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(request, timeout=3) as response:
+            cookie = response.headers.get("Set-Cookie", "")
+
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("Secure", cookie)
+
+    def test_login_is_rate_limited_per_account_and_client(self):
+        for _ in range(5):
+            status, _body = self.request("POST", "/api/auth/login", {
+                "username": "unknown-user", "password": "wrong-password",
+            })
+            self.assertEqual(status, 401)
+
+        status, body = self.request("POST", "/api/auth/login", {
+            "username": "unknown-user", "password": "wrong-password",
+        })
+
+        self.assertEqual(status, 429)
+        self.assertEqual(body["error"], "too_many_attempts")
+
+    def test_admin_can_create_or_reset_user(self):
+        status, body = self.request("POST", "/api/admin/users", {
+            "username": "new-designer", "password": "strong-password",
+        }, token="secret-token")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["username"], "new-designer")
+        self.assertNotIn("password", body["user"])
+        status, users = self.request("GET", "/api/admin/users", token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertIn("new-designer", [item["username"] for item in users["items"]])
+
+    def test_usage_is_private_to_authenticated_user(self):
+        self.assertEqual(self.request("GET", "/api/usage")[0], 401)
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+
+        with patch.object(
+            self.context.service.answerer,
+            "answer",
+            return_value=("依照設計師示範方向吹整。[1]", "llm", "used", {
+                "input_tokens": 1000, "output_tokens": 200,
+            }),
+        ):
+            self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+
+        status, body = self.request("GET", "/api/usage")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["input_tokens"], 1000)
+        self.assertEqual(body["output_tokens"], 200)
+        self.assertGreater(body["spend_twd"], 0)
+        self.assertIn("progress_percent", body)
 
     def test_admin_endpoint_rejects_wrong_token(self):
         status, body = self.request("GET", "/api/admin/stats")
@@ -111,16 +202,20 @@ class ApiTests(unittest.TestCase):
             "LLM_BASE_URL": "https://api.openai.com",
             "LLM_API_KEY": "unit-test-api-key",
             "LLM_MODEL": "test-model",
-        }):
+        }), patch.object(
+            self.context.service.answerer,
+            "check_model_access",
+            return_value={"reachable": True, "api": "responses"},
+        ):
             status, body = self.request("GET", "/api/admin/health", token="secret-token")
 
         self.assertEqual(status, 200)
         self.assertIn(body["status"], ("ok", "warning"))
         self.assertIn("checked_at", body)
-        self.assertEqual(body["summary"]["total"], 7)
+        self.assertEqual(body["summary"]["total"], 8)
         checks = {item["id"]: item for item in body["checks"]}
         self.assertEqual(set(checks), {
-            "server", "api", "frontend", "database", "rag", "knowledge", "llm",
+            "server", "api", "frontend", "database", "auth", "rag", "knowledge", "llm",
         })
         for item in checks.values():
             self.assertIn(item["status"], ("ok", "warning", "error"))
@@ -130,7 +225,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(checks["database"]["status"], "ok")
         self.assertEqual(checks["rag"]["details"]["chunks"], 1)
         self.assertEqual(checks["knowledge"]["details"]["records"], 1)
-        self.assertEqual(checks["frontend"]["details"]["assets"], 6)
+        self.assertEqual(checks["frontend"]["details"]["assets"], 8)
+        self.assertEqual(checks["auth"]["status"], "ok")
+        self.assertEqual(checks["auth"]["details"]["users"], 1)
+        self.assertTrue(checks["llm"]["details"]["reachable"])
         serialized = json.dumps(body)
         self.assertNotIn("secret-token", serialized)
         self.assertNotIn("unit-test-api-key", serialized)
