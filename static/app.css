@@ -269,7 +269,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .health-latency { flex: 0 0 auto; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
 .command-button.is-loading svg { animation: health-spin 800ms linear infinite; }
 @keyframes health-spin { to { transform: rotate(360deg); } }
-.admin-search-form { display: flex; gap: 8px; }
+.admin-search-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-search-form input { min-width: 0; height: 42px; flex: 1; padding: 0 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; }
 .admin-search-form input:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .admin-search-form select { height: 42px; padding: 0 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; color: var(--ink); font-size: 13px; cursor: pointer; }
@@ -354,6 +354,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .health-item-meta > div { justify-content: flex-start; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-search-form { align-items: stretch; }
+  /* Narrow screens: search on its own row, filters underneath. */
+  .compact-search input[type="search"] { flex: 1 0 100%; }
+  .compact-search .select-field { flex: 1 1 auto; }
+  .compact-search .select-button { min-width: 0; width: 100%; }
   .user-form { flex-direction: column; }
   .admin-search-form .command-button span { display: none; }
 }
@@ -409,6 +413,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .editor-row { grid-template-columns: 1fr; }
   .knowledge-head { flex-direction: column; }
 }
+
+/* In-page dropdown: the native <select> opens an OS picker that covers the
+   page, so it stays hidden and this renders in its place. */
+.select-field { position: relative; display: inline-flex; }
+.select-field > select { display: none; }
+.select-button { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 148px; height: 42px; padding: 0 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 13px; cursor: pointer; }
+.select-button:hover { border-color: var(--ink-soft); }
+.select-field.is-open .select-button { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.select-button i { width: 16px; height: 16px; color: var(--muted); flex: 0 0 auto; }
+.select-field.is-open .select-button i { transform: rotate(180deg); }
+.select-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 100%; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 12px 32px rgba(15, 15, 15, 0.12); display: grid; gap: 2px; }
+.select-menu button { padding: 9px 10px; color: var(--ink); background: none; border: 0; border-radius: 6px; font: inherit; font-size: 13px; text-align: left; white-space: nowrap; cursor: pointer; }
+.select-menu button:hover { background: var(--bubble); }
+.select-menu button.is-selected { background: var(--bubble); font-weight: 600; }
+.knowledge-editor .select-field, .knowledge-editor .select-button { width: 100%; }
 
 /* Search row controls share one height so the icon button lines up. */
 .admin-search-form .bordered-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--radius-sm); }
