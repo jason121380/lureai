@@ -10,6 +10,9 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 建議問題保證答得出來：連續追問 50 輪以上不會出現「需要人工協助」（`tests/test_followup_chain.py` 實跑驗證）
+- 開場建議問題每次隨機（24 題題庫逐題驗證答得出來，`/api/health` 隨機出 12 題、前端抽 3 題）
+- 回答一律「一句結論＋動詞開頭的行動條列」，每點附 `[n]` 引用；缺引用會自動重試一次，全形引用自動正規化
+- 模型降級可觀測：前端顯示降級原因標籤，伺服器 log 有 `[boot]` 開機摘要與 `[llm]` 失敗原因（不含金鑰與問題內容）
 - 個資、醫療、法律賠償與勞資話題轉人工
 - 管理端知識編輯台：兩大主題總覽、知識庫新增/編輯、品質檢查、帳號與系統健康
 - OpenAI Responses API 與 GPT-5.6 Luna
@@ -24,10 +27,6 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 在服務的環境變數使用 Raw 編輯模式貼上：
 
 ```dotenv
-ZBPACK_PYTHON_ENTRY=run.py
-ZBPACK_PYTHON_VERSION=3.12
-ZBPACK_START_COMMAND="python3 run.py --reindex-only && _startup"
-APP_HOST=0.0.0.0
 APP_PROFILE=designer_coach
 ADMIN_TOKEN=請換成長且不可猜測的隨機值
 USER_USERNAME=designer
@@ -48,7 +47,7 @@ MONTHLY_BUDGET_TWD=1000
 
 Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
-倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用；`ZBPACK_*` 變數在此情況下不再需要，留著也無妨。
+倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用，`ZBPACK_*` 變數不再需要。Dockerfile 已內建部署韌性：預設綁 `0.0.0.0`（不必設 `APP_HOST`）、開機索引重建失敗只記錄不中斷、未設 `ADMIN_TOKEN` 時自動改用隨機權杖（等於停用 header 管理 API，後台仍以管理者帳號登入）。開機 log 會印 `[boot] profile=… chunks=… db=… model=…`，模型呼叫失敗會印 `[llm]` 原因，部署卡住時先看這兩行。
 
 設計師輔導部署預設包含 209 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
@@ -77,7 +76,7 @@ python3 run.py --port 8765
 - 輔導介面：<http://127.0.0.1:8765>
 - 管理後台：<http://127.0.0.1:8765/admin>（需以「管理者」權限帳號登入；非管理者會被導回對話頁）
 
-`ADMIN_TOKEN` 僅用於 API（`X-Admin-Token` header，供 curl、測試與緊急操作）；本機綁 127.0.0.1 時預設 `local-admin`，正式部署必須更換為長且不可猜測的值。
+`ADMIN_TOKEN` 僅用於 API（`X-Admin-Token` header，供 curl、測試與緊急操作）；本機綁 127.0.0.1 時預設 `local-admin`，正式部署建議設成長且不可猜測的值。正式環境未設定時不會啟動失敗，而是自動產生隨機權杖並在 stderr 警告——此時 header 管理 API 等同停用，管理後台仍可用管理者帳號登入。
 
 ## 串接 OpenAI GPT-5.6 Luna
 
@@ -145,7 +144,7 @@ python3 run.py
 種子寫在 `config/question_bank.json`，編譯時展開成一萬多筆。問法只進檢索欄位，
 不會出現在回答或引用內容裡。
 
-兩本手冊都是人工重點整理：原始教材是掃描 OCR 與試算表傾印（`A1=` 儲存格、空白表單、公式），
+六本手冊都是人工重點整理：原始教材是掃描 OCR 與試算表傾印（`A1=` 儲存格、空白表單、公式），
 無法直接引用，已抽成完整句子的方法與流程，原始語料封存於 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 編譯方式：
 
