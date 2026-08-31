@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from run import default_paths, load_settings
+from run import default_paths, load_profile, load_settings
 
 
 class RuntimeTests(unittest.TestCase):
@@ -25,6 +25,18 @@ class RuntimeTests(unittest.TestCase):
             paths = default_paths(Path("/tmp/project"))
 
         self.assertEqual(paths["knowledge"], Path("/tmp/custom.jsonl"))
+
+    def test_designer_coach_uses_isolated_knowledge_and_database(self):
+        paths = default_paths(Path("/tmp/project"), profile="designer_coach")
+
+        self.assertEqual(paths["knowledge"], Path("/tmp/project/knowledge/designer_coaching_process.jsonl"))
+        self.assertEqual(paths["database"], Path("/tmp/project/data/designer_coach.db"))
+
+    def test_designer_coach_profile_is_internal(self):
+        profile = load_profile("designer_coach")
+
+        self.assertEqual(profile["access_level"], "internal_coaching")
+        self.assertEqual(profile["assistant_name"], "AI 輔導教練")
 
     def test_settings_file_loads_retrieval_threshold(self):
         with tempfile.TemporaryDirectory() as directory:

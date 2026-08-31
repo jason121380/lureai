@@ -26,23 +26,30 @@ class PolicyDecision:
 
 
 class PolicyEngine:
-    def __init__(self, minimum_score: float = 0.72):
+    def __init__(
+        self,
+        minimum_score: float = 0.72,
+        blocked_topics: dict | None = None,
+        fallback_message: str = FALLBACK_MESSAGE,
+    ):
         self.minimum_score = minimum_score
+        self.blocked_topics = SENSITIVE_TOPICS if blocked_topics is None else blocked_topics
+        self.fallback_message = fallback_message
 
     def precheck(self, question: str) -> PolicyDecision:
         normalized = "".join(str(question or "").lower().split())
-        for reason, terms in SENSITIVE_TOPICS.items():
+        for reason, terms in self.blocked_topics.items():
             if any(term in normalized for term in terms):
-                return PolicyDecision("escalate", reason, FALLBACK_MESSAGE)
+                return PolicyDecision("escalate", reason, self.fallback_message)
         return PolicyDecision("continue", "passed")
 
     def evaluate(self, hits: list[SearchHit]) -> PolicyDecision:
         if not hits:
-            return PolicyDecision("escalate", "no_results", FALLBACK_MESSAGE)
+            return PolicyDecision("escalate", "no_results", self.fallback_message)
         top = hits[0]
         if top.score < self.minimum_score:
-            return PolicyDecision("escalate", "low_confidence", FALLBACK_MESSAGE)
+            return PolicyDecision("escalate", "low_confidence", self.fallback_message)
         for hit in hits:
             if not all((hit.chunk_id, hit.title, hit.source_file, hit.locator)):
-                return PolicyDecision("escalate", "missing_citation", FALLBACK_MESSAGE)
+                return PolicyDecision("escalate", "missing_citation", self.fallback_message)
         return PolicyDecision("answer", "grounded")

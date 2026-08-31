@@ -20,19 +20,26 @@ def normalize_text(value: str) -> str:
     return " ".join(str(value or "").replace("\u3000", " ").split())
 
 
-def validate_chunk(row: dict) -> tuple[bool, list[str]]:
+def validate_chunk(
+    row: dict,
+    expected_access_level: str = "customer_service",
+) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not isinstance(row, dict):
         return False, ["row must be an object"]
     for field_name in REQUIRED_FIELDS:
         if not normalize_text(row.get(field_name, "")):
             errors.append(f"missing {field_name}")
-    if row.get("customer_service_allowed") is not True:
-        errors.append("customer_service_allowed must be true")
+    legacy_customer_approval = (
+        expected_access_level == "customer_service"
+        and row.get("customer_service_allowed") is True
+    )
+    if row.get("rag_allowed") is not True and not legacy_customer_approval:
+        errors.append("rag_allowed must be true")
     if row.get("review_status") != "approved":
         errors.append("review_status must be approved")
-    if row.get("access_level") != "customer_service":
-        errors.append("access_level must be customer_service")
+    if row.get("access_level") != expected_access_level:
+        errors.append(f"access_level must be {expected_access_level}")
     return not errors, errors
 
 
@@ -46,7 +53,11 @@ def _search_text(row: dict) -> str:
     return " ".join(search_tokens(original))
 
 
-def ingest_jsonl(store: KnowledgeStore, path: str | Path) -> IngestReport:
+def ingest_jsonl(
+    store: KnowledgeStore,
+    path: str | Path,
+    expected_access_level: str = "customer_service",
+) -> IngestReport:
     source = Path(path)
     accepted: list[dict] = []
     errors: list[str] = []
@@ -62,7 +73,7 @@ def ingest_jsonl(store: KnowledgeStore, path: str | Path) -> IngestReport:
                 rejected += 1
                 errors.append(f"line {line_number}: invalid JSON ({exc.msg})")
                 continue
-            valid, row_errors = validate_chunk(row)
+            valid, row_errors = validate_chunk(row, expected_access_level=expected_access_level)
             if not valid:
                 rejected += 1
                 errors.append(f"line {line_number}: {', '.join(row_errors)}")

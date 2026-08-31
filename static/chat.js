@@ -1,8 +1,18 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "zhang-rag-conversations-v1";
-  const state = { conversations: [], activeId: null, controller: null };
+  const STORAGE_PREFIX = "zhang-rag-conversations-v1";
+  const state = {
+    conversations: [], activeId: null, controller: null,
+    profile: "customer_service",
+    assistantName: "AI 客服",
+    welcomePrompts: [
+      "顧客不滿意怎麼處理？",
+      "臉型可以直接決定髮型嗎？",
+      "預約需要提供什麼資訊？",
+      "染髮多少錢？",
+    ],
+  };
   const el = (id) => document.getElementById(id);
   const messages = el("messages");
   const prompt = el("prompt");
@@ -22,7 +32,7 @@
 
   function load() {
     try {
-      state.conversations = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      state.conversations = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}-${state.profile}`) || "[]");
     } catch (_) {
       state.conversations = [];
     }
@@ -31,7 +41,7 @@
   }
 
   function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.conversations.slice(0, 30)));
+    localStorage.setItem(`${STORAGE_PREFIX}-${state.profile}`, JSON.stringify(state.conversations.slice(0, 30)));
   }
 
   function activeConversation() {
@@ -64,13 +74,16 @@
     wrapper.innerHTML = `
       <div class="welcome-mark"><i data-lucide="message-circle-more"></i></div>
       <h2>今天想查詢什麼？</h2>
-      <p>系統只會使用已核准的客服知識回答，並提供可追溯來源。</p>
-      <div class="prompt-grid">
-        <button class="prompt-chip" type="button">顧客不滿意怎麼處理？</button>
-        <button class="prompt-chip" type="button">臉型可以直接決定髮型嗎？</button>
-        <button class="prompt-chip" type="button">預約需要提供什麼資訊？</button>
-        <button class="prompt-chip" type="button">染髮多少錢？</button>
-      </div>`;
+      <p>系統只會使用已核准知識回答，並提供可追溯來源。</p>
+      <div class="prompt-grid"></div>`;
+    const grid = wrapper.querySelector(".prompt-grid");
+    state.welcomePrompts.forEach((label) => {
+      const button = document.createElement("button");
+      button.className = "prompt-chip";
+      button.type = "button";
+      button.textContent = label;
+      grid.append(button);
+    });
     wrapper.querySelectorAll(".prompt-chip").forEach((button) => button.addEventListener("click", () => {
       prompt.value = button.textContent;
       updateComposer();
@@ -89,7 +102,7 @@
     content.className = "message-content";
     const role = document.createElement("div");
     role.className = "message-role";
-    role.textContent = item.role === "user" ? "你" : "AI 客服";
+    role.textContent = item.role === "user" ? "你" : state.assistantName;
     const text = document.createElement("div");
     text.className = "message-text";
     if (item.loading) {
@@ -244,12 +257,32 @@
       const response = await fetch("/api/health", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error();
+      applyProfile(body);
       status.className = "service-status online";
       status.lastElementChild.textContent = `${body.chunks} 筆知識就緒`;
     } catch (_) {
       status.className = "service-status offline";
       status.lastElementChild.textContent = "服務離線";
     }
+  }
+
+  function applyProfile(body) {
+    state.profile = body.profile || "customer_service";
+    state.assistantName = body.assistant_name || "AI 客服";
+    state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
+      ? body.welcome_prompts.slice(0, 4)
+      : state.welcomePrompts;
+    const appName = body.app_name || "張副總 AI 客服";
+    document.title = appName;
+    el("brand-title").textContent = state.profile === "designer_coach" ? "設計師輔導台" : "客服知識台";
+    el("app-subtitle").textContent = appName;
+    prompt.placeholder = state.profile === "designer_coach" ? "輸入輔導問題" : "輸入客服問題";
+    el("knowledge-scope").textContent = state.profile === "designer_coach"
+      ? "回答僅使用已核准內部輔導知識"
+      : "回答僅使用已核准客服知識";
+    el("index-scope").textContent = state.profile === "designer_coach"
+      ? "內部索引已隔離"
+      : "客服索引已隔離";
   }
 
   el("composer").addEventListener("submit", sendMessage);
@@ -268,8 +301,12 @@
   el("sidebar-close").addEventListener("click", closeSidebar);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
 
-  load();
-  render();
-  updateComposer();
-  checkHealth();
+  async function bootstrap() {
+    await checkHealth();
+    load();
+    render();
+    updateComposer();
+  }
+
+  bootstrap();
 })();

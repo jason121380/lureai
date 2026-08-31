@@ -1,17 +1,31 @@
 # Hair Brain
 
-ChatGPT 式美髮 AI 客服與嚴格 RAG 系統。專案包含中文檢索、來源引用、低信心拒答、敏感問題轉人工、管理後台與查詢稽核。
+ChatGPT 式美髮 AI 客服與設計師 1 對 1 AI 輔導系統。兩種 RAG profile 使用不同知識檔、資料庫、回答規則與瀏覽器對話空間。
 
 ## 功能
 
 - 客服聊天介面、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
-- 15 個已核准、附來源定位的客服知識 chunks
+- 15 個已核准客服知識 chunks
+- 25 個去識別化、附來源雜湊的設計師輔導 chunks
+- `customer_service`／`designer_coach` 雙 profile 隔離
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 價格、療效、退款、賠償、個資與即時預約轉人工
 - 管理端知識搜尋、檢索測試、重新索引與 audit log
 - OpenAI Chat Completions 相容接口
 - 未設定 API Key 時可使用離線抽取式回答
+
+## 啟動設計師 AI 輔導
+
+```bash
+python3 run.py --profile designer_coach --reindex-only
+python3 run.py --profile designer_coach --port 8766
+```
+
+- 輔導介面：<http://127.0.0.1:8766>
+- 輔導管理後台：<http://127.0.0.1:8766/admin.html>
+
+macOS 也可以執行 `./start-coach.command`。客服與輔導可分別使用 `8765`、`8766` 同時運作。
 
 ## 系統需求
 
@@ -76,11 +90,19 @@ python3 run.py
 knowledge/active_customer_service.jsonl
 ```
 
+設計師教練載入：
+
+```text
+knowledge/designer_coaching_process.jsonl
+```
+
+其人工審核來源為 `knowledge/designer_coaching_process.md`。原始對話匯出含個資、帳務、法律個案、歷史價格及逐筆業績，只保留在 Git 忽略的 `private_sources/`，不會進入正式索引或 GitHub。
+
 匯入器只接受同時符合以下條件的資料：
 
-- `customer_service_allowed=true`
+- 客服舊格式使用 `customer_service_allowed=true`，新格式使用 `rag_allowed=true`
 - `review_status=approved`
-- `access_level=customer_service`
+- `access_level` 必須與目前 profile 完全相符
 - `chunk_id`、`title`、`source_file`、`locator`、`text` 完整
 
 指定自己的核准 JSONL：
@@ -92,10 +114,20 @@ python3 run.py --reindex-only
 
 完整內部索引不會被客服程式讀取。
 
+### Profile 對照
+
+| Profile | Access level | 知識檔 | DB |
+| --- | --- | --- | --- |
+| `customer_service` | `customer_service` | `active_customer_service.jsonl` | `data/knowledge.db` |
+| `designer_coach` | `internal_coaching` | `designer_coaching_process.jsonl` | `data/designer_coach.db` |
+
+自己的介面呼叫方式相同：`POST /api/chat`，JSON body 為 `{"message":"問題","conversation_id":"可選 ID"}`。前端可先讀取 `GET /api/health` 確認目前 profile、知識筆數與模型是否啟用。
+
 ## 設定
 
 - 檢索門檻與 top-k：`config/settings.json`
 - 模型回答規則：`config/customer_policy.md`
+- 輔導回答規則：`config/designer_coach_policy.md`
 - 敏感問題分類：`app/policy.py`
 - 環境變數範例：`.env.example`
 

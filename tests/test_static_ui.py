@@ -51,6 +51,13 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("localStorage", script)
         self.assertIn("/api/chat", script)
 
+    def test_chat_controller_applies_server_profile(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn("applyProfile", script)
+        self.assertIn("body.assistant_name", script)
+        self.assertIn("body.welcome_prompts", script)
+
 
 if __name__ == "__main__":
     unittest.main()

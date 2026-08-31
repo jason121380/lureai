@@ -103,6 +103,13 @@ class RetrievalPolicyTests(unittest.TestCase):
 
         self.assertEqual(self.policy.evaluate([hit]).action, "answer")
 
+    def test_profile_can_supply_its_own_fallback_message(self):
+        policy = PolicyEngine(minimum_score=0.72, fallback_message="請補充輔導數據。")
+
+        decision = policy.evaluate([])
+
+        self.assertEqual(decision.message, "請補充輔導數據。")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,23 @@
 
   function token() { return el("admin-token").value.trim(); }
 
+  async function loadProfile() {
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) return;
+      const coaching = body.profile === "designer_coach";
+      document.title = `知識庫管理｜${body.app_name}`;
+      el("admin-brand-title").textContent = coaching ? "設計師輔導台" : "客服知識台";
+      el("admin-chat-label").textContent = coaching ? "返回輔導對話" : "返回客服對話";
+      el("admin-knowledge-scope").textContent = coaching
+        ? "內部輔導目前可使用的來源區塊"
+        : "客服目前可使用的來源區塊";
+    } catch (_) {
+      // Keep the static labels when the health endpoint is unavailable.
+    }
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       ...options,
@@ -112,5 +129,6 @@
   el("refresh-audits").addEventListener("click", loadAudits);
   el("reindex-button").addEventListener("click", reindex);
   window.lucide?.createIcons();
+  loadProfile();
   if (token()) authenticate();
 })();

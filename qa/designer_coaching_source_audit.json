@@ -1,0 +1,36 @@
+{
+  "source_file": "lurebot-conversations-20260831.json",
+  "source_sha256": "2f0aa90a2c14df1fb522b05cd74406976b0943d3277461a0575f07ce42fb6ee6",
+  "exported_at": "2026-08-31 12:37:21",
+  "reviewed_at": "2026-08-31",
+  "conversation_count": 270,
+  "message_count": 12664,
+  "role_counts": {
+    "設計師": 4916,
+    "輔導": 7748
+  },
+  "risk_scan": {
+    "messages_with_at_mention": 1377,
+    "messages_with_url": 385,
+    "messages_with_money": 2003,
+    "messages_with_phone_like_value": 1,
+    "messages_with_email": 12,
+    "messages_with_legal_terms": 15,
+    "messages_with_billing_terms": 350,
+    "media_placeholders": 33,
+    "short_acknowledgements": 2928
+  },
+  "decision": "curate_only",
+  "raw_source_in_rag": false,
+  "excluded_content": [
+    "姓名、群組 ID、聯絡方式與顧客逐筆資料",
+    "帳務、發票、統編、轉帳與個別業績",
+    "法律個案、醫療判斷與私人工作狀況",
+    "舊價格、舊促銷、即時檔期與未驗證功效",
+    "短回覆、媒體占位符、重複報表與無關群組訊息"
+  ],
+  "approved_outputs": [
+    "knowledge/designer_coaching_process.md",
+    "knowledge/designer_coaching_process.jsonl"
+  ]
+}

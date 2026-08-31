@@ -60,6 +60,37 @@ class IngestTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertIn("locator", " ".join(errors))
 
+    def test_internal_coaching_chunk_requires_explicit_profile(self):
+        row = approved_chunk(
+            access_level="internal_coaching",
+            customer_service_allowed=False,
+            rag_allowed=True,
+        )
+
+        default_valid, _ = validate_chunk(row)
+        coaching_valid, errors = validate_chunk(row, expected_access_level="internal_coaching")
+
+        self.assertFalse(default_valid)
+        self.assertTrue(coaching_valid, errors)
+
+    def test_ingest_accepts_only_matching_internal_coaching_chunks(self):
+        path = self.write_jsonl([
+            approved_chunk(
+                chunk_id="coach-1",
+                access_level="internal_coaching",
+                customer_service_allowed=False,
+                rag_allowed=True,
+            ),
+            approved_chunk(chunk_id="customer-1"),
+        ])
+
+        report = ingest_jsonl(self.store, path, expected_access_level="internal_coaching")
+
+        self.assertEqual(report.imported, 1)
+        self.assertEqual(report.rejected, 1)
+        self.assertIsNotNone(self.store.get_chunk("coach-1"))
+        self.assertIsNone(self.store.get_chunk("customer-1"))
+
     def test_reindex_replaces_previous_knowledge_atomically(self):
         ingest_jsonl(self.store, self.write_jsonl([approved_chunk()]))
         second = self.write_jsonl([approved_chunk(chunk_id="chunk-new", text="新的核准內容")])

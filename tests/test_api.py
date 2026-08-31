@@ -56,6 +56,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["chunks"], 1)
+        self.assertEqual(body["profile"], "customer_service")
 
     def test_chat_returns_grounded_answer(self):
         status, body = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})

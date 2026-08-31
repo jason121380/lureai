@@ -35,7 +35,7 @@ class Retriever:
         query_tokens = set(search_tokens(question))
         if not query_tokens:
             return []
-        rows = self.store.search_fts(fts_query(question), limit=max(limit * 4, 12))
+        rows = self.store.search_fts(fts_query(question), limit=max(limit * 8, 50))
         query_bigrams = cjk_bigrams(question)
         hits: list[SearchHit] = []
         for row in rows:

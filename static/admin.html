@@ -13,7 +13,7 @@
     <aside class="admin-nav">
       <a href="index.html" class="brand-row admin-brand">
         <div class="brand-mark" aria-hidden="true">張</div>
-        <div><strong>客服知識台</strong><span>Administration</span></div>
+        <div><strong id="admin-brand-title">客服知識台</strong><span>Administration</span></div>
       </a>
       <nav class="admin-nav-links">
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
@@ -21,7 +21,7 @@
         <a href="#knowledge"><i data-lucide="library"></i><span>核准知識</span></a>
         <a href="#audits"><i data-lucide="history"></i><span>查詢稽核</span></a>
       </nav>
-      <a class="sidebar-link admin-chat-link" href="index.html"><i data-lucide="messages-square"></i><span>返回客服對話</span></a>
+      <a class="sidebar-link admin-chat-link" href="index.html"><i data-lucide="messages-square"></i><span id="admin-chat-label">返回客服對話</span></a>
     </aside>
 
     <main class="admin-main">
@@ -53,7 +53,7 @@
       </section>
 
       <section id="knowledge" class="admin-section">
-        <div class="section-heading"><div><h2>核准知識</h2><p>客服目前可使用的來源區塊</p></div></div>
+        <div class="section-heading"><div><h2>核准知識</h2><p id="admin-knowledge-scope">目前可使用的來源區塊</p></div></div>
         <form id="knowledge-form" class="admin-search-form compact-search">
           <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋核准知識">
           <button class="icon-button bordered-icon" type="submit" title="搜尋知識" aria-label="搜尋知識"><i data-lucide="search"></i></button>

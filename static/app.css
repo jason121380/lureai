@@ -183,7 +183,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 @media (max-width: 760px) {
   .app-shell { display: block; }
-  .sidebar { position: fixed; inset: 0 auto 0 0; width: min(300px, 88vw); transform: translateX(-104%); transition: transform 180ms ease; box-shadow: 18px 0 42px rgba(0,0,0,.2); }
+  .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 60; width: min(300px, 88vw); transform: translateX(-104%); transition: transform 180ms ease; box-shadow: 18px 0 42px rgba(0,0,0,.2); }
   .sidebar.open { transform: translateX(0); }
   .sidebar-close, .menu-button { display: inline-grid; }
   .chat-main { height: 100dvh; }

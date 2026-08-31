@@ -24,6 +24,11 @@ class AppContext:
     knowledge_path: Path
     static_dir: Path
     admin_token: str
+    profile: str = "customer_service"
+    access_level: str = "customer_service"
+    app_name: str = "張副總 AI 客服"
+    assistant_name: str = "AI 客服"
+    welcome_prompts: tuple[str, ...] = ()
     max_request_bytes: int = 65536
 
     @classmethod
@@ -36,20 +41,34 @@ class AppContext:
         policy_path: str | Path | None = None,
         minimum_score: float = 0.72,
         top_k: int = 6,
+        profile: str = "customer_service",
+        access_level: str = "customer_service",
+        app_name: str = "張副總 AI 客服",
+        assistant_name: str = "AI 客服",
+        welcome_prompts: tuple[str, ...] = (),
+        blocked_topics: dict | None = None,
+        fallback_message: str | None = None,
     ) -> "AppContext":
         store = KnowledgeStore(db_path)
         knowledge = Path(knowledge_path)
         if store.count_chunks() == 0 and knowledge.is_file():
-            ingest_jsonl(store, knowledge)
+            ingest_jsonl(store, knowledge, expected_access_level=access_level)
         retriever = Retriever(store)
         service = CustomerService(
             store=store,
             retriever=retriever,
-            policy=PolicyEngine(minimum_score=minimum_score),
+            policy=PolicyEngine(
+                minimum_score=minimum_score,
+                blocked_topics=blocked_topics,
+                **({"fallback_message": fallback_message} if fallback_message else {}),
+            ),
             answerer=AnswerEngine(policy_path=policy_path),
             top_k=top_k,
         )
-        return cls(store, service, retriever, knowledge, Path(static_dir), admin_token)
+        return cls(
+            store, service, retriever, knowledge, Path(static_dir), admin_token,
+            profile, access_level, app_name, assistant_name, welcome_prompts,
+        )
 
     def close(self) -> None:
         self.store.close()
@@ -103,6 +122,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 self._json(HTTPStatus.OK, {
                     "status": "ok", "chunks": context.store.count_chunks(),
                     "model_enabled": context.service.answerer.model_enabled,
+                    "profile": context.profile,
+                    "app_name": context.app_name,
+                    "assistant_name": context.assistant_name,
+                    "welcome_prompts": list(context.welcome_prompts),
                 })
                 return
             if parsed.path == "/api/admin/stats":
@@ -139,7 +162,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if parsed.path == "/api/admin/reindex":
                     if not self._require_admin():
                         return
-                    report = ingest_jsonl(context.store, context.knowledge_path)
+                    report = ingest_jsonl(
+                        context.store,
+                        context.knowledge_path,
+                        expected_access_level=context.access_level,
+                    )
                     self._json(HTTPStatus.OK, {
                         "imported": report.imported, "rejected": report.rejected,
                         "errors": report.errors,
