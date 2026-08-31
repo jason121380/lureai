@@ -171,6 +171,14 @@
     text.className = "message-text";
     if (item.loading) {
       text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>';
+    } else if (item.role === "assistant") {
+      text.innerHTML = renderAssistantMarkup(item.content, item.citations?.length || 0);
+      text.querySelectorAll(".cite-ref").forEach((ref) => {
+        ref.addEventListener("click", () => {
+          const index = Number(ref.dataset.cite) - 1;
+          if (item.citations?.length) openSources(item.citations, Math.max(0, Math.min(index, item.citations.length - 1)));
+        });
+      });
     } else {
       text.textContent = item.content;
     }
@@ -220,6 +228,23 @@
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+  }
+
+  // Minimal Markdown for model answers. Input is HTML-escaped first, so only
+  // the markup generated here reaches innerHTML.
+  function renderAssistantMarkup(content, citationCount) {
+    let html = escapeHtml(content);
+    html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/^#{1,3}\s+(.+)$/gm, '<span class="md-heading">$1</span>');
+    if (citationCount > 0) {
+      html = html.replace(/\[(\d{1,2})\]/g, (match, number) => (
+        Number(number) >= 1 && Number(number) <= citationCount
+          ? `<button type="button" class="cite-ref" data-cite="${number}">${number}</button>`
+          : match
+      ));
+    }
+    return html;
   }
 
   async function sendMessage(event) {
