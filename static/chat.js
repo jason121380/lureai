@@ -34,6 +34,8 @@
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    // 右上角常駐顯示目前的回覆模式。
+    el("tone-indicator").textContent = state.tone === "service" ? "客服模式" : "專家模式";
     if (save) {
       try { localStorage.setItem(toneKey(), state.tone); } catch (_) { /* 存不進去就用預設 */ }
     }
@@ -475,35 +477,16 @@
 
   // 客服模式：像真人一句一句發訊息。
   // - 引用編號只給系統核對，句尾不顯示 [1]——來源照樣列在泡泡下方。
-  // - 標點一律拿掉（保留數字裡的小數點），以空白分段，像平常打字。
-  // - 每則不超過 10 個字，太長的自動拆成下一則。
-  const SERVICE_BUBBLE_MAX = 10;
-
+  // - 標點一律拿掉，以空白分段，像平常打字（「～」保留）。
+  // - 依語意斷句：模型的每一行就是一則訊息，不做字數硬拆（硬拆會把句子切壞）。
   function serviceSentences(content) {
-    const lines = String(content || "")
+    return String(content || "")
       .split("\n")
       .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
       .map((line) => line.replace(/\s*\[\d{1,2}\]/g, ""))
       .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    const bubbles = [];
-    for (const line of lines) {
-      let current = "";
-      for (let segment of line.split(" ")) {
-        while (segment.length > SERVICE_BUBBLE_MAX) {
-          if (current) { bubbles.push(current); current = ""; }
-          bubbles.push(segment.slice(0, SERVICE_BUBBLE_MAX));
-          segment = segment.slice(SERVICE_BUBBLE_MAX);
-        }
-        if (!segment) continue;
-        if (!current) current = segment;
-        else if (current.length + 1 + segment.length <= SERVICE_BUBBLE_MAX) current += ` ${segment}`;
-        else { bubbles.push(current); current = segment; }
-      }
-      if (current) bubbles.push(current);
-    }
-    return bubbles;
   }
 
   function renderServiceBubbles(content) {
@@ -766,7 +749,6 @@
   function updateComposer() {
     prompt.style.height = "auto";
     prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`;
-    el("char-count").textContent = `${prompt.value.length} / 1200`;
   }
 
   function registerServiceWorker() {
@@ -908,7 +890,6 @@
     const appName = body.app_name || "LUREAI 你的智慧大腦中心";
     document.title = appName;
     prompt.placeholder = "輸入輔導問題";
-    el("knowledge-scope").textContent = "回答僅使用已核准內部輔導知識";
     el("index-scope").textContent = "內部索引已隔離";
   }
 
@@ -941,6 +922,10 @@
   });
   el("account-backdrop").addEventListener("click", () => toggleAccountMenu(false));
   el("account-close").addEventListener("click", () => toggleAccountMenu(false));
+  el("tone-indicator").addEventListener("click", () => {
+    document.querySelector('.account-tab[data-tab="settings"]')?.click();
+    toggleAccountMenu(true);
+  });
   el("new-chat").addEventListener("click", newConversation);
   el("sidebar-search").addEventListener("click", () => {
     const search = el("conversation-search");

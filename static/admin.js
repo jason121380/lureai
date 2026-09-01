@@ -313,7 +313,7 @@
       const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}&domain=${domain}`, { timeoutMs: 15000 });
       knowledgeCache = body.items || [];
       el("knowledge-results").innerHTML = knowledgeCache.length
-        ? knowledgeCache.map(knowledgeCard).join("")
+        ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>` + knowledgeCache.map(knowledgeCard).join("")
         : '<div class="empty-state">沒有符合的知識</div>';
       window.lucide?.createIcons();
     } catch (error) {
