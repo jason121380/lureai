@@ -123,7 +123,10 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
 
-        self.assertIn("模型未回應，以下為知識原文", script)
+        # 使用者看到的是白話說明，內部狀態碼只放進 title。
+        self.assertIn("這則沒有成功生成", script)
+        self.assertNotIn("以下為知識原文", script)
+        self.assertIn("model_status: ${item.modelStatus}", script)
         self.assertIn("item.modelStatus", script)
         self.assertIn(".message-status.degraded", css)
 
