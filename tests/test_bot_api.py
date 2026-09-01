@@ -48,11 +48,16 @@ class HumanizeTests(unittest.TestCase):
 
         self.assertEqual(parts, ["先看回覆率 這週抓 20 則", "明天再回報給我"])
 
-    def test_one_message_can_have_several_lines(self):
-        """一則裡面可以列東西（換行），空一行才換一則。"""
-        parts = postprocess("我想要吃\n海鮮\n玉米\n薯條")
+    def test_one_message_can_have_two_lines(self):
+        """一則裡面可以有兩行（空一行才換一則），超過兩行會自動重排。"""
+        self.assertEqual(postprocess("我想要吃\n海鮮"), ["我想要吃\n海鮮"])
 
-        self.assertEqual(parts, ["我想要吃\n海鮮\n玉米\n薯條"])
+    def test_a_wall_of_lines_is_reflowed_into_short_messages(self):
+        """模型忘了空行時，八行不能全擠進同一則。"""
+        parts = postprocess("今天先找最近 5 筆預約\n逐筆確認有沒有說清楚\n日期時間\n預計時長")
+
+        self.assertEqual(len(parts), 2)
+        self.assertTrue(all(part.count("\n") <= 1 for part in parts), parts)
 
     def test_postprocess_caps_at_three_messages(self):
         self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 3)

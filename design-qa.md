@@ -1,3 +1,11 @@
+> **已封存（2026-08-31 的一次性紀錄）。**
+> 這份是當初對照 ChatGPT 介面截圖做的設計驗收報告，**內容已經不反映現況**：
+> 裡面提到的兩段式模式切換（`.mode-switch`）已改成右上角語氣標示、產品名已改為 lure ai、
+> 引用的 `qa/*.png` 截圖也不在倉庫裡（`qa/` 目前只留驗證用的 JSON）。
+> **現行的視覺規範看 `STYLE.md`**；這份只留作當時的決策紀錄。
+
+---
+
 **Design QA**
 
 - Source visual truth: user-provided ChatGPT UI screenshot, supplied as `Screenshot 2026-08-31 at 1.05.17 PM.png` in the conversation (2760 x 1758 px).

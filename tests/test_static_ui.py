@@ -171,7 +171,9 @@ class StaticUiTests(unittest.TestCase):
         # 超過 3 則時把中間併起來，不可直接丟掉（丟掉會吃掉範例正文）。
         self.assertIn("SERVICE_MAX_BUBBLES = 3", script)
         # 超過上限時把中間併起來，不可直接丟掉（丟掉會吃掉範例正文）。
-        self.assertIn("bubbles.slice(SERVICE_MAX_BUBBLES - 2, -1).join", script)
+        self.assertIn("reflowed.slice(SERVICE_MAX_BUBBLES - 2, -1).join", script)
+        # 一則最多 2 行：模型忘了空行時前端自己重排。
+        self.assertIn("SERVICE_MAX_LINES = 2", script)
         # 空一行才換一則：一則裡面可以有好幾行。
         self.assertIn("split(/\\n[ \\t]*\\n+/)", script)
 

@@ -163,6 +163,17 @@ def _persistence_check(context) -> tuple[str, str, dict]:
         "configured": configured,
         "driver": bool(getattr(replica, "driver", None)),
     }
+    # 對話紀錄是否真的落地，用眼睛看得到——不用連進資料庫才知道。
+    try:
+        with context.store._lock:
+            details["conversations"] = context.store.connection.execute(
+                "SELECT COUNT(*) FROM conversations"
+            ).fetchone()[0]
+            details["saved_messages"] = context.store.connection.execute(
+                "SELECT COUNT(*) FROM conversations WHERE messages_json != '[]'"
+            ).fetchone()[0]
+    except Exception:  # noqa: BLE001 - 純顯示用，查不到就不顯示
+        pass
     if not configured:
         return "warning", "未設定 Postgres，重新部署後帳號與用量會歸零", details
     if not enabled:

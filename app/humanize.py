@@ -19,6 +19,9 @@ MESSAGE_GAP_RANGE = (2, 4)
 # LINE 一次最多送幾則（和 line 語氣裡寫的規則一致）。
 MAX_PARTS = 3
 
+# 一則最多幾行；模型忘了空行時這裡自己重排。
+MAX_LINES_PER_PART = 2
+
 CITATION_PATTERN = re.compile(r"\s*\[\d{1,2}\]")
 PUNCTUATION_PATTERN = re.compile(r"[，。、；：！？,.;:!?]+")
 SPLIT_CHARS = " ，。、；：！？,.;:!?"
@@ -76,6 +79,13 @@ def postprocess(reply_text: str) -> list[str]:
         for block in re.split(r"\n[ \t]*\n+", text)
     ]
     parts = [part for part in parts if part]
+    # 模型忘了空行時，一則會塞進七八行——先重排成每則最多 2 行。
+    reflowed = []
+    for part in parts:
+        lines = part.split("\n")
+        for index in range(0, len(lines), MAX_LINES_PER_PART):
+            reflowed.append("\n".join(lines[index:index + MAX_LINES_PER_PART]))
+    parts = reflowed
     if len(parts) >= 2:
         if len(parts) <= MAX_PARTS:
             return parts
