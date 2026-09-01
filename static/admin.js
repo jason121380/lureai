@@ -306,6 +306,7 @@
   };
 
   const detailLabels = {
+    conversations: "對話紀錄", saved_messages: "有內容的對話",
     profile: "Profile", python: "Python", uptime_seconds: "運行秒數",
     admin_auth: "管理驗證", max_request_bytes: "請求上限",
     assets: "靜態資源", missing: "缺少資源", empty: "空白資源",
