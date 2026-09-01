@@ -117,6 +117,22 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("item.modelStatus", script)
         self.assertIn(".message-status.degraded", css)
 
+    def test_tone_setting_is_wired_through_the_chat_ui(self):
+        html = INDEX.read_text(encoding="utf-8")
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 語氣切換：專家（條列講深）／客服（真人聊天一句一句回）。
+        self.assertIn('id="tone-toggle"', html)
+        self.assertIn('data-tone="expert"', html)
+        self.assertIn('data-tone="service"', html)
+        self.assertIn("function setTone", script)
+        self.assertIn("const tone = state.tone;", script)
+        self.assertIn("history, tone }", script)
+        self.assertIn("renderServiceBubbles", script)
+        self.assertIn(".tone-toggle", css)
+        self.assertIn(".message-text.bubbles", css)
+
     def test_installed_app_keeps_a_white_status_bar(self):
         for page in (INDEX, ADMIN):
             html = page.read_text(encoding="utf-8")

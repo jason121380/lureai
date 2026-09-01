@@ -47,6 +47,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **改知識就要重編索引**：`knowledge/*.md` 是唯一的知識來源，改完一定要跑 `scripts/build_knowledge_index.py`，否則測試會擋（`test_written_index_matches_the_playbooks`）。
 - **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **追問不能斷**：建議問題一律經 `FollowupPlanner` 驗證（政策不擋＋撈得到夠格知識），`tests/test_followup_chain.py` 會實跑 50 輪連續追問，任何一輪轉人工就算失敗。
+- **語氣設定**：chat API 的 `tone`（`expert` 預設／`service`）只切換輸出格式指令（`app/answer.py` `TONE_INSTRUCTIONS`）與前端渲染（客服模式逐行泡泡）；未知值一律當 expert，引用守門與追問規劃不受影響。
 - **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks` 與 `retry_with_citations`。
 - **開場題庫**：`run.py` 的歡迎題庫每題都必須答得出來，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳隨機 12 題、前端每次抽 3 題。
 - **ADMIN_TOKEN 可以不設**：未設定時自動改用隨機權杖（stderr 有警語），等於停用 header 管理 API，後台仍走 admin 帳號登入——這是部署韌性設計，不要改回缺少就 exit。

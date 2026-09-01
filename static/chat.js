@@ -5,6 +5,7 @@
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
+    tone: "expert",
     profile: "designer_coach",
     assistantName: "AI 輔導教練",
     welcomePrompts: [
@@ -19,6 +20,27 @@
 
   function storageKey() {
     return `${STORAGE_PREFIX}-${state.profile}-${state.user?.id || "anonymous"}`;
+  }
+
+  // 語氣設定：expert＝完整條列講深講透；service＝像真人聊天一句一句回。
+  function toneKey() {
+    return `${STORAGE_PREFIX}-tone-${state.user?.id || "anonymous"}`;
+  }
+
+  function setTone(tone, save = true) {
+    state.tone = tone === "service" ? "service" : "expert";
+    document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
+      const active = button.dataset.tone === state.tone;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    if (save) {
+      try { localStorage.setItem(toneKey(), state.tone); } catch (_) { /* 存不進去就用預設 */ }
+    }
+  }
+
+  function loadTone() {
+    try { setTone(localStorage.getItem(toneKey()), false); } catch (_) { setTone("expert", false); }
   }
 
   function showLogin(message = "") {
@@ -208,7 +230,13 @@
       text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>';
     } else if (item.role === "assistant") {
       text.classList.add("rich");
-      text.innerHTML = renderAssistantMarkup(item.content, item.citations?.length || 0);
+      if (item.tone === "service") {
+        // 客服模式：每一行都是一則獨立訊息，畫成一顆一顆的聊天泡泡。
+        text.classList.add("bubbles");
+        text.innerHTML = renderServiceBubbles(item.content, item.citations?.length || 0);
+      } else {
+        text.innerHTML = renderAssistantMarkup(item.content, item.citations?.length || 0);
+      }
       text.querySelectorAll(".cite-ref").forEach((ref) => {
         ref.addEventListener("click", () => {
           const index = Number(ref.dataset.cite) - 1;
@@ -363,6 +391,17 @@
     return blocks.join("");
   }
 
+  // 客服模式：模型輸出一行一句，每個非空行渲染成一顆訊息泡泡；
+  // 萬一模型仍然給了條列符號，先剝掉再畫。
+  function renderServiceBubbles(content, citationCount) {
+    return String(content || "")
+      .split("\n")
+      .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
+      .filter(Boolean)
+      .map((line) => `<p class="chat-line">${inlineMarkup(line, citationCount)}</p>`)
+      .join("");
+  }
+
   // Reads the ndjson stream from /api/chat/stream: delta events update the
   // bubble as text arrives; the final result event is authoritative.
   async function streamChat(payload, signal, onDelta) {
@@ -436,8 +475,9 @@
         content: String(item.content).slice(0, index >= asked.length - 8 ? 1200 : 80),
       }));
       let streamedText = "";
+      const tone = state.tone;
       const body = await streamChat(
-        { message: value, conversation_id: conversation.id, history },
+        { message: value, conversation_id: conversation.id, history, tone },
         state.controller.signal,
         (delta) => {
           streamedText += delta;
@@ -454,6 +494,7 @@
         status: body.status,
         reason: body.reason,
         modelStatus: body.model_status,
+        tone: body.tone || tone,
         citations: body.citations || [],
         followups: body.followups || [],
         traceId: body.trace_id,
@@ -646,6 +687,7 @@
 
   async function initializeUser(user) {
     showApp(user);
+    loadTone();
     state.conversations = [];
     state.activeId = null;
     load();
@@ -735,6 +777,9 @@
     }
   });
   el("stop-button").addEventListener("click", () => state.controller?.abort());
+  document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
+    button.addEventListener("click", () => setTone(button.dataset.tone));
+  });
   el("new-chat").addEventListener("click", newConversation);
   el("sidebar-search").addEventListener("click", () => {
     const search = el("conversation-search");

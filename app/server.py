@@ -538,6 +538,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         payload.get("history"),
                         user_id=user["id"],
                         allow_model=within_budget,
+                        tone=payload.get("tone"),
                     )
                     self._json(HTTPStatus.OK, result)
                     return
@@ -563,6 +564,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         payload.get("history"),
                         user_id=user["id"],
                         allow_model=within_budget,
+                        tone=payload.get("tone"),
                     )
                     # Validation errors must surface as JSON before the stream starts.
                     try:

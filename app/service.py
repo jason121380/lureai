@@ -3,7 +3,7 @@ import re
 from typing import Iterator
 from uuid import uuid4
 
-from .answer import AnswerEngine, log_model_failure, normalize_citation_marks
+from .answer import AnswerEngine, log_model_failure, normalize_citation_marks, normalize_tone
 from .followups import FollowupPlanner
 from .policy import PolicyEngine
 from .retrieval import Retriever
@@ -161,8 +161,10 @@ class CustomerService:
         history: list[dict] | None = None,
         user_id: int | None = None,
         allow_model: bool = True,
+        tone: str | None = None,
     ) -> dict:
         question = self._validated_question(message)
+        tone = normalize_tone(tone)
         recent_history = self._safe_history(history)
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
@@ -175,6 +177,7 @@ class CustomerService:
             grounded_hits,
             history=recent_history,
             allow_model=allow_model,
+            tone=tone,
         )
         followups: list[str] = []
         if mode == "llm":
@@ -196,6 +199,7 @@ class CustomerService:
             "model_status": model_status,
             "usage": usage,
             "followups": followups,
+            "tone": tone,
         }
         self._audit(question, result, hits, user_id=user_id)
         return result
@@ -207,9 +211,11 @@ class CustomerService:
         history: list[dict] | None = None,
         user_id: int | None = None,
         allow_model: bool = True,
+        tone: str | None = None,
     ) -> Iterator[dict]:
         """Yield {"type":"delta"} events followed by one authoritative {"type":"result"}."""
         question = self._validated_question(message)
+        tone = normalize_tone(tone)
         recent_history = self._safe_history(history)
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
@@ -232,7 +238,7 @@ class CustomerService:
             model_status = "used"
             try:
                 for kind, payload in self.answerer.stream_answer(
-                    question, grounded_hits, history=recent_history
+                    question, grounded_hits, history=recent_history, tone=tone
                 ):
                     if kind == "delta":
                         partial += payload
@@ -255,7 +261,7 @@ class CustomerService:
                     )
                     retry = getattr(self.answerer, "retry_with_citations", None)
                     retried, retry_usage = retry(
-                        question, grounded_hits, history=recent_history
+                        question, grounded_hits, history=recent_history, tone=tone
                     ) if retry else ("", empty_usage)
                     usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                     if retried:
@@ -269,7 +275,7 @@ class CustomerService:
                     followups = []
         else:
             answer, mode, model_status, usage = self.answerer.answer(
-                question, grounded_hits, history=recent_history, allow_model=allow_model
+                question, grounded_hits, history=recent_history, allow_model=allow_model, tone=tone
             )
         result = {
             "trace_id": trace_id,
@@ -281,6 +287,7 @@ class CustomerService:
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
+            "tone": tone,
             "followups": self.followups.plan(
                 grounded_hits,
                 asked=self._asked_questions(history, question),
