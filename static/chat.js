@@ -233,7 +233,7 @@
       if (item.tone === "service") {
         // 客服模式：每一行都是一則獨立訊息，畫成一顆一顆的聊天泡泡。
         text.classList.add("bubbles");
-        text.innerHTML = renderServiceBubbles(item.content, item.citations?.length || 0);
+        text.innerHTML = renderServiceBubbles(item.content);
       } else {
         text.innerHTML = renderAssistantMarkup(item.content, item.citations?.length || 0);
       }
@@ -393,12 +393,14 @@
 
   // 客服模式：模型輸出一行一句，每個非空行渲染成一顆訊息泡泡；
   // 萬一模型仍然給了條列符號，先剝掉再畫。
-  function renderServiceBubbles(content, citationCount) {
+  // 引用編號只給系統核對，句尾不顯示 [1] 這種編號——來源照樣列在泡泡下方。
+  function renderServiceBubbles(content) {
     return String(content || "")
       .split("\n")
       .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
+      .map((line) => line.replace(/\s*\[\d{1,2}\]/g, "").trim())
       .filter(Boolean)
-      .map((line) => `<p class="chat-line">${inlineMarkup(line, citationCount)}</p>`)
+      .map((line) => `<p class="chat-line">${inlineMarkup(line, 0)}</p>`)
       .join("");
   }
 
