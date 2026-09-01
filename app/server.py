@@ -153,6 +153,9 @@ class AppContext:
     pipeline_stats: dict | None = None
     max_request_bytes: int = 65536
     started_at: float = field(default_factory=time.monotonic)
+    # Postgres 持久化（run.py 接上；沒設定時維持 None，健康檢查會顯示未設定）。
+    replica: object | None = None
+    restored_from_replica: bool = False
 
     @classmethod
     def create(
@@ -737,7 +740,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         allow_model=within_budget,
                         tone=payload.get("tone"),
                     )
-                    # Validation errors must surface as JSON before the stream starts.
+                    # 驗證錯誤要在串流開始前用 JSON 回覆；service 會先 yield 一個
+                    # start 事件，所以這裡幾乎立刻返回，header 不會被模型生成卡住。
                     try:
                         first_event = next(events)
                     except StopIteration:

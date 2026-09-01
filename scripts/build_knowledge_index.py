@@ -62,6 +62,14 @@ PLAYBOOKS = [
         "evidence": "一對一輔導流程整理",
     },
     {
+        "path": "knowledge/career_playbook.md",
+        "prefix": "career",
+        "doc_id": "career-playbook",
+        "title": "設計師職涯與工作狀態手冊",
+        "domain": COACHING,
+        "evidence": "一對一輔導職涯與工作狀態整理",
+    },
+    {
         "path": "knowledge/salon_operations_playbook.md",
         "prefix": "ops",
         "doc_id": "salon-operations-playbook",

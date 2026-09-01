@@ -6,7 +6,7 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 
 - ChatGPT 式聊天介面（串流回覆、AI 對話命名、關聯問題選項）、localStorage 對話紀錄與來源抽屜
 - SQLite FTS5 + 中文 n-gram RAG
-- 公開部署索引：209 塊人工重點整理知識（輔導 138 ＋ 店務營運 71）＋ 1.2 萬筆問法索引
+- 公開部署索引：241 塊人工重點整理知識（輔導 170 ＋ 店務營運 71）＋ 1.4 萬筆問法索引
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 建議問題保證答得出來：連續追問 50 輪以上不會出現「需要人工協助」（`tests/test_followup_chain.py` 實跑驗證）
@@ -50,14 +50,14 @@ Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
 倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用，`ZBPACK_*` 變數不再需要。Dockerfile 已內建部署韌性：預設綁 `0.0.0.0`（不必設 `APP_HOST`）、開機索引重建失敗只記錄不中斷、未設 `ADMIN_TOKEN` 時自動改用隨機權杖（等於停用 header 管理 API，後台仍以管理者帳號登入）。開機 log 會印 `[boot] profile=… chunks=… db=… model=…`，模型呼叫失敗會印 `[llm]` 原因，部署卡住時先看這兩行。
 
-設計師輔導部署預設包含 209 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
+設計師輔導部署預設包含 241 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
 
 ```dotenv
 KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
 APP_DB_PATH=/data/hair-brain/designer_coach.db
 ```
 
-SQLite 負責索引、使用者、session、用量與稽核紀錄，不需要另外建立 PostgreSQL；正式環境建議掛載持久化 Volume，否則重新部署時後四項紀錄會重置。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
+SQLite 是工作資料庫（索引、檢索、當下狀態）。**持久化走 PostgreSQL、不需要 Volume**：在 Zeabur 加一個 PostgreSQL 服務並綁定到本服務（`DATABASE_URL`／`POSTGRES_*` 變數會自動注入），帳號、session、用量稽核、回饋評分與後台自訂知識會定期（預設 120 秒、可用 `PG_BACKUP_INTERVAL_SECONDS` 調整）壓成快照存進 Postgres，重新部署時自動還原；知識索引照常由 JSONL 重建，不進快照。沒綁 Postgres 時這些資料只活在容器內，重新部署會歸零。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
 
 ## 系統需求
 
@@ -109,7 +109,7 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" \
   http://127.0.0.1:8765/api/admin/health
 ```
 
-回傳 Server、內部 API、Frontend、SQLite Database、Auth、RAG、Knowledge 與 LLM 八項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
+回傳 Server、內部 API、Frontend、SQLite Database、Postgres 持久化、Auth、RAG、Knowledge 與 LLM 九項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
 
 用量成本以 Responses API 回傳的 input、cached input、cache write 與 output tokens 計算。各 token 類型費率、台幣換算率與月預算都能由 `.env` 對應變數調整；模型費率或匯率變動時只需更新環境變數。
 
@@ -139,13 +139,14 @@ python3 run.py
 | `coaching` | 廣告投放 | `ads_playbook.md` | ads-01~23 |
 | `coaching` | 社群與版面輔導 | `social_playbook.md` | social-01~25 |
 | `coaching` | 一對一輔導流程 | `session_playbook.md` | session-01~16 |
+| `coaching` | 職涯與工作狀態 | `career_playbook.md` | career-01~32 |
 | `operations` | 店務營運管理 | `salon_operations_playbook.md` | ops-01~71 |
 
 每塊知識另外帶一組「問法索引」（`aliases`）：設計師實際會怎麼問這塊知識，
 種子寫在 `config/question_bank.json`，編譯時展開成一萬多筆。問法只進檢索欄位，
 不會出現在回答或引用內容裡。
 
-六本手冊都是人工重點整理：原始教材是掃描 OCR 與試算表傾印（`A1=` 儲存格、空白表單、公式），
+七本手冊都是人工重點整理：原始教材是掃描 OCR 與試算表傾印（`A1=` 儲存格、空白表單、公式），
 無法直接引用，已抽成完整句子的方法與流程，原始語料封存於 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 編譯方式：
 

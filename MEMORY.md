@@ -11,6 +11,14 @@
 ## 產品決策
 
 - **2026-09-01 lurebot 的 AI 大腦搬到 lureai**：LINE 端不再自己拼知識（Gemini + SOP/FAQ + 上傳文件那套全部拆掉），改打 lureai 的 `POST /api/bot/reply`。分工是「lureai 是大腦、lurebot 是通道」：群組脈絡（群組名／發話設計師／輔導階段）由 lurebot 隨請求帶上，知識、政策、生成、引用守門、稽核都在 lureai；真人模擬（語氣／長短／去標點／拆則／回覆停頓）也一起搬進來（`app/humanize.py`），所以大腦直接回「拆好的多則訊息 + 建議停頓秒數」，lurebot 只負責等秒數與送出。新增 `line` 語氣、`X-Bot-Token` 服務權杖與 `lurebot` 服務帳號（用量與月預算記在它頭上）。LINE 的 reply token 只有 60 秒，所以停頓上限抓 30 秒，lurebot 端還會再夾一次剩餘效期。
+- **2026-09-01 補上「設計師人生題」知識（健檢報告 P1-1）**：新增 `knowledge/career_playbook.md`（career-01~32，domain=coaching），補齊報告中失敗率 60~80% 的七個缺口——開店評估與損益兩平、工時與晚下班、界線與拒絕客人、休假與產能、職涯低潮與業績挫折、店內客人歸屬與同事衝突、定價調整幅度（一次 10% 上下、不要一次漲 200）、訂金金額與話術、進修投資回本、產品銷售的具體開口句。同步補 32 組問法種子。索引 209→241 塊、問法 1.2 萬→1.42 萬；覆蓋率 89.3%（原 88%）、100% 過門檻；報告裡 16 題實測全部命中正確知識塊。
+
+- **2026-09-01 健檢報告 P0 三項修復**（使用者做了 20 段 × 5 輪的實測報告，失敗率 31%）：
+  (1) **不再傾倒知識原文**——生成失敗時原本會丟 300~1500 字不相干原文並外露 `missing_citations`，改成一句誠實的話＋一個小問題（`AnswerEngine.MODEL_FAILED_MESSAGE`），降級時 `citations` 也清空，前端狀態碼只放進 title。
+  (2) **串流先送 header**——`chat_stream` 在驗證後、檢索前先 yield `{"type":"start"}`，伺服器才能立刻送出 header 與第一批位元組；原本要等整個檢索＋模型首個 token 才送 header，閘道等不到位元組就切斷（正式站間歇 503 的真因）。前端連線失敗時保留使用者輸入並給「重送這則」按鈕。
+  (3) **邊界守門**——`app/policy.py` `BOUNDARY_REPLIES` 在檢索前攔下四類非輔導題（離題／不當請求／問身分／情緒挑釁），直接給固定回應、不進 RAG、不掛來源、狀態列顯示「這題不在輔導範圍」。
+  另外：答不出來時的建議追問改用驗證過的開場題庫（原本會冒出「毛髮構造」這種不相干題目）；客服指令新增「不承諾做不到的事」（不說我幫你看數字）、情緒句先接住、說了「你可以說」就一定要接話術。
+  尚未處理（報告 P1-1）：開店、工時、拒絕客人、休假、職涯低潮、客人歸屬、訂金金額等「設計師人生題」知識缺口。
 
 - **2026-09-01 品牌資產更新**：使用者把正式 logo.png（15216px 寬）與 favicon.png（9419px 方形）直接上傳到 GitHub repo 根目錄——已縮成網頁尺寸搬進 `static/`：logo.png 800px 寬（透明底，`logo.svg` 已刪除、頁面與 sw.js 改引用 logo.png、cache 版本升 v2）、favicon 256、app-icon 512／192、maskable 512（80% 安全邊，白底攤平避免 iOS 透明變黑）。`app/health.py` 前端檢查改支援二進位資產（PNG 驗簽章，不做文字比對）。iOS 要刪掉主畫面圖示重新加入才會看到新 icon。
 
@@ -81,8 +89,8 @@
 
 ## 技術決策
 
-- 零第三方依賴維持不變（stdlib + SQLite FTS5）。
-- SQLite 即正式資料庫，不上 PostgreSQL；Zeabur 需掛持久化 Volume + `APP_DB_PATH`，否則帳號／用量／稽核在重新部署時歸零（**尚未確認使用者已掛 Volume**）。
+- 零第三方依賴維持不變（stdlib + SQLite FTS5），唯一例外：`psycopg`（僅 Dockerfile 安裝、只在設 Postgres 連線時 import）。
+- **2026-09-01 持久化改 Postgres 快照（使用者明確不要 Volume）**：SQLite 仍是工作資料庫（FTS5 檢索），視為可拋棄；`app/replica.py` 把 users／sessions／audits／feedback／後台自訂知識壓成 gzip JSON 單列快照存 Postgres（預設每 120 秒、內容沒變不上傳、關機前補一次），開機時還原再重建索引。Zeabur 綁 PostgreSQL 服務即自動啟用（吃 `DATABASE_URL`／`POSTGRES_*`）；沒設定時完全 no-op、維持零依賴。取代原本「掛 Volume + APP_DB_PATH」方案。後台「系統健康」新增「Postgres 持久化」一項（會真的連線寫入一次快照）：未設定＝警告並提示重新部署會歸零、設定了但缺 psycopg 或連不上＝錯誤並顯示原因、正常＝顯示備份間隔與最後備份時間，不用翻 log。
 - 月預算（`MONTHLY_BUDGET_TWD`）為硬限制：超標自動停用模型、降級抽取式（`model_status: budget_exhausted`）。
 - 聊天限流 `CHAT_RATE_LIMIT_PER_MINUTE`（預設 20/分）。
 - LLM timeout `LLM_TIMEOUT_SECONDS`（預設 60；曾因 20 秒太短導致推理模型全數降級「模型暫時無法完成生成」）。

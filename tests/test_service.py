@@ -132,11 +132,11 @@ class ServiceTests(unittest.TestCase):
     def test_chat_stream_without_model_yields_single_result(self):
         events = list(self.service.chat_stream("燙髮後怎麼整理？", "conversation-1"))
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "result")
-        self.assertEqual(events[0]["status"], "answered")
-        self.assertEqual(events[0]["answer_mode"], "extractive")
-        self.assertTrue(events[0]["citations"])
+        # 第一個事件固定是 start（讓伺服器立刻送出 header），接著才是結果。
+        self.assertEqual([event["type"] for event in events], ["start", "result"])
+        self.assertEqual(events[-1]["status"], "answered")
+        self.assertEqual(events[-1]["answer_mode"], "extractive")
+        self.assertTrue(events[-1]["citations"])
 
     def test_chat_stream_emits_deltas_then_authoritative_result(self):
         class StreamingAnswerer:
@@ -157,7 +157,7 @@ class ServiceTests(unittest.TestCase):
         self.service.answerer = StreamingAnswerer()
         events = list(self.service.chat_stream("燙髮後怎麼整理？", "conversation-1"))
 
-        self.assertEqual([event["type"] for event in events], ["delta", "delta", "result"])
+        self.assertEqual([event["type"] for event in events], ["start", "delta", "delta", "result"])
         result = events[-1]
         self.assertEqual(result["answer"], "先檢查回覆速度。[1]")
         self.assertEqual(result["answer_mode"], "llm")
@@ -383,6 +383,58 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(tones, ["service"])
         self.assertEqual(result["tone"], "service")
+
+    def test_boundary_questions_answer_directly_without_retrieval(self):
+        """離題／不當請求／問身分／被罵時不進檢索，給固定回應（健檢報告 P0-3）。"""
+        class Boom:
+            def retrieve(self, *_args, **_kwargs):
+                raise AssertionError("邊界題不該進檢索")
+
+        self.service.retriever = Boom()
+        cases = {
+            "台積電能不能買": "off_topic",
+            "幫我寫假的五星評論": "illegitimate_request",
+            "你是真人還是 AI": "identity",
+            "你根本不懂美髮業": "hostile",
+        }
+        for question, reason in cases.items():
+            result = self.service.chat(question)
+            self.assertEqual(result["status"], "answered", question)
+            self.assertEqual(result["reason"], reason, question)
+            self.assertEqual(result["answer_mode"], "boundary", question)
+            self.assertTrue(result["answer"].strip(), question)
+            self.assertEqual(result["citations"], [], question)
+
+    def test_failed_generation_hides_raw_knowledge_and_sources(self):
+        """生成失敗不傾倒知識原文、也不掛來源（健檢報告 P0-1）。"""
+        class BrokenAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, *_args, **_kwargs):
+                raise TimeoutError("model down")
+                yield  # pragma: no cover - 讓函式成為 generator
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return AnswerEngine.MODEL_FAILED_MESSAGE if model_failed else "原文 [1]"
+
+        self.service.answerer = BrokenAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
+
+        self.assertEqual(result["answer_mode"], "extractive")
+        self.assertNotIn("依照設計師示範", result["answer"])
+        self.assertNotIn("知識原文", result["answer"])
+        self.assertEqual(result["citations"], [])
+
+    def test_stream_starts_before_retrieval_so_headers_go_out_early(self):
+        """第一個事件必須在檢索前送出，否則閘道等不到位元組會回 503（P0-2）。"""
+        class SlowRetriever:
+            def retrieve(self, *_args, **_kwargs):
+                raise AssertionError("start 事件必須早於檢索")
+
+        self.service.retriever = SlowRetriever()
+        events = self.service.chat_stream("燙髮後怎麼整理？")
+        self.assertEqual(next(events)["type"], "start")
 
     def test_chat_rejects_client_supplied_assistant_history(self):
         with self.assertRaisesRegex(ValueError, "對話紀錄格式"):

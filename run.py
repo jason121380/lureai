@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.ingest import ingest_jsonl
 from app.policy import SENSITIVE_TOPICS
+from app.replica import PostgresReplica
 from app.server import AppContext, create_server
 from app.storage import KnowledgeStore
 
@@ -54,7 +55,8 @@ PROFILES = {
             key: SENSITIVE_TOPICS[key]
             for key in ("personal_or_payment", "health_or_medical", "legal_refund_or_compensation", "labor_hr")
         },
-        "fallback_message": "這題我手上沒有夠明確的資料，換個問法可能就有了——你可以直接點下面的題目，或告訴我你目前的數字（私訊數、預約數、到店數）。",
+        # 查不到資料時的說法：短、口語、不用破折號，直接把球丟回去。
+        "fallback_message": "我目前沒有資料 比較難幫你評估\n還是你可以貼給我一下你的數據",
     },
 }
 
@@ -187,12 +189,38 @@ def main(argv: list[str] | None = None) -> int:
         blocked_topics=profile["blocked_topics"],
         fallback_message=profile["fallback_message"],
     )
+    # Postgres 持久化（不掛 Volume）：開機還原上一份快照，之後定期備份。
+    replica = PostgresReplica.from_env()
+    restored = False
+    if replica.configured and not replica.enabled:
+        print("[boot] 偵測到 Postgres 連線設定，但缺少 psycopg 套件，持久化停用", file=sys.stderr, flush=True)
+    if replica.enabled:
+        try:
+            restored = replica.restore(context.store)
+        except Exception as exc:  # noqa: BLE001 - 還原失敗要照常開站，只是資料是新的
+            print(f"[pg] restore failed: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr, flush=True)
+        if restored:
+            # 快照會整批取代帳號表；環境變數指定的第一個帳號若不在快照裡要補回來。
+            username = os.getenv("USER_USERNAME", "").strip()
+            password = os.getenv("USER_PASSWORD", "")
+            if username and password:
+                try:
+                    context.auth.ensure_bootstrap_user(username, password, os.getenv("USER_ROLE"))
+                except ValueError:
+                    pass
+        replica.start(context.store)
+    # 後台「系統健康」要看得到持久化狀態，不用翻 log。
+    context.replica = replica
+    context.restored_from_replica = restored
+
     # 開機資訊要留在 Log 裡：卡在哪一步、索引有沒有進去，才查得出來。
     print(
         f"[boot] profile={args.profile} chunks={context.store.count_chunks()} "
         f"knowledge={paths['knowledge'].name} db={paths['database']} "
         f"model={'on' if context.service.answerer.model_enabled else 'off'} "
-        f"bot_api={'on' if context.bot_token else 'off'}",
+        f"bot_api={'on' if context.bot_token else 'off'} "
+        f"persistence={'postgres' if replica.enabled else 'sqlite-only'}"
+        f"{' restored' if restored else ''}",
         flush=True,
     )
     server = create_server(args.host, args.port, context)
@@ -206,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n正在停止服務")
     finally:
         server.server_close()
+        replica.stop(context.store)
         context.close()
     return 0
 

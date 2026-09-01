@@ -290,15 +290,41 @@
     if (item.status) {
       const status = document.createElement("div");
       const answered = item.status === "answered";
-      // 模型沒回應時走的是知識原文，要講清楚，不然看起來像 AI 亂答。
-      const degraded = answered && item.modelStatus && !["used", "not_configured"].includes(item.modelStatus);
+      // 模型沒回應時要講清楚，不然看起來像 AI 亂答。
+      const degraded = answered && item.modelStatus
+        && !["used", "not_configured", "boundary"].includes(item.modelStatus);
       status.className = `message-status ${degraded ? "degraded" : item.status}`;
+      // 內部狀態碼（missing_citations 之類）不外露給使用者，只放進 title 供除錯。
+      // 邊界題（離題／不當請求／問身分）是刻意的固定回應，不是知識庫回答。
+      const boundary = item.modelStatus === "boundary";
       const label = answered
-        ? (degraded ? `模型未回應，以下為知識原文（${escapeHtml(item.modelStatus)}）` : "已根據知識庫回答")
-        : "需要人工協助";
-      const icon = answered ? (degraded ? "triangle-alert" : "badge-check") : "user-round-check";
+        ? (degraded ? "這則沒有成功生成，我換個方式再問你"
+          : boundary ? "這題不在輔導範圍" : "已根據知識庫回答")
+        : "這題需要人來判斷";
+      if (boundary) status.classList.add("boundary");
+      const icon = answered
+        ? (degraded ? "triangle-alert" : boundary ? "info" : "badge-check")
+        : "user-round-check";
       status.innerHTML = `<i data-lucide="${icon}"></i><span>${label}</span>`;
+      if (degraded && item.modelStatus) status.title = `model_status: ${item.modelStatus}`;
       content.append(status);
+    }
+
+    // 連線失敗時給一個重送按鈕，並把原本的問題放回輸入框。
+    if (item.retryPrompt) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "followup-button retry-button";
+      retry.innerHTML = '<i data-lucide="rotate-ccw"></i>';
+      const label = document.createElement("span");
+      label.textContent = "重送這則";
+      retry.append(label);
+      retry.addEventListener("click", () => {
+        prompt.value = item.retryPrompt;
+        updateComposer();
+        sendMessage();
+      });
+      content.append(retry);
     }
 
     // 每則回答都能評分（👍👎），回饋存進伺服器供之後加強知識。
@@ -309,6 +335,7 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = `feedback-button${item.feedback === rating ? " selected" : ""}`;
+        button.dataset.rating = rating;
         button.title = label;
         button.setAttribute("aria-label", label);
         button.innerHTML = `<i data-lucide="${icon}"></i>`;
@@ -360,7 +387,7 @@
     return row;
   }
 
-  // 客服模式像真人打字：第一句直接出現，之後每句停 1~2 秒再發，
+  // 客服模式像真人打字：第一句直接出現，之後每句隨機停 1.5~2.5 秒再發，
   // 中間掛著輸入中的點點；狀態列、來源與追問等全部發完才顯示。
   function revealServiceMessage(item) {
     const row = messages.lastElementChild;
@@ -383,7 +410,7 @@
         lines[index].hidden = false;
         index += 1;
         messages.scrollTop = messages.scrollHeight;
-        setTimeout(step, 1000 + Math.random() * 1000);
+        setTimeout(step, 1500 + Math.random() * 1000);
         return;
       }
       typing.remove();
@@ -624,9 +651,13 @@
       if (error.status === 401) showLogin("登入已過期，請重新登入");
       conversation.messages[conversation.messages.length - 1] = {
         role: "assistant",
-        content: error.name === "AbortError" ? "已停止這次查詢。" : "目前無法連線到知識庫，請稍後再試。",
+        content: error.name === "AbortError"
+          ? "已停止這次查詢。"
+          : "剛剛連線不太順，你的問題我留著了，按下面的重送就好。",
         status: "escalated",
         citations: [],
+        // 連線失敗不要讓使用者重打：把原本的問題放回輸入框。
+        retryPrompt: error.name === "AbortError" ? "" : value,
       };
     } finally {
       state.controller = null;
@@ -967,6 +998,27 @@
   el("source-close").addEventListener("click", closeSources);
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);
+  // 手機版手勢：從螢幕左緣往右滑展開選單（PWA 裡沒有瀏覽器的返回手勢）。
+  let edgeSwipe = null;
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    if (touch.clientX > 24) return;
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
+    if (el("sidebar").classList.contains("open")) return;
+    edgeSwipe = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  document.addEventListener("touchmove", (event) => {
+    if (!edgeSwipe) return;
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - edgeSwipe.x;
+    const deltaY = Math.abs(touch.clientY - edgeSwipe.y);
+    if (deltaX > 50 && deltaY < 40) {
+      openSidebar();
+      edgeSwipe = null;
+    }
+  }, { passive: true });
+  document.addEventListener("touchend", () => { edgeSwipe = null; }, { passive: true });
   el("sidebar-close").addEventListener("click", closeSidebar);
   el("login-form").addEventListener("submit", login);
   el("logout-button").addEventListener("click", logout);

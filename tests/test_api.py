@@ -245,10 +245,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(body["status"], ("ok", "warning"))
         self.assertIn("checked_at", body)
-        self.assertEqual(body["summary"]["total"], 8)
+        self.assertEqual(body["summary"]["total"], 9)
         checks = {item["id"]: item for item in body["checks"]}
         self.assertEqual(set(checks), {
-            "server", "api", "frontend", "database", "auth", "rag", "knowledge", "llm",
+            "server", "api", "frontend", "database", "persistence",
+            "auth", "rag", "knowledge", "llm",
         })
         for item in checks.values():
             self.assertIn(item["status"], ("ok", "warning", "error"))
@@ -256,6 +257,9 @@ class ApiTests(unittest.TestCase):
             self.assertGreaterEqual(item["latency_ms"], 0)
             self.assertTrue(item["message"])
         self.assertEqual(checks["database"]["status"], "ok")
+        # 沒設定 Postgres 時要警告「重新部署會歸零」，而不是靜靜通過。
+        self.assertEqual(checks["persistence"]["status"], "warning")
+        self.assertEqual(checks["persistence"]["details"]["storage"], "sqlite-only")
         self.assertEqual(checks["rag"]["details"]["chunks"], 1)
         self.assertEqual(checks["knowledge"]["details"]["records"], 1)
         self.assertEqual(checks["frontend"]["details"]["assets"], 9)

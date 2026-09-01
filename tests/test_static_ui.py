@@ -102,6 +102,14 @@ class StaticUiTests(unittest.TestCase):
         opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
         self.assertIn('classList.add("clear")', opener)
 
+    def test_mobile_edge_swipe_opens_the_sidebar(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        # 手機版從左緣往右滑展開選單。
+        self.assertIn('addEventListener("touchstart"', script)
+        self.assertIn("touch.clientX > 24", script)
+        self.assertIn("deltaX > 50", script)
+
     def test_bootstrap_never_spins_for_ever(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
@@ -115,7 +123,10 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
 
-        self.assertIn("模型未回應，以下為知識原文", script)
+        # 使用者看到的是白話說明，內部狀態碼只放進 title。
+        self.assertIn("這則沒有成功生成", script)
+        self.assertNotIn("以下為知識原文", script)
+        self.assertIn("model_status: ${item.modelStatus}", script)
         self.assertIn("item.modelStatus", script)
         self.assertIn(".message-status.degraded", css)
 
@@ -140,13 +151,13 @@ class StaticUiTests(unittest.TestCase):
     def test_service_mode_talks_like_a_real_person(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 依語意斷句（不做字數硬拆）、標點改空白、逐句 1~2 秒發送。
+        # 依語意斷句（不做字數硬拆）、標點改空白、逐句 1.5~2.5 秒發送。
         self.assertNotIn("SERVICE_BUBBLE_MAX", script)
         self.assertIn("不做字數硬拆", script)
         self.assertIn("function serviceSentences", script)
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
-        self.assertIn("1000 + Math.random() * 1000", script)
+        self.assertIn("1500 + Math.random() * 1000", script)
 
     def test_account_popup_hosts_tone_and_usage_tabs(self):
         html = INDEX.read_text(encoding="utf-8")

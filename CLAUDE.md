@@ -32,12 +32,13 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/policy.py` | 敏感話題攔截（只擋人才能決定的事）、0.72 信心門檻 |
 | `app/followups.py` | 建議問題規劃：每個追問都先驗證答得出來，不足時從相鄰知識補 |
 | `app/storage.py` | SQLite schema 與所有查詢（一律在 `_lock` 內）|
-| `app/health.py` | 管理端 8 項健康檢查 |
+| `app/health.py` | 管理端 9 項健康檢查（含 Postgres 持久化）|
+| `app/replica.py` | Postgres 快照持久化（不掛 Volume）：帳號／session／稽核／評分／自訂知識定期備份、開機還原 |
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
-| `knowledge/*.md` | 六本人工整理的知識手冊（coach／chat／ads／social／session／ops），編譯後共 209 塊 |
-| `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.2 萬筆檢索別名 |
+| `knowledge/*.md` | 七本人工整理的知識手冊（coach／chat／ads／social／session／career／ops），編譯後共 241 塊 |
+| `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.4 萬筆檢索別名 |
 | `scripts/build_knowledge_index.py` | 唯一的索引編譯器（手冊 → JSONL，含問法展開）|
 | `scripts/coverage_report.py` | 用問法索引量測檢索覆蓋率 |
 | `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` |
@@ -57,7 +58,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。
 - **知識治理**：匯入強制 `review_status=approved` + `access_level` 相符 + `rag_allowed=true`；任何一筆不合格整批拒絕。
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
-- **零依賴**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。
+- **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
+- **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
 - **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
 - 對話紀錄存 localStorage（per user id），伺服器不存聊天內容，只存稽核（問題已遮罩 PII）。

@@ -163,7 +163,9 @@ class AnswerTests(unittest.TestCase):
         }), patch("urllib.request.urlopen", side_effect=TimeoutError):
             answer, mode, model_status, usage = AnswerEngine().answer("先查什麼？", [hit])
 
-        self.assertIn("模型暫時無法完成生成", answer)
+        # 生成失敗不外露知識原文與內部字串，只給一句誠實的話＋一個小問題。
+        self.assertIn("沒有整理好", answer)
+        self.assertNotIn("核准內容", answer)
         self.assertEqual(mode, "extractive")
         self.assertEqual(model_status, "timeout")
         self.assertEqual(usage, {
