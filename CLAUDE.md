@@ -66,7 +66,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **規則正本只有一份**：三種語氣的規則住在 `app/tuning.py` 的目錄，`app/answer.py` 的 `TONE_INSTRUCTIONS` 只是用 `compose_tone()` 組出來的衍生值。**不要改 `TONE_INSTRUCTIONS`，改了不會生效**（`tests/test_tuning.py` 會擋）。
 - **AI 模型校調（後台唯一改規則的地方）**：所有送給模型的規則都在 `app/tuning.py` 的目錄裡——基本回答規則（`config/designer_coach_policy.md` 依 `## ` 切段）、三種語氣、固定回覆句，共 44 條。後台 `#tuning` 分頁逐條顯示與編輯，改過的存進 SQLite `model_rules`（已納入 Postgres 快照），沒改的用預設；`AnswerEngine.instructions()` 每次組指令時重讀，存檔後下一則就生效。**改規則請改後台或 `tuning.py` 的預設值，不要再直接改 `TONE_INSTRUCTIONS`**（它已改由目錄組出來）。`tests/test_tuning.py` 會確認沒有任何覆寫時組回來的字串跟原本逐字相同。
 - **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
-- **對話紀錄存伺服器**（2026-09-01 使用者決定改掉原本只存瀏覽器的做法）：`conversations` 表（per user id）＋`user_prefs`（語氣偏好），兩張都在 `DURABLE_TABLES` 裡，換裝置與重新部署都看得到。localStorage 降為離線快取；**登入時、以及每次分頁回到前景時**都會拉伺服器那份合併（伺服器為主、本機獨有的留著），切走或關掉分頁前會用 `keepalive` 把還沒送出的那次補送出去，舊使用者只在瀏覽器裡的紀錄會在第一次登入時自動搬上去。每個帳號最多留 100 段、每段 200 則、單則 2 萬字（`app/server.py` 的 CONVERSATION_* 常數）。稽核仍然照舊另存（問題已遮罩 PII）。
+- **對話紀錄存伺服器**（2026-09-01 使用者決定改掉原本只存瀏覽器的做法）：`conversations` 表（per user id）＋`user_prefs`（語氣偏好），兩張都在 `DURABLE_TABLES` 裡，換裝置與重新部署都看得到。localStorage 降為離線快取；**每次進入網站（`bootstrap` → `restoreSession`）與分頁回到前景時**都會拉伺服器那份合併（伺服器為主）。兩個不能拆掉的守則：(1) **已同步過之後，「伺服器沒有、本機有」＝在別台刪掉了，不可以再推回去**（推回去會讓刪掉的對話復活），只有上次同步之後才新建的才推，靠 per 帳號的 `lastSyncAt` 標記分辨；(2) **關閉分頁時只有在本機真的有未送出的修改（`pendingPush`）才補送**，否則會用這台的舊版本蓋掉別台剛存的新版本，舊使用者只在瀏覽器裡的紀錄會在第一次登入時自動搬上去。每個帳號最多留 100 段、每段 200 則、單則 2 萬字（`app/server.py` 的 CONVERSATION_* 常數）。稽核仍然照舊另存（問題已遮罩 PII）。
 
 ## 工作流程
 

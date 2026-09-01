@@ -399,6 +399,10 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("visibilitychange", script)
         self.assertIn("function refreshFromServer", script)
         self.assertIn("keepalive: true", script)
+        # 沒有本機改動就不要在關閉分頁時盲推（會蓋掉別台的新版本）。
+        self.assertIn("pendingPush", script)
+        # 已經同步過之後，伺服器沒有＝在別台刪掉了，不可以再推回去。
+        self.assertIn("lastSyncAt", script)
         # 每次進到空白對話都要換一組建議問題。
         self.assertIn("function pickRandom", script)
         self.assertIn("pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT)", script)
