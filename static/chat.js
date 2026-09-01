@@ -41,6 +41,7 @@
     el("tone-indicator").textContent = state.tone === "service" ? "客服模式" : "專家模式";
     if (save) {
       try { localStorage.setItem(toneKey(), state.tone); } catch (_) { /* 存不進去就用預設 */ }
+      if (syncedOnce) savePref("tone", state.tone);
     }
   }
 
@@ -124,6 +125,61 @@
     }));
   }
 
+  // ---- 對話紀錄同步到伺服器（換裝置也看得到；localStorage 只當離線快取）----
+  let syncTimer = null;
+  let syncedOnce = false;
+
+  async function pullConversations() {
+    try {
+      const response = await fetch("/api/conversations", { headers: { Accept: "application/json" } });
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (_) {
+      return null;  // 連不上就先用本機那份，等下次再同步
+    }
+  }
+
+  async function pushConversations(conversations) {
+    if (!conversations.length) return;
+    try {
+      await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversations }),
+      });
+    } catch (_) { /* 下一次編輯會再送一次 */ }
+  }
+
+  function scheduleSync() {
+    if (!syncedOnce) return;
+    clearTimeout(syncTimer);
+    // 打字中不要每個字都送；停下來再存。
+    syncTimer = setTimeout(() => {
+      const conversation = activeConversation();
+      if (conversation && (conversation.messages || []).length) pushConversations([conversation]);
+    }, 1200);
+  }
+
+  async function deleteConversationOnServer(id) {
+    try {
+      await fetch("/api/conversations/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+    } catch (_) { /* 本機已經刪掉了，下次登入伺服器那份會蓋回來 */ }
+  }
+
+  async function savePref(key, value) {
+    try {
+      await fetch("/api/prefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefs: { [key]: value } }),
+      });
+    } catch (_) { /* 存不上去就維持本機設定 */ }
+  }
+
   function persist() {
     const key = storageKey();
     const limits = [
@@ -131,6 +187,7 @@
       [10, 6, 5000, 300],
       [3, 4, 3000, 160],
     ];
+    scheduleSync();
     for (const limit of limits) {
       try {
         localStorage.setItem(key, JSON.stringify(persistenceSnapshot(...limit)));
@@ -147,6 +204,7 @@
   }
 
   function deleteConversation(id) {
+    if (syncedOnce) deleteConversationOnServer(id);
     state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
     if (!state.conversations.length) {
       newConversation();
@@ -876,8 +934,41 @@
     load();
     render();
     updateComposer();
+    await syncWithServer();
     await loadUsage();
     prompt.focus();
+  }
+
+  async function syncWithServer() {
+    const local = state.conversations.filter((item) => (item.messages || []).length);
+    const remote = await pullConversations();
+    if (!remote) { syncedOnce = true; return; }
+    const server = Array.isArray(remote.conversations) ? remote.conversations : [];
+    if (server.length) {
+      // 伺服器那份是主的：以 id 為準合併，本機獨有的（其他裝置還沒同步過的）留著。
+      const byId = new Map(server.map((item) => [item.id, item]));
+      local.forEach((item) => { if (!byId.has(item.id)) byId.set(item.id, item); });
+      state.conversations = [...byId.values()].sort(
+        (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+      );
+      state.conversations.forEach((conversation) => {
+        (conversation.messages || []).forEach((message) => {
+          delete message.loading;
+          delete message.pendingReveal;
+        });
+      });
+      if (!state.conversations.some((item) => item.id === state.activeId)) {
+        state.activeId = state.conversations[0]?.id || null;
+      }
+      if (!state.activeId) newConversation();
+      render();
+      persist();
+    }
+    syncedOnce = true;
+    // 舊使用者的紀錄本來只在瀏覽器裡，第一次登入時搬上去。
+    const missing = local.filter((item) => !server.some((entry) => entry.id === item.id));
+    if (missing.length) await pushConversations(missing);
+    if (remote.prefs?.tone && remote.prefs.tone !== state.tone) setTone(remote.prefs.tone);
   }
 
   async function login(event) {

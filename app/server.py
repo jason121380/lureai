@@ -26,8 +26,17 @@ from .followups import welcome_questions
 # 單條規則的長度上限：夠寫一段完整的話，但擋掉整份文件貼進來。
 TUNING_RULE_MAX_CHARS = 4000
 
+# 對話紀錄存伺服器（使用者決定），這幾個上限只是防呆，不讓單一帳號無限長大。
+CONVERSATION_KEEP = 100
+CONVERSATION_MAX_MESSAGES = 200
+CONVERSATION_MAX_CHARS = 20000
+CONVERSATION_TITLE_MAX = 120
+
 # 開場題庫一次全部送給前端，讓每次抽題都從整個池子隨機。
 WELCOME_PROMPT_POOL = 100
+
+# 允許同步到伺服器的個人偏好（白名單，避免前端亂塞東西）。
+USER_PREF_KEYS = {"tone"}
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .humanize import (
     DELAY_RANGE,
@@ -305,6 +314,46 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             user = self._current_user()
             return bool(user and user.get("role") == "admin")
 
+        def _save_conversations(self, user_id: int, payload: dict) -> int:
+            """把前端送上來的對話寫進資料庫；一次可以送一段或整批（登入時的搬家）。"""
+            raw = payload.get("conversations")
+            if raw is None:
+                raw = [payload.get("conversation") or payload]
+            if not isinstance(raw, list):
+                return 0
+            now = datetime.now(timezone.utc).isoformat()
+            saved = 0
+            for item in raw[:CONVERSATION_KEEP]:
+                if not isinstance(item, dict):
+                    continue
+                conversation_id = str(item.get("id", "")).strip()
+                if not conversation_id:
+                    continue
+                messages = item.get("messages")
+                messages = messages if isinstance(messages, list) else []
+                trimmed = []
+                for message in messages[-CONVERSATION_MAX_MESSAGES:]:
+                    if not isinstance(message, dict):
+                        continue
+                    clean = dict(message)
+                    clean.pop("loading", None)
+                    clean.pop("pendingReveal", None)
+                    clean["content"] = str(clean.get("content", ""))[:CONVERSATION_MAX_CHARS]
+                    trimmed.append(clean)
+                context.store.save_conversation(
+                    user_id,
+                    conversation_id,
+                    str(item.get("title", ""))[:CONVERSATION_TITLE_MAX],
+                    str(item.get("tone", ""))[:20],
+                    trimmed,
+                    str(item.get("createdAt") or now),
+                    str(item.get("updatedAt") or now),
+                )
+                saved += 1
+            if saved:
+                context.store.prune_conversations(user_id, keep=CONVERSATION_KEEP)
+            return saved
+
         def _fixed_replies(self) -> dict:
             """固定回覆句的預設值（供校調頁顯示與還原）。"""
             policy = context.service.policy
@@ -459,6 +508,16 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 user = self._require_user()
                 if user:
                     self._json(HTTPStatus.OK, {"user": user})
+                return
+            if parsed.path == "/api/conversations":
+                user = self._require_user()
+                if user:
+                    self._json(HTTPStatus.OK, {
+                        "conversations": context.store.list_conversations(
+                            user["id"], limit=CONVERSATION_KEEP
+                        ),
+                        "prefs": context.store.user_prefs(user["id"]),
+                    })
                 return
             if parsed.path == "/api/usage":
                 user = self._require_user()
@@ -875,6 +934,34 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "category": chunk["category"],
                         "domain": chunk["domain"],
                     }})
+                    return
+                if parsed.path == "/api/conversations":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    saved = self._save_conversations(user["id"], payload)
+                    self._json(HTTPStatus.OK, {"saved": saved})
+                    return
+                if parsed.path == "/api/conversations/delete":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    context.store.delete_conversation(
+                        user["id"], str(payload.get("id", "")).strip()
+                    )
+                    self._json(HTTPStatus.OK, {"deleted": True})
+                    return
+                if parsed.path == "/api/prefs":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    now = datetime.now(timezone.utc).isoformat()
+                    for key, value in (payload.get("prefs") or {}).items():
+                        if str(key) in USER_PREF_KEYS:
+                            context.store.set_user_pref(
+                                user["id"], str(key), str(value)[:120], now
+                            )
+                    self._json(HTTPStatus.OK, {"prefs": context.store.user_prefs(user["id"])})
                     return
                 if parsed.path == "/api/admin/tuning":
                     if not self._require_admin():

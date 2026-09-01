@@ -65,7 +65,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **閒聊不進檢索**：打招呼／道謝／應聲、抒發情緒、欲言又止這三類在檢索前就被 `app/policy.py` 攔下來（`smalltalk()`／`emotion_only()`），交給 `AnswerEngine.smalltalk()` 讓模型自然接一句，不掛來源。情緒句只承接、不派任務也不要數字；句子裡有「怎麼／該不該／什麼／嗎」這類提問字就讓路給 RAG。`tests/test_smalltalk.py` 守著分流。
 - **AI 模型校調（後台唯一改規則的地方）**：所有送給模型的規則都在 `app/tuning.py` 的目錄裡——基本回答規則（`config/designer_coach_policy.md` 依 `## ` 切段）、三種語氣、固定回覆句，共 44 條。後台 `#tuning` 分頁逐條顯示與編輯，改過的存進 SQLite `model_rules`（已納入 Postgres 快照），沒改的用預設；`AnswerEngine.instructions()` 每次組指令時重讀，存檔後下一則就生效。**改規則請改後台或 `tuning.py` 的預設值，不要再直接改 `TONE_INSTRUCTIONS`**（它已改由目錄組出來）。`tests/test_tuning.py` 會確認沒有任何覆寫時組回來的字串跟原本逐字相同。
 - **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
-- 對話紀錄存 localStorage（per user id），伺服器不存聊天內容，只存稽核（問題已遮罩 PII）。
+- **對話紀錄存伺服器**（2026-09-01 使用者決定改掉原本只存瀏覽器的做法）：`conversations` 表（per user id）＋`user_prefs`（語氣偏好），兩張都在 `DURABLE_TABLES` 裡，換裝置與重新部署都看得到。localStorage 降為離線快取；登入時先拉伺服器那份合併（伺服器為主、本機獨有的留著），舊使用者只在瀏覽器裡的紀錄會在第一次登入時自動搬上去。每個帳號最多留 100 段、每段 200 則、單則 2 萬字（`app/server.py` 的 CONVERSATION_* 常數）。稽核仍然照舊另存（問題已遮罩 PII）。
 
 ## 工作流程
 
