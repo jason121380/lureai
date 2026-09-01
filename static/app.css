@@ -322,6 +322,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .section-heading h2 { margin: 0; font-size: 23px; font-weight: 600; }
 .section-heading p { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
+.heading-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+
+/* 上傳分析：拖檔進來 → 進度條 → 一塊一塊確認 → 一次存檔。 */
+.upload-panel { display: grid; gap: 16px; margin-bottom: 24px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.upload-drop { display: grid; justify-items: center; gap: 8px; padding: 34px 20px; color: var(--ink-soft); background: var(--sidebar); border: 2px dashed var(--line-strong); border-radius: var(--radius-sm); text-align: center; cursor: pointer; transition: border-color 140ms ease, background 140ms ease; }
+.upload-drop:hover, .upload-drop:focus-visible { border-color: var(--ink); }
+/* 拖到上面時要看得出來放開會生效，不然使用者不知道能不能放。 */
+.upload-drop.dragging { color: var(--ink); background: var(--bubble); border-color: var(--ink); border-style: solid; }
+.upload-drop strong { font-size: 17px; }
+.upload-drop span { font-size: 14px; color: var(--muted); }
+.upload-drop i { width: 26px; height: 26px; }
+.upload-progress { display: grid; gap: 8px; }
+.upload-bar { height: 6px; overflow: hidden; background: var(--bubble); border-radius: var(--radius-pill); }
+.upload-bar span { display: block; width: 0; height: 100%; background: var(--ink); border-radius: var(--radius-pill); transition: width 220ms ease; }
+.upload-results { display: grid; gap: 12px; }
+.upload-file { color: var(--muted); font-size: 14px; }
+.upload-card { display: grid; gap: 10px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.upload-card.dropped { opacity: .45; }
+.upload-card-head { display: flex; align-items: center; gap: 10px; }
+.upload-card-head input[type="text"] { flex: 1; min-width: 0; height: 38px; padding: 0 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; font: inherit; font-weight: 600; }
+.upload-card-meta { display: flex; flex-wrap: wrap; gap: 10px; }
+.upload-card-meta input, .upload-card-meta select { height: 36px; padding: 0 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; font: inherit; font-size: 14px; }
+.upload-card textarea { width: 100%; min-height: 120px; padding: 12px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; resize: vertical; font: inherit; font-size: 15px; line-height: 1.8; }
+.upload-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
 .command-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 18px; color: #fff; background: var(--ink); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-weight: 600; font-size: 15px; }
 .command-button:hover { background: #3d3d3d; }
 .command-button svg { width: 16px; height: 16px; }

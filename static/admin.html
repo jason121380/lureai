@@ -54,8 +54,33 @@
       <section id="knowledge" class="admin-section" hidden>
         <div class="section-heading">
           <div><h2>知識庫</h2><p id="admin-knowledge-scope">目前可被引用的知識；後台新增的可直接編輯</p></div>
-          <button id="new-knowledge" class="command-button" type="button"><i data-lucide="plus"></i><span>新增知識</span></button>
+          <div class="heading-actions">
+            <button id="new-knowledge-manual" class="command-button ghost-button" type="button"><i data-lucide="pen-line"></i><span>手動輸入</span></button>
+            <button id="new-knowledge" class="command-button" type="button"><i data-lucide="upload"></i><span>上傳檔案</span></button>
+          </div>
         </div>
+
+        <!-- 上傳分析：拖檔進來 → 分析成候選知識 → 一塊一塊確認 → 一次存檔。
+             檔案本身不留，只留萃取出來的知識。 -->
+        <section id="upload-panel" class="upload-panel" hidden>
+          <div id="upload-drop" class="upload-drop" tabindex="0" role="button"
+               aria-label="拖曳檔案到這裡，或點擊選擇檔案">
+            <i data-lucide="upload-cloud"></i>
+            <strong>把檔案拖進來</strong>
+            <span>或點這裡選檔案 · 支援 .md .txt .csv .json .jsonl · 單檔 6 萬字以內</span>
+            <input id="upload-input" type="file" multiple accept=".md,.txt,.csv,.json,.jsonl,.markdown,text/*" hidden>
+          </div>
+          <div id="upload-progress" class="upload-progress" hidden>
+            <div class="upload-bar"><span id="upload-bar-fill"></span></div>
+            <p id="upload-progress-text" class="editor-hint">分析中…</p>
+          </div>
+          <div id="upload-results" class="upload-results"></div>
+          <div id="upload-actions" class="editor-actions" hidden>
+            <span id="upload-hint" class="editor-hint"></span>
+            <button type="button" id="upload-cancel" class="command-button ghost-button">取消</button>
+            <button type="button" id="upload-save" class="command-button"><i data-lucide="check"></i><span>儲存全部</span></button>
+          </div>
+        </section>
 
         <form id="knowledge-editor" class="knowledge-editor" hidden>
           <input type="hidden" id="editor-chunk-id">

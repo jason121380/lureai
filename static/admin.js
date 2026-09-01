@@ -511,6 +511,152 @@
     el("editor-chunk-id").value = "";
   }
 
+  // ---- 上傳分析 ----------------------------------------------------------
+  // 拖檔進來 → 前端讀成文字 → 後端分析成候選知識 → 一塊一塊確認 → 一次存檔。
+  // 檔案本身不留，只留萃取出來的知識；每份檔案各自產生自己的知識。
+  const UPLOAD_MAX_CHARS = 60000;
+  let uploadDrafts = [];
+
+  function closeUpload() {
+    el("upload-panel").hidden = true;
+    el("upload-results").innerHTML = "";
+    el("upload-actions").hidden = true;
+    el("upload-progress").hidden = true;
+    el("upload-input").value = "";
+    uploadDrafts = [];
+  }
+
+  function openUpload() {
+    closeEditor();
+    closeUpload();
+    el("upload-panel").hidden = false;
+    el("upload-drop").focus();
+  }
+
+  function setUploadProgress(done, total, label) {
+    el("upload-progress").hidden = false;
+    // 進度條的寬度用「已完成／總數」，分析中的那一份先算半格，才不會一直停在 0。
+    const ratio = total ? Math.min(1, done / total) : 0;
+    el("upload-bar-fill").style.width = `${Math.round(ratio * 100)}%`;
+    el("upload-progress-text").textContent = label;
+  }
+
+  function draftCard(draft, index) {
+    const options = Object.entries(domainLabels)
+      .map(([value, label]) => `<option value="${value}"${draft.domain === value ? " selected" : ""}>${escapeHtml(label)}</option>`)
+      .join("");
+    return `<article class="upload-card" data-draft="${index}">
+      <div class="upload-card-head">
+        <input type="text" data-field="section_title" maxlength="80" value="${escapeHtml(draft.section_title)}" aria-label="標題">
+      </div>
+      <div class="upload-card-meta">
+        <select data-field="domain" aria-label="大主題">${options}</select>
+        <input type="text" data-field="category" maxlength="20" value="${escapeHtml(draft.category)}" placeholder="分類" aria-label="分類">
+      </div>
+      <textarea data-field="text" maxlength="8000" aria-label="內容">${escapeHtml(draft.text)}</textarea>
+      <div class="upload-card-foot">
+        <span>來自 ${escapeHtml(draft.file)}</span>
+        <button type="button" class="command-button ghost-button" data-drop="${index}">不要這則</button>
+      </div>
+    </article>`;
+  }
+
+  function renderDrafts() {
+    const kept = uploadDrafts.filter((draft) => !draft.dropped);
+    el("upload-results").innerHTML = uploadDrafts.length
+      ? uploadDrafts.map((draft, index) => (draft.dropped ? "" : draftCard(draft, index))).join("")
+      : '<div class="empty-state">這些檔案裡沒有讀到可以整理的內容</div>';
+    el("upload-actions").hidden = !kept.length;
+    el("upload-hint").textContent = `分析出 ${kept.length} 則知識，確認內容後按儲存`;
+    el("upload-results").querySelectorAll("[data-drop]").forEach((button) => {
+      button.addEventListener("click", () => {
+        uploadDrafts[Number(button.dataset.drop)].dropped = true;
+        renderDrafts();
+      });
+    });
+    el("upload-results").querySelectorAll("[data-draft]").forEach((card) => {
+      const index = Number(card.dataset.draft);
+      card.querySelectorAll("[data-field]").forEach((field) => {
+        field.addEventListener("input", () => { uploadDrafts[index][field.dataset.field] = field.value; });
+        field.addEventListener("change", () => { uploadDrafts[index][field.dataset.field] = field.value; });
+      });
+    });
+    window.lucide?.createIcons();
+  }
+
+  async function analyseFiles(files) {
+    const list = [...files].filter((file) => file.size);
+    if (!list.length) return;
+    uploadDrafts = [];
+    el("upload-results").innerHTML = "";
+    el("upload-actions").hidden = true;
+    let done = 0;
+    setUploadProgress(0, list.length, `分析中… 0 / ${list.length}`);
+    for (const file of list) {
+      setUploadProgress(done, list.length, `分析中… ${file.name}（${done + 1} / ${list.length}）`);
+      try {
+        const text = await file.text();
+        if (text.length > UPLOAD_MAX_CHARS) throw new Error(`${file.name} 超過 6 萬字，請先拆開`);
+        // 分析要跑模型，給它比一般請求更長的時間。
+        const body = await api("/api/admin/knowledge/analyze", {
+          method: "POST",
+          body: JSON.stringify({ name: file.name, text }),
+          timeoutMs: 120000,
+        });
+        (body.items || []).forEach((item) => {
+          uploadDrafts.push({
+            section_title: item.section_title || "",
+            category: item.category || "",
+            // 沒判斷出主題時，跟著目前的篩選走（跟手動輸入同一個預設）。
+            domain: item.domain || el("knowledge-domain").value || "coaching",
+            text: item.text || "",
+            file: file.name,
+            dropped: false,
+          });
+        });
+      } catch (error) {
+        toast(`${file.name}：${error.message}`, true);
+      }
+      done += 1;
+      setUploadProgress(done, list.length, `分析中… ${done} / ${list.length}`);
+    }
+    setUploadProgress(list.length, list.length, `分析完成，共 ${uploadDrafts.length} 則`);
+    el("upload-progress").hidden = true;
+    renderDrafts();
+  }
+
+  async function saveDrafts() {
+    const kept = uploadDrafts.filter((draft) => !draft.dropped && draft.text.trim() && draft.section_title.trim());
+    if (!kept.length) { toast("沒有可以儲存的知識", true); return; }
+    const button = el("upload-save");
+    button.disabled = true;
+    let saved = 0;
+    setUploadProgress(0, kept.length, `儲存中… 0 / ${kept.length}`);
+    try {
+      for (const draft of kept) {
+        await api("/api/admin/knowledge", {
+          method: "POST",
+          body: JSON.stringify({
+            section_title: draft.section_title,
+            category: draft.category,
+            domain: draft.domain,
+            text: draft.text,
+          }),
+        });
+        saved += 1;
+        setUploadProgress(saved, kept.length, `儲存中… ${saved} / ${kept.length}`);
+      }
+      toast(`已存入 ${saved} 則知識`);
+      closeUpload();
+      await Promise.all([loadKnowledge(undefined, { force: true }), loadStats()]);
+    } catch (error) {
+      toast(`存到第 ${saved + 1} 則時失敗：${error.message}`, true);
+      el("upload-progress").hidden = true;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function saveKnowledge(event) {
     event.preventDefault();
     const button = event.currentTarget.querySelector("button[type=submit]");
@@ -658,8 +804,34 @@
   el("knowledge-form").addEventListener("submit", loadKnowledge);
   el("knowledge-origin").addEventListener("change", () => loadKnowledge());
   el("knowledge-domain").addEventListener("change", () => loadKnowledge());
-  el("new-knowledge").addEventListener("click", () => openEditor(null));
+  el("new-knowledge").addEventListener("click", openUpload);
+  el("new-knowledge-manual").addEventListener("click", () => { closeUpload(); openEditor(null); });
   el("editor-cancel").addEventListener("click", closeEditor);
+  el("upload-cancel").addEventListener("click", closeUpload);
+  el("upload-save").addEventListener("click", saveDrafts);
+  el("upload-input").addEventListener("change", (event) => analyseFiles(event.target.files));
+  (() => {
+    const drop = el("upload-drop");
+    drop.addEventListener("click", () => el("upload-input").click());
+    drop.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); el("upload-input").click(); }
+    });
+    // dragover 一定要 preventDefault，否則瀏覽器會直接開啟那個檔案、離開後台。
+    ["dragenter", "dragover"].forEach((name) => drop.addEventListener(name, (event) => {
+      event.preventDefault();
+      drop.classList.add("dragging");
+    }));
+    ["dragleave", "dragend"].forEach((name) => drop.addEventListener(name, () => drop.classList.remove("dragging")));
+    drop.addEventListener("drop", (event) => {
+      event.preventDefault();
+      drop.classList.remove("dragging");
+      analyseFiles(event.dataTransfer?.files || []);
+    });
+    // 拖到面板以外的地方也不要讓瀏覽器接手開檔。
+    ["dragover", "drop"].forEach((name) => document.addEventListener(name, (event) => {
+      if (!drop.contains(event.target)) event.preventDefault();
+    }));
+  })();
   el("knowledge-editor").addEventListener("submit", saveKnowledge);
   document.addEventListener("click", (event) => {
     const edit = event.target.closest("[data-edit]");

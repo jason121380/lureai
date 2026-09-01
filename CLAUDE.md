@@ -38,6 +38,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
 | `app/tuning.py` | AI 模型校調：把送給模型的規則整理成目錄，後台可逐條改；`compose_policy`／`compose_tone` 負責組回去 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
+| `app/extract.py` | 上傳的文件 → 候選知識（模型重寫，不通時走規則切法）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
 | `knowledge/*.md` | 九本人工整理的知識手冊（coach／chat／ads／social／session／career／ops／script／metric），編譯後共 278 塊 |
 | `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.4 萬筆檢索別名 |
@@ -72,6 +73,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **閒聊不進檢索**：打招呼／道謝／應聲、**自我介紹**、抒發情緒、欲言又止這四類在檢索前就被 `app/policy.py` 攔下來（`smalltalk()`／`emotion_only()`），交給 `AnswerEngine.smalltalk()` 讓模型自然接一句，不掛來源。情緒句只承接、不派任務也不要數字；句子裡有「怎麼／該不該／什麼／嗎」這類提問字就讓路給 RAG。`tests/test_smalltalk.py` 守著分流。
 - **規則正本只有一份**：三種語氣的規則住在 `app/tuning.py` 的目錄，`app/answer.py` 的 `TONE_INSTRUCTIONS` 只是用 `compose_tone()` 組出來的衍生值。**不要改 `TONE_INSTRUCTIONS`，改了不會生效**（`tests/test_tuning.py` 會擋）。
 - **AI 模型校調（後台唯一改規則的地方）**：所有送給模型的規則都在 `app/tuning.py` 的目錄裡——基本回答規則（`config/designer_coach_policy.md` 依 `## ` 切段）、三種語氣、固定回覆句，共 44 條。後台 `#tuning` 分頁逐條顯示與編輯，改過的存進 SQLite `model_rules`（已納入 Postgres 快照），沒改的用預設；`AnswerEngine.instructions()` 每次組指令時重讀，存檔後下一則就生效。**改規則請改後台或 `tuning.py` 的預設值，不要再直接改 `TONE_INSTRUCTIONS`**（它已改由目錄組出來）。`tests/test_tuning.py` 會確認沒有任何覆寫時組回來的字串跟原本逐字相同。
+- **上傳分析不留檔案**：後台「新增知識」是拖檔進來 → `POST /api/admin/knowledge/analyze` 分析成候選 → 人逐塊確認改寫 → 按儲存才寫進 `chunks`。**檔案本身不存**，只存萃取出來的知識；一次送一份檔案，前端才能一份一份顯示進度條。這條端點的請求上限單獨放寬到 512KB（一般是 64KB＝約兩萬中文字，文件一定超過），**其他路徑不可以跟著放寬**（`tests/test_api.py` 守著）。模型不通時 `extract.split_document` 用規則切，本機沒有 API key 也能用。
+- **健康檢查不可以做有副作用又要拿鎖的事**：`_persistence_check` 原本每次都呼叫 `replica.backup()`，而 `export_snapshot` 會在 `store._lock` 裡把所有 durable 表讀出來，導致後台知識庫分頁卡在「載入中」（health 與 chunks 是同時發的）。現在只做 `replica.probe()`（讀快照的時間與大小），備份交給背景執行緒，失敗時看 `replica.last_error`。
 - **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
 - **對話紀錄存伺服器**（2026-09-01 使用者決定改掉原本只存瀏覽器的做法）：`conversations` 表（per user id）＋`user_prefs`（語氣偏好），兩張都在 `DURABLE_TABLES` 裡，換裝置與重新部署都看得到。localStorage 降為離線快取；**每次進入網站（`bootstrap` → `restoreSession`）與分頁回到前景時**都會拉伺服器那份合併（伺服器為主）。兩個不能拆掉的守則：(1) **已同步過之後，「伺服器沒有、本機有」＝在別台刪掉了，不可以再推回去**（推回去會讓刪掉的對話復活），只有上次同步之後才新建的才推，靠 per 帳號的 `lastSyncAt` 標記分辨；(2) **關閉分頁時只有在本機真的有未送出的修改（`pendingPush`）才補送**，否則會用這台的舊版本蓋掉別台剛存的新版本，舊使用者只在瀏覽器裡的紀錄會在第一次登入時自動搬上去。每個帳號最多留 100 段、每段 200 則、單則 2 萬字（`app/server.py` 的 CONVERSATION_* 常數）。稽核仍然照舊另存（問題已遮罩 PII）。
 

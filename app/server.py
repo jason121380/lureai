@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from .answer import SMALLTALK_KINDS, AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
+from . import extract
 from . import tuning
 from .followups import welcome_questions
 
@@ -76,6 +77,10 @@ MAX_BOT_HISTORY = 8
 
 CUSTOM_SOURCE_FILE = "knowledge/admin_authored.md"
 MAX_KNOWLEDGE_TEXT = 8000
+# 拖進來的單一檔案上限。再大就該先拆檔，不然一次分析要等太久。
+MAX_UPLOAD_CHARS = 60000
+# 中文一個字 3 個位元組，6 萬字約 180KB；加上 JSON 外殼抓 512KB。
+UPLOAD_REQUEST_BYTES = 512 * 1024
 
 
 def build_custom_chunk(payload: dict, access_level: str) -> dict:
@@ -301,12 +306,12 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self.end_headers()
             self.wfile.write(body)
 
-        def _read_json(self) -> dict:
+        def _read_json(self, max_bytes: int | None = None) -> dict:
             try:
                 size = int(self.headers.get("Content-Length", "0"))
             except ValueError as exc:
                 raise ValueError("無效的 Content-Length") from exc
-            if size <= 0 or size > context.max_request_bytes:
+            if size <= 0 or size > (max_bytes or context.max_request_bytes):
                 raise ValueError("請求內容大小不符合限制")
             try:
                 payload = json.loads(self.rfile.read(size))
@@ -768,7 +773,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "來源網域不符"})
                 return
             try:
-                payload = self._read_json()
+                # 上傳分析要送整份文件進來，一般的 64KB 上限（約兩萬個中文字）
+                # 不夠用。這條只有 admin 打得到，所以單獨放寬，其他路徑照舊。
+                payload = self._read_json(
+                    UPLOAD_REQUEST_BYTES if parsed.path == "/api/admin/knowledge/analyze" else None
+                )
                 if parsed.path.startswith("/api/bot/"):
                     if not self._require_bot():
                         return
@@ -948,6 +957,35 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "imported": report.imported, "rejected": report.rejected,
                         "errors": report.errors,
                     })
+                    return
+                if parsed.path == "/api/admin/knowledge/analyze":
+                    if not self._require_admin():
+                        return
+                    # 拖進來的檔案由前端讀成文字再送上來（避免 multipart，也不必存檔）。
+                    # 一次只分析一份，前端才能一份一份顯示進度。
+                    name = " ".join(str(payload.get("name", "")).split())[:120]
+                    text = str(payload.get("text", ""))
+                    if not text.strip():
+                        self._json(HTTPStatus.BAD_REQUEST, {
+                            "error": "invalid_request", "message": "這個檔案讀不到文字內容"})
+                        return
+                    if len(text) > MAX_UPLOAD_CHARS:
+                        self._json(HTTPStatus.BAD_REQUEST, {
+                            "error": "invalid_request",
+                            "message": f"單一檔案不可超過 {MAX_UPLOAD_CHARS} 個字，請先拆開"})
+                        return
+                    # 用權杖打進來的沒有 session 使用者，那就不做個人預算檢查。
+                    admin = self._current_user()
+                    usage_summary = self._usage_summary(admin["id"]) if admin else {}
+                    within_budget = (
+                        not usage_summary
+                        or usage_summary["budget_twd"] <= 0
+                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
+                    )
+                    items, source = extract.propose_chunks(
+                        context.service.answerer, name, text, allow_model=within_budget,
+                    )
+                    self._json(HTTPStatus.OK, {"items": items, "source": source, "name": name})
                     return
                 if parsed.path == "/api/admin/knowledge":
                     if not self._require_admin():
