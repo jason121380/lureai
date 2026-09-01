@@ -403,6 +403,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("pendingPush", script)
         # 已經同步過之後，伺服器沒有＝在別台刪掉了，不可以再推回去。
         self.assertIn("lastSyncAt", script)
+        # 側欄可以下拉更新（手機上最直覺的「我要看最新的」動作）。
+        self.assertIn("function setupPullToRefresh", script)
+        self.assertIn("touchstart", script)
         # 每次進到空白對話都要換一組建議問題。
         self.assertIn("function pickRandom", script)
         self.assertIn("pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT)", script)

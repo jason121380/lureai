@@ -72,6 +72,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .primary-nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; stroke-width: 1.8; }
 .sidebar-label { margin: 0 10px 8px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .conversation-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
+/* 下拉更新：手指往下拉時把提示推出來，放開就跟伺服器對一次。 */
+.pull-refresh { height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--muted); font-size: 12px; transition: height 160ms ease; }
+.pull-refresh.dragging { transition: none; }
+/* 換字用 ::before：span 本身縮成 0，但 ::before 要自己把字級補回來，
+   否則會繼承 0 變成看不見。 */
+.pull-refresh.ready span, .pull-refresh.loading span { font-size: 0; }
+.pull-refresh.ready span::before, .pull-refresh.loading span::before { font-size: 12px; }
+.pull-refresh.ready span::before { content: "放開更新"; }
+.pull-refresh.loading span::before { content: "更新中"; }
 .conversation-item { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 13px; }
 .conversation-item:hover, .conversation-item.active { background: var(--hover); }
 .conversation-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }

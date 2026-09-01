@@ -1219,6 +1219,65 @@
   el("conversation-title-input").addEventListener("blur", () => finishRename(true));
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); toggleAccountMenu(false); el("tone-confirm").hidden = true; } });
 
+  // ---- 側欄下拉更新：手機上最直覺的「我要看最新的」動作 ----
+  const PULL_THRESHOLD = 64;   // 拉超過這個距離放開才更新
+  const PULL_MAX = 96;         // 最多把提示推出這麼高，再拉也不會變形
+
+  function setupPullToRefresh() {
+    const list = el("conversation-list");
+    const indicator = el("pull-refresh");
+    if (!list || !indicator) return;
+    let startY = 0;
+    let distance = 0;
+    let dragging = false;
+
+    const reset = (height) => {
+      indicator.classList.remove("dragging", "ready");
+      indicator.style.height = height;
+    };
+
+    list.addEventListener("touchstart", (event) => {
+      // 只有已經捲到最上面才接手，不然會跟正常捲動打架。
+      if (list.scrollTop > 0 || indicator.classList.contains("loading")) return;
+      startY = event.touches[0].clientY;
+      distance = 0;
+      dragging = true;
+      indicator.classList.add("dragging");
+    }, { passive: true });
+
+    list.addEventListener("touchmove", (event) => {
+      if (!dragging) return;
+      distance = event.touches[0].clientY - startY;
+      if (distance <= 0) {
+        indicator.style.height = "0px";
+        return;
+      }
+      // 阻尼：拉越遠移動越少，手感比較像原生。
+      const pulled = Math.min(PULL_MAX, distance * 0.5);
+      indicator.style.height = `${pulled}px`;
+      indicator.classList.toggle("ready", pulled >= PULL_THRESHOLD * 0.5);
+    }, { passive: true });
+
+    list.addEventListener("touchend", async () => {
+      if (!dragging) return;
+      dragging = false;
+      const pulled = Math.min(PULL_MAX, Math.max(0, distance) * 0.5);
+      if (pulled < PULL_THRESHOLD * 0.5) {
+        reset("0px");
+        return;
+      }
+      indicator.classList.remove("dragging", "ready");
+      indicator.classList.add("loading");
+      indicator.style.height = "36px";
+      try {
+        await refreshFromServer();
+      } finally {
+        indicator.classList.remove("loading");
+        indicator.style.height = "0px";
+      }
+    });
+  }
+
   async function bootstrap() {
     // 不論健康檢查或連線發生什麼事，10 秒內一定要有畫面可以操作。
     const safety = setTimeout(() => {
@@ -1227,6 +1286,7 @@
       }
     }, 10000);
     registerServiceWorker();
+    setupPullToRefresh();
     // 分頁回到前景時再同步一次；切走或關掉前把還沒送出的補送出去。
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") refreshFromServer();

@@ -78,6 +78,12 @@
 - `.sidebar` 要有 `min-height: 0`，`.conversation-list` 才接得到捲動。
 - `html` 與 `body` 都要 `overflow: hidden`：只設 body 仍會整頁捲。
 
+## 側欄下拉更新
+
+- 對話清單捲到最上面再往下拉會出現「下拉更新／放開更新」，放開就跟伺服器對一次（`setupPullToRefresh`）。
+- 只在 `scrollTop === 0` 時接手手勢，不然會跟正常捲動打架；阻尼 0.5、門檻 32px、最多推出 96px。
+- 提示用 `::before` 換字時記得**幫 `::before` 補回 `font-size`**：父層設 `font-size: 0` 會一起繼承過去，字就不見了。
+
 ## 手機版選單
 
 - 側欄在手機版開成「左側 80% 寬」的純白抽屜（`--surface`＋右側 `--line` 細邊），不壓暗背景、不加陰影：任何壓暗或陰影都會在狀態列下緣形成交界。
