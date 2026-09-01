@@ -45,7 +45,7 @@
           <div class="stat-card"><span>知識區塊</span><strong id="stat-chunks">—</strong></div>
           <div class="stat-card"><span>來源檔案</span><strong id="stat-sources">—</strong></div>
           <div class="stat-card"><span>後台新增</span><strong id="stat-custom">—</strong></div>
-          <div class="stat-card alert-stat"><span>待整理</span><strong id="stat-flagged">—</strong></div>
+          <div class="stat-card alert-stat" id="stat-flagged-card"><span>待整理</span><strong id="stat-flagged">—</strong></div>
         </div>
         <div class="pipeline-heading"><h3>兩大主題涵蓋範圍</h3><p>知識分成「店務營運管理」與「設計師一對一行銷輔導」，下面是各自的分類與數量</p></div>
         <div id="domain-grid" class="domain-grid"><div class="empty-state">載入中</div></div>
@@ -109,7 +109,7 @@
           <div><h2>LINE 回覆設定</h2><p id="linebot-scope">lurebot 在 LINE 群組自動回覆時的真人模擬設定；只影響 LINE，不影響這裡的對話</p></div>
         </div>
         <form id="linebot-form" class="knowledge-editor">
-          <div class="editor-row">
+          <div class="editor-row even-row">
             <label>回覆停頓<select id="linebot-delay" data-dynamic="true" aria-label="回覆停頓"></select></label>
             <label>回覆長短<select id="linebot-length" data-dynamic="true" aria-label="回覆長短"></select></label>
             <label>語氣<select id="linebot-tone" data-dynamic="true" aria-label="語氣"></select></label>
