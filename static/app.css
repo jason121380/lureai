@@ -282,7 +282,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* Administration */
 .admin-body { overflow: auto; }
 .admin-shell { min-height: 100%; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-.admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 12px 10px 12px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); }
+.admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 12px 10px 14px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); }
 .admin-brand { min-height: 52px; padding: 0 7px; color: var(--ink); text-decoration: none; }
 .admin-brand .brand-logo { width: 74px; }
 .admin-nav-label { margin: 16px 10px 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
@@ -291,8 +291,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-nav-links a.active { font-weight: 600; }
 .admin-nav-links a:hover, .admin-nav-links a.active { background: var(--hover); }
 .admin-nav-links svg { width: 17px; }
-.admin-chat-link { min-height: 40px; display: flex; align-items: center; gap: 12px; margin-top: auto; padding: 8px 10px; color: var(--ink-soft); border-top: 1px solid var(--line); border-radius: 0; text-decoration: none; font-size: 13px; }
-.admin-chat-link:hover { color: var(--ink); }
+/* 底部返回鍵：分隔線用 ::before 畫在項目上方 18px 處，項目本身維持 10px 圓角的
+   hover。直接在項目上加 border-top 會讓線緊貼文字，下緣也頂到視窗，看起來很擠。 */
+.admin-chat-link { position: relative; min-height: 42px; display: flex; align-items: center; gap: 12px; margin-top: auto; padding: 10px; color: var(--ink-soft); border-radius: 10px; text-decoration: none; font-size: 13px; }
+.admin-chat-link::before { content: ""; position: absolute; top: -18px; right: 0; left: 0; height: 1px; background: var(--line); }
+.admin-chat-link:hover { color: var(--ink); background: var(--hover); }
 /* 後台內容給寬度上限並置中：放到 1440px 以上滿版時，健康檢查右側的數值會被
    推到離標籤一千多 px 遠，讀不起來。 */
 .admin-main { min-width: 0; padding: 0 32px 72px; }
@@ -443,7 +446,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .admin-nav-links { grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0; overflow-x: auto; }
   .admin-nav-links a { justify-content: center; padding: 8px; }
   .admin-nav-links span { display: none; }
-  .admin-chat-link { justify-content: center; margin-top: 8px; border-top: 0; border-radius: 10px; }
+  .admin-chat-link { justify-content: center; margin-top: 8px; border-radius: 10px; }
+  .admin-chat-link::before { display: none; }
   .admin-main { padding: 0 16px max(50px, env(safe-area-inset-bottom)); }
   .admin-section { padding: 22px 0 30px; }
   .section-heading { flex-direction: column; align-items: flex-start; gap: 12px; }
