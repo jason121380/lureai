@@ -10,6 +10,9 @@
 
 ## 產品決策
 
+- **2026-09-01 一直轉、CSS 沒下來的真正原因是 HTTP/1.0**（使用者回報「為什麼有時候會這樣 load 不出來一直轉」，截圖是 HTML 有出來但 logo 破圖、輸入框是瀏覽器預設樣式）：伺服器沒設 `protocol_version`，`BaseHTTPRequestHandler` 預設就是 **HTTP/1.0＝沒有 keep-alive**，所以 index.html、app.css、chat.js、logo、icon 每一個檔都要重開一條 TCP 連線，在 Zeabur 前面還各要一次 TLS 交握；再加上 `ThreadingHTTPServer.request_queue_size` 預設只有 **5**，一頁的檔同時湧進來就會滿出 backlog、被作業系統直接丟掉。改成 `protocol_version = "HTTP/1.1"` ＋ `request_queue_size = 128` ＋ `allow_reuse_address`，實測五個檔從五條連線變一條。
+  **改 1.1 的唯一風險是串流**：`/api/chat/stream` 邊生成邊寫，沒有 `Content-Length`，本來靠關連線收尾；HTTP/1.1 底下瀏覽器會一直等下一則（畫面就是答案出來了游標還在轉）。所以那條要自己送 `Connection: close` ＋ `self.close_connection = True`，實測 0.29 秒正常收尾。`tests/test_api.py` 的 `ConnectionTests` 四條守住這四件事。**以後新增不帶 Content-Length 的回應，一定要一起送 Connection: close。**
+
 - **2026-09-01 品質守門不可以擋「主管」**（使用者指正：「會有主管的」）：我照 QA 報告把「主管／轉人工／專人／現行核准／公司現行」整組列為禁用字，但沙龍當然有主管——`ops-25` 就叫「現場主管每週檢視表」，客訴 SOP（「超出職權請主管出面」）、請假、輪值、早會、離職流程整份 ops 知識都在講主管。這條會把**照著知識庫回答的正確答案**判成不合格，白白多打一次。查過之後「專人」（「櫃檯有專人收拾」）、「公司現行」（「依公司現行公告為準」）也都是知識庫原文，同樣不能擋。改成只擋「把人推給不存在的對象」的講法（`轉人工`／`轉接專人`／`會有專人跟你`），因為這裡真的沒有人工客服可以接手。**教訓**：品質守門用整串禁用字之前，先 grep 一遍 `knowledge/`——出現在知識庫裡的字就不能當違規字。
 
 - **2026-09-01 全站字級放大 1.15 倍**（使用者：「整體字體比例都放大」）：`static/app.css` 裡所有 `font-size` 一次等比換算（9/10→12、11→13、12→14、13→15、14→16、15→17、16→18、20→23、28→32），最小 12px——順便把 STYLE.md 早就寫了「不要再出現 9~10px」卻仍留在 CSS 裡的幾處補掉。**字放大就要一起放大裝字的容器**，不然字會被圓框切掉：`.cite-ref` 19→22px、`.citation-number` 15→18px、`.conversation-order` 欄寬 20→23px、`.profile-avatar` 31→34px、`--welcome-title-h` 38→44px（手機 32→37）、`--sidebar-width` 260→288px。`font-size: 0`（下拉更新藏字用）刻意保留不動。實測 390／414／768／1440 四個寬度都沒有水平溢出。

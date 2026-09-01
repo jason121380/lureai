@@ -271,6 +271,13 @@ class AppContext:
 def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         server_version = "ZhangRAG/1.0"
+        # HTTP/1.1 才有 keep-alive。用預設的 1.0 時，每一個靜態檔（CSS、JS、
+        # logo、icon）都要重開一條 TCP 連線，在雲端還要多一次 TLS 交握；一頁
+        # 六七個檔就是六七次交握，加上 backlog 只有 5，同時湧進來就有人被丟掉
+        # ——症狀正是「HTML 出來了但 CSS 沒有、分頁一直轉」。
+        # 改 1.1 的前提：每個回應都要讓瀏覽器知道 body 到哪裡結束。目前只有
+        # 串流那條沒有 Content-Length，它自己送 Connection: close（見下面）。
+        protocol_version = "HTTP/1.1"
         # Drop slow or stalled connections so they cannot pin worker threads.
         timeout = 30
 
@@ -867,6 +874,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("X-Accel-Buffering", "no")
+                    # 邊生成邊寫，長度事先不知道，所以這條走「寫完就關連線」。
+                    # HTTP/1.1 底下沒有這兩行，瀏覽器會一直等下一則而不收尾。
+                    self.send_header("Connection", "close")
+                    self.close_connection = True
                     self._send_security_headers()
                     self.end_headers()
                     try:
@@ -1062,4 +1073,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self.end_headers()
             self.wfile.write(body)
 
-    return ThreadingHTTPServer((host, port), Handler)
+    class Server(ThreadingHTTPServer):
+        # 預設 backlog 只有 5。一頁同時要幾個靜態檔，再加上其他分頁，很容易
+        # 滿出來，滿出來的連線會被作業系統直接丟掉（畫面就是圖破掉、CSS 沒套）。
+        request_queue_size = 128
+        # 埠還在 TIME_WAIT 時也要能重新綁上，重新部署才不會卡住。
+        allow_reuse_address = True
+
+    return Server((host, port), Handler)
