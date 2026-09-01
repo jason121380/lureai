@@ -20,7 +20,11 @@ from zoneinfo import ZoneInfo
 from .answer import AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
+from . import tuning
 from .followups import welcome_questions
+
+# 單條規則的長度上限：夠寫一段完整的話，但擋掉整份文件貼進來。
+TUNING_RULE_MAX_CHARS = 4000
 
 # 開場題庫一次全部送給前端，讓每次抽題都從整個池子隨機。
 WELCOME_PROMPT_POOL = 100
@@ -33,7 +37,7 @@ from .humanize import (
 )
 from .health import build_health_report
 from .ingest import ingest_jsonl
-from .policy import PolicyEngine
+from .policy import BOUNDARY_REPLIES, PolicyEngine
 from .retrieval import Retriever
 from .service import CustomerService
 from .storage import KnowledgeStore
@@ -209,15 +213,18 @@ class AppContext:
             bot_user_id = auth.ensure_bootstrap_user(
                 BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
             )["id"]
+        # 後台「AI 模型校調」改過的規則：每次組指令時重讀，存檔後下一則就生效。
+        rules_provider = store.model_rules
         service = CustomerService(
             store=store,
             retriever=retriever,
             policy=PolicyEngine(
                 minimum_score=minimum_score,
                 blocked_topics=blocked_topics,
+                rules_provider=rules_provider,
                 **({"fallback_message": fallback_message} if fallback_message else {}),
             ),
-            answerer=AnswerEngine(policy_path=policy_path),
+            answerer=AnswerEngine(policy_path=policy_path, rules_provider=rules_provider),
             top_k=top_k,
             pricing=pricing,
         )
@@ -296,6 +303,16 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return True
             user = self._current_user()
             return bool(user and user.get("role") == "admin")
+
+        def _fixed_replies(self) -> dict:
+            """固定回覆句的預設值（供校調頁顯示與還原）。"""
+            policy = context.service.policy
+            return {
+                "reply-fallback": policy._fallback_message,
+                "reply-sensitive": policy._sensitive_message,
+                "reply-model_failed": context.service.answerer.MODEL_FAILED_MESSAGE,
+                **{f"reply-{reason}": message for reason, _terms, message in BOUNDARY_REPLIES},
+            }
 
         def _require_admin(self) -> bool:
             if self._is_admin():
@@ -461,6 +478,42 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     "text": chunk["text"],
                     "origin": chunk.get("origin", "file"),
                 }})
+                return
+            if parsed.path == "/api/admin/tuning":
+                if not self._require_admin():
+                    return
+                overrides = context.store.model_rules()
+                groups = []
+                for group in tuning.catalogue(self._fixed_replies()):
+                    rules = []
+                    for rule in group["rules"]:
+                        override = overrides.get(rule["id"], "")
+                        rules.append({
+                            "id": rule["id"],
+                            "label": rule["label"],
+                            "hint": rule.get("hint", ""),
+                            "text": override or rule["text"],
+                            "default_text": rule["text"],
+                            "customized": bool(override),
+                        })
+                    groups.append({
+                        "id": group["id"], "label": group["label"],
+                        "hint": group.get("hint", ""), "rules": rules,
+                    })
+                self._json(HTTPStatus.OK, {
+                    "groups": groups,
+                    "customized": sum(1 for group in groups for rule in group["rules"] if rule["customized"]),
+                })
+                return
+            if parsed.path == "/api/admin/tuning/preview":
+                # 「改完後變成 AI 看得懂的」——這裡回傳實際會送給模型的整段指令。
+                if not self._require_admin():
+                    return
+                tone = (parse_qs(parsed.query).get("tone", [""])[0] or "expert").strip()
+                self._json(HTTPStatus.OK, {
+                    "tone": tone,
+                    "instructions": context.service.answerer.instructions(tone),
+                })
                 return
             if parsed.path == "/api/admin/knowledge/quality":
                 if self._require_admin():
@@ -799,6 +852,36 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "category": chunk["category"],
                         "domain": chunk["domain"],
                     }})
+                    return
+                if parsed.path == "/api/admin/tuning":
+                    if not self._require_admin():
+                        return
+                    rule_id = str(payload.get("rule_id", "")).strip()
+                    text = str(payload.get("text", ""))
+                    if rule_id not in tuning.known_rule_ids(self._fixed_replies()):
+                        self._json(HTTPStatus.BAD_REQUEST, {"error": "unknown_rule", "message": "找不到這條規則"})
+                        return
+                    if len(text) > TUNING_RULE_MAX_CHARS:
+                        self._json(HTTPStatus.BAD_REQUEST, {"error": "too_long", "message": "這條規則太長了"})
+                        return
+                    if text.strip():
+                        context.store.save_model_rule(
+                            rule_id, text.strip(), datetime.now(timezone.utc).isoformat()
+                        )
+                    else:
+                        # 清空＝還原預設，讓 app/tuning.py 的預設值重新生效。
+                        context.store.delete_model_rule(rule_id)
+                    self._json(HTTPStatus.OK, {"rule_id": rule_id, "customized": bool(text.strip())})
+                    return
+                if parsed.path == "/api/admin/tuning/reset":
+                    if not self._require_admin():
+                        return
+                    rule_id = str(payload.get("rule_id", "")).strip()
+                    if rule_id:
+                        context.store.delete_model_rule(rule_id)
+                    else:
+                        context.store.clear_model_rules()
+                    self._json(HTTPStatus.OK, {"reset": rule_id or "all"})
                     return
                 if parsed.path == "/api/admin/knowledge/delete":
                     if not self._require_admin():
