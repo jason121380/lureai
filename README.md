@@ -223,6 +223,24 @@ python3 scripts/verify_full_knowledge.py
 
 聊天與用量 API 需要先透過 `POST /api/auth/login` 建立 session。登入後呼叫 `POST /api/chat`，JSON body 為 `{"message":"問題","conversation_id":"可選 ID"}`；`GET /api/usage` 只回傳目前登入使用者的本月用量。前端可先讀取公開的 `GET /api/health` 確認目前 profile、知識筆數與模型是否啟用。
 
+### 機器人 API（lurebot 外接大腦）
+
+LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設定 `BOT_API_TOKEN` 後開啟 `/api/bot/*`，用 `X-Bot-Token` header 認證（沒設定就整組關閉）：
+
+| 端點 | 說明 |
+| --- | --- |
+| `POST /api/bot/reply` | 產生 LINE 回覆。body：`{"message","conversation_id","history":[{"role":"user","content":"…"}],"context":{"group_name","speaker","stage","summary"},"style":{…}}` |
+| `GET /api/bot/health` | 知識塊數、模型、上次索引時間、本月用量、目前回覆設定 |
+| `GET`／`POST /api/bot/style` | 真人模擬設定（停頓／長短／語氣／去標點／拆則／自訂指示），存在 SQLite |
+
+`/api/bot/reply` 回傳 `{"status","messages":[…],"delay_seconds","answer","citations","trace_id"}`：
+
+- `status=answered`：`messages` 是拆好的短訊息（最多 3 則、已去除 `[n]` 引用），lurebot 等 `delay_seconds` 秒後直接送出。
+- `status=escalated`：政策擋下（敏感題或低於信心門檻），`messages` 為空，AI 不回、交還真人。
+- `status=unavailable`：模型不可用而降級成抽取式回答，知識原文不會送進 LINE。
+
+三條路的用量與稽核都記在 `lurebot` 服務帳號底下，後台看得到。
+
 ## 設定
 
 - 檢索門檻與 top-k：`config/settings.json`

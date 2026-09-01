@@ -179,6 +179,8 @@ class CustomerService:
         user_id: int | None = None,
         allow_model: bool = True,
         tone: str | None = None,
+        extra_instruction: str = "",
+        want_followups: bool = True,
     ) -> dict:
         question = self._validated_question(message)
         tone = normalize_tone(tone)
@@ -195,16 +197,22 @@ class CustomerService:
             history=recent_history,
             allow_model=allow_model,
             tone=tone,
+            extra_instruction=extra_instruction,
+            include_followups=want_followups,
         )
         followups: list[str] = []
         if mode == "llm":
+            # 沒要追問時模型不會產生 ▷ 行，這裡照樣過一次以防萬一。
             answer, followups = split_followups(answer)
-        # 建議問題一律要能被回答，點下去才不會撞到「沒有足夠資料」。
-        followups = self.followups.plan(
-            grounded_hits,
-            asked=self._asked_questions(history, question),
-            candidates=followups,
-        )
+        if want_followups:
+            # 建議問題一律要能被回答，點下去才不會撞到「沒有足夠資料」。
+            followups = self.followups.plan(
+                grounded_hits,
+                asked=self._asked_questions(history, question),
+                candidates=followups,
+            )
+        else:
+            followups = []
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
