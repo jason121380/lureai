@@ -130,6 +130,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("const tone = state.tone;", script)
         self.assertIn("history, tone }", script)
         self.assertIn("renderServiceBubbles", script)
+        # 客服模式句尾不顯示引用編號（引用只給系統核對，來源列在泡泡下方）。
+        self.assertIn(r'replace(/\s*\[\d{1,2}\]/g, "")', script)
         self.assertIn(".tone-toggle", css)
         self.assertIn(".message-text.bubbles", css)
 
