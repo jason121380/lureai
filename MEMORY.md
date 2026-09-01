@@ -10,6 +10,8 @@
 
 ## 產品決策
 
+- **2026-09-01 lurebot 的 AI 大腦搬到 lureai**：LINE 端不再自己拼知識（Gemini + SOP/FAQ + 上傳文件那套全部拆掉），改打 lureai 的 `POST /api/bot/reply`。分工是「lureai 是大腦、lurebot 是通道」：群組脈絡（群組名／發話設計師／輔導階段）由 lurebot 隨請求帶上，知識、政策、生成、引用守門、稽核都在 lureai；真人模擬（語氣／長短／去標點／拆則／回覆停頓）也一起搬進來（`app/humanize.py`），所以大腦直接回「拆好的多則訊息 + 建議停頓秒數」，lurebot 只負責等秒數與送出。新增 `line` 語氣、`X-Bot-Token` 服務權杖與 `lurebot` 服務帳號（用量與月預算記在它頭上）。LINE 的 reply token 只有 60 秒，所以停頓上限抓 30 秒，lurebot 端還會再夾一次剩餘效期。
+
 - **2026-09-01 品牌資產更新**：使用者把正式 logo.png（15216px 寬）與 favicon.png（9419px 方形）直接上傳到 GitHub repo 根目錄——已縮成網頁尺寸搬進 `static/`：logo.png 800px 寬（透明底，`logo.svg` 已刪除、頁面與 sw.js 改引用 logo.png、cache 版本升 v2）、favicon 256、app-icon 512／192、maskable 512（80% 安全邊，白底攤平避免 iOS 透明變黑）。`app/health.py` 前端檢查改支援二進位資產（PNG 驗簽章，不做文字比對）。iOS 要刪掉主畫面圖示重新加入才會看到新 icon。
 
 - **2026-09-01 右上角回覆模式標示**：topbar 右側常駐顯示「專家模式／客服模式」膠囊（`#tone-indicator`），`setTone` 同步更新文字。點擊行為後改為：跳出小彈窗「是否切換為◯◯模式？」（取消／切換），確認才切換；點外面或 Escape 關閉。帳號彈窗的設定分頁仍是另一個切換入口。

@@ -85,6 +85,20 @@ TONE_INSTRUCTIONS = {
         "照樣在內容出自來源的行尾放半形 [1] 這種編號（不算入 10 個字），"
         "整篇至少一個，否則會被系統丟棄。"
     ),
+    "line": (
+        "\n\n## 語氣設定：LINE 群組模式（覆蓋前面的條列與字數規則）\n"
+        "你是輔導團隊的真人輔導員，此刻以官方帳號身分在 LINE 群組裡回訊息給設計師。\n"
+        "像真人打字：不要客服腔、不要制式開場白（例如「您好，感謝您的訊息」），"
+        "不要自稱 AI、機器人或助理，也不要說自己在查資料。\n"
+        "每行是一則獨立的短訊息，依語意斷句、一句講一件事，絕對不要把一句話切到一半。\n"
+        "是問題就依來源給具體做法；是閒聊、貼圖或圖片就自然親切地接話。\n"
+        "不確定或來源沒寫的事不要編造，改說「這個我幫你跟同事確認一下」。\n"
+        "不要重複設計師剛剛講過的話，不要一次把所有步驟列完，一次只推進一步。\n"
+        "禁止條列符號、編號清單、小標題與表格。\n"
+        "引用編號只給系統核對用，送出前會被拿掉，畫面上不會出現，所以句子本身不要提到"
+        "編號或「來源」：照樣在內容出自來源的行尾放半形 [1] 這種編號（不算入字數），"
+        "整篇至少一個，否則會被系統丟棄。"
+    ),
 }
 
 
@@ -164,6 +178,8 @@ class AnswerEngine:
         history: list[dict] | None = None,
         allow_model: bool = True,
         tone: str = DEFAULT_TONE,
+        extra_instruction: str = "",
+        include_followups: bool = True,
     ) -> tuple[str, str, str, dict]:
         empty_usage = {
             "input_tokens": 0,
@@ -175,14 +191,22 @@ class AnswerEngine:
             return self._extractive_answer(hits), "extractive", "budget_exhausted", empty_usage
         if self.model_enabled:
             try:
-                generated, usage = self._call_model(question, hits, history=history, tone=tone)
+                generated, usage = self._call_model(
+                    question, hits, history=history, tone=tone,
+                    extra_instruction=extra_instruction,
+                    include_followups=include_followups,
+                )
                 generated = normalize_citation_marks(generated)
                 if generated and re.search(r"\[\d+\]", generated):
                     return generated.strip(), "llm", "used", usage
                 log_model_failure(
                     "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"
                 )
-                retried, retry_usage = self.retry_with_citations(question, hits, history=history, tone=tone)
+                retried, retry_usage = self.retry_with_citations(
+                    question, hits, history=history, tone=tone,
+                    extra_instruction=extra_instruction,
+                    include_followups=include_followups,
+                )
                 usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                 if retried:
                     return retried, "llm", "used", usage
@@ -208,11 +232,16 @@ class AnswerEngine:
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
-    def retry_with_citations(self, question, hits, history=None, tone=DEFAULT_TONE):
+    def retry_with_citations(
+        self, question, hits, history=None, tone=DEFAULT_TONE,
+        extra_instruction="", include_followups=True,
+    ):
         """缺引用時的最後一搏：加上明確警語重打一次，仍失敗就回空字串。"""
         try:
             generated, usage = self._call_model(
-                question, hits, history=history, extra_instruction=CITATION_RETRY_NOTE, tone=tone
+                question, hits, history=history,
+                extra_instruction=extra_instruction + CITATION_RETRY_NOTE,
+                tone=tone, include_followups=include_followups,
             )
         except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
             log_model_failure("citation-retry", exc, f"model={self.model_name}")
@@ -236,6 +265,7 @@ class AnswerEngine:
         stream: bool,
         extra_instruction: str = "",
         tone: str = DEFAULT_TONE,
+        include_followups: bool = True,
     ) -> urllib.request.Request:
         source_text = "\n\n".join(
             f"<source id=\"{index}\" title=\"{hit.title}\" locator=\"{hit.locator}\">\n{hit.text}\n</source>"
@@ -254,7 +284,7 @@ class AnswerEngine:
             "instructions": (
                 self.policy
                 + TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS[DEFAULT_TONE])
-                + FOLLOWUP_INSTRUCTION
+                + (FOLLOWUP_INSTRUCTION if include_followups else "")
                 + extra_instruction
             ),
             "input": model_input,
@@ -336,9 +366,11 @@ class AnswerEngine:
         history: list[dict] | None = None,
         extra_instruction: str = "",
         tone: str = DEFAULT_TONE,
+        include_followups: bool = True,
     ) -> tuple[str, dict]:
         request = self._model_request(
-            question, hits, history, stream=False, extra_instruction=extra_instruction, tone=tone
+            question, hits, history, stream=False, extra_instruction=extra_instruction,
+            tone=tone, include_followups=include_followups,
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read())
