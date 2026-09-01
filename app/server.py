@@ -27,8 +27,11 @@ WELCOME_PROMPT_POOL = 100
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .humanize import (
     DELAYS as BOT_DELAYS,
+    DELAY_LABELS as BOT_DELAY_LABELS,
     DEFAULT_STYLE as BOT_DEFAULT_STYLE,
     LENGTHS as BOT_LENGTHS,
+    LENGTH_LABELS as BOT_LENGTH_LABELS,
+    TONE_LABELS as BOT_TONE_LABELS,
     STYLE_KEY as BOT_STYLE_KEY,
     TONES as BOT_TONES,
     normalize_style,
@@ -458,6 +461,18 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if user:
                     self._json(HTTPStatus.OK, self._usage_summary(user["id"]))
                 return
+            if parsed.path == "/api/admin/bot-style":
+                if self._require_admin():
+                    self._json(HTTPStatus.OK, {
+                        "style": self._bot_style(),
+                        "options": {
+                            "delay": BOT_DELAY_LABELS,
+                            "length": BOT_LENGTH_LABELS,
+                            "tone": BOT_TONE_LABELS,
+                        },
+                        "bot_api_enabled": bool(context.bot_token),
+                    })
+                return
             if parsed.path == "/api/admin/users":
                 if self._require_admin():
                     self._json(HTTPStatus.OK, {"items": context.auth.list_users()})
@@ -646,13 +661,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if parsed.path.startswith("/api/bot/"):
                     if not self._require_bot():
                         return
-                    if parsed.path == "/api/bot/style":
-                        style = normalize_style(payload.get("style"), base=self._bot_style())
-                        context.store.set_metadata(
-                            BOT_STYLE_KEY, json.dumps(style, ensure_ascii=False)
-                        )
-                        self._json(HTTPStatus.OK, {"style": style})
-                        return
                     if parsed.path == "/api/bot/reply":
                         self._bot_reply(payload)
                         return
@@ -803,6 +811,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         allow_model=within_budget,
                     )
                     self._json(HTTPStatus.OK, result)
+                    return
+                if parsed.path == "/api/admin/bot-style":
+                    if not self._require_admin():
+                        return
+                    style = normalize_style(payload.get("style"), base=self._bot_style())
+                    context.store.set_metadata(
+                        BOT_STYLE_KEY, json.dumps(style, ensure_ascii=False)
+                    )
+                    self._json(HTTPStatus.OK, {"style": style})
                     return
                 if parsed.path == "/api/admin/users":
                     if not self._require_admin():

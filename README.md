@@ -231,7 +231,7 @@ LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設
 | --- | --- |
 | `POST /api/bot/reply` | 產生 LINE 回覆。body：`{"message","conversation_id","history":[{"role":"user","content":"…"}],"context":{"group_name","speaker","stage","summary"},"style":{…}}` |
 | `GET /api/bot/health` | 知識塊數、模型、上次索引時間、本月用量、目前回覆設定 |
-| `GET`／`POST /api/bot/style` | 真人模擬設定（停頓／長短／語氣／去標點／拆則／自訂指示），存在 SQLite |
+| `GET /api/bot/style` | 目前的真人模擬設定（唯讀）；要改請到後台「LINE 回覆設定」分頁，機器人這條路改不動 |
 
 `/api/bot/reply` 回傳 `{"status","messages":[…],"delay_seconds","answer","citations","trace_id"}`：
 
@@ -239,7 +239,7 @@ LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設
 - `status=escalated`：政策擋下（敏感題或低於信心門檻），`messages` 為空，AI 不回、交還真人。
 - `status=unavailable`：模型不可用而降級成抽取式回答，知識原文不會送進 LINE。
 
-三條路的用量與稽核都記在 `lurebot` 服務帳號底下，後台看得到。
+三條路的用量與稽核都記在 `lurebot` 服務帳號底下，後台看得到。真人模擬設定（停頓／長短／語氣／去標點／拆則／自訂指示）由管理者在後台 `#linebot` 分頁編輯，走 `GET`／`POST /api/admin/bot-style`。
 
 ## 設定
 
