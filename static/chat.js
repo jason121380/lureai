@@ -284,6 +284,23 @@
       content.append(status);
     }
 
+    // 每則回答都能評分（👍👎），回饋存進伺服器供之後加強知識。
+    if (item.role === "assistant" && item.status === "answered" && item.traceId && !item.loading) {
+      const feedback = document.createElement("div");
+      feedback.className = "feedback-row";
+      [["up", "thumbs-up", "這則回答有幫助"], ["down", "thumbs-down", "這則回答沒幫助"]].forEach(([rating, icon, label]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `feedback-button${item.feedback === rating ? " selected" : ""}`;
+        button.title = label;
+        button.setAttribute("aria-label", label);
+        button.innerHTML = `<i data-lucide="${icon}"></i>`;
+        button.addEventListener("click", () => sendFeedback(item, rating));
+        feedback.append(button);
+      });
+      content.append(feedback);
+    }
+
     if (item.citations?.length) {
       const citations = document.createElement("div");
       citations.className = "citation-list";
@@ -333,7 +350,7 @@
     const text = row?.querySelector(".message-text.bubbles");
     if (!text) return;
     const lines = [...text.querySelectorAll(".chat-line")];
-    const extras = [...row.querySelectorAll(".message-status, .citation-list, .followup-list")];
+    const extras = [...row.querySelectorAll(".message-status, .feedback-row, .citation-list, .followup-list")];
     if (lines.length < 2 && !extras.length) return;
     lines.forEach((line) => { line.hidden = true; });
     extras.forEach((extra) => { extra.hidden = true; });
@@ -467,7 +484,7 @@
       .split("\n")
       .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
       .map((line) => line.replace(/\s*\[\d{1,2}\]/g, ""))
-      .map((line) => line.replace(/[，。、；：！？!?；～「」『』（）()]/g, " "))
+      .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);
     const bubbles = [];
@@ -614,6 +631,22 @@
       persist();
       render();
       if (state.user) loadUsage();
+    }
+  }
+
+  async function sendFeedback(item, rating) {
+    if (item.feedback === rating) return;
+    item.feedback = rating;
+    persist();
+    render();
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trace_id: item.traceId, rating }),
+      });
+    } catch (_) {
+      // 本地已記錄，網路失敗不打斷使用。
     }
   }
 
@@ -906,10 +939,8 @@
       el("account-panel-usage").hidden = tab.dataset.tab !== "usage";
     });
   });
-  document.addEventListener("click", (event) => {
-    if (el("account-menu").hidden) return;
-    if (!event.target.closest(".sidebar-footer")) toggleAccountMenu(false);
-  });
+  el("account-backdrop").addEventListener("click", () => toggleAccountMenu(false));
+  el("account-close").addEventListener("click", () => toggleAccountMenu(false));
   el("new-chat").addEventListener("click", newConversation);
   el("sidebar-search").addEventListener("click", () => {
     const search = el("conversation-search");

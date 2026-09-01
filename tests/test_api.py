@@ -177,6 +177,35 @@ class ApiTests(unittest.TestCase):
         self.assertGreater(body["spend_twd"], 0)
         self.assertIn("progress_percent", body)
 
+    def test_feedback_is_stored_and_visible_to_admin(self):
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        _status, chat = self.request("POST", "/api/chat", {"message": "燙髮後怎麼整理？"})
+
+        status, body = self.request("POST", "/api/feedback", {
+            "trace_id": chat["trace_id"], "rating": "down",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "ok")
+        # 重按改評分：同一人同一則回答只留一票。
+        self.request("POST", "/api/feedback", {"trace_id": chat["trace_id"], "rating": "up"})
+
+        status, listing = self.request("GET", "/api/admin/feedback", token="secret-token")
+        self.assertEqual(status, 200)
+        rows = [row for row in listing["items"] if row["trace_id"] == chat["trace_id"]]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["rating"], "up")
+        self.assertIn("question", rows[0])
+
+    def test_feedback_rejects_bad_rating_and_requires_login(self):
+        self.assertEqual(self.request("POST", "/api/feedback", {"trace_id": "t", "rating": "up"})[0], 401)
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        status, _body = self.request("POST", "/api/feedback", {"trace_id": "t", "rating": "meh"})
+        self.assertEqual(status, 400)
+
     def test_admin_endpoint_rejects_wrong_token(self):
         status, body = self.request("GET", "/api/admin/stats")
 

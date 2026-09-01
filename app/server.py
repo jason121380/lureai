@@ -370,6 +370,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if self._require_admin():
                     self._json(HTTPStatus.OK, {"items": context.auth.list_users()})
                 return
+            if parsed.path == "/api/admin/feedback":
+                if self._require_admin():
+                    self._json(HTTPStatus.OK, {"items": context.store.list_feedback(limit=200)})
+                return
             if parsed.path == "/api/admin/stats":
                 if self._require_admin():
                     stats = context.store.stats()
@@ -584,6 +588,21 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             self.wfile.flush()
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+                    return
+                if parsed.path == "/api/feedback":
+                    user = self._require_user()
+                    if not user:
+                        return
+                    trace_id = str(payload.get("trace_id", "")).strip()
+                    rating = str(payload.get("rating", "")).strip()
+                    if not trace_id or len(trace_id) > 64 or rating not in ("up", "down"):
+                        self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_request", "message": "回饋格式無效"})
+                        return
+                    context.store.add_feedback(
+                        trace_id, user["id"], rating,
+                        datetime.now(timezone.utc).isoformat(),
+                    )
+                    self._json(HTTPStatus.OK, {"status": "ok"})
                     return
                 if parsed.path == "/api/chat/title":
                     user = self._require_user()

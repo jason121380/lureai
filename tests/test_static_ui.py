@@ -151,7 +151,7 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
 
-        # 左下角按名字打開彈窗：設定（語氣）／用量 兩個分頁。
+        # 左下角按名字打開置中卡片彈窗：二分欄（左：設定／用量導覽，右：內容）。
         self.assertIn('id="account-menu"', html)
         self.assertIn('id="user-account"', html)
         self.assertIn('data-tab="settings"', html)
@@ -159,8 +159,27 @@ class StaticUiTests(unittest.TestCase):
         menu = html.split('id="account-menu"', 1)[1].split('id="user-account"', 1)[0]
         self.assertIn('id="tone-toggle"', menu)
         self.assertIn('id="usage-progress"', menu)
+        self.assertIn('class="account-side"', menu)
+        self.assertIn('id="account-backdrop"', menu)
         self.assertIn("function toggleAccountMenu", script)
-        self.assertIn(".account-menu", css)
+        self.assertIn(".account-modal", css)
+        card_rule = css.split(".account-card {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns", card_rule)
+
+    def test_answers_offer_thumbs_feedback(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 每則回答可評分（👍👎），回饋送到 /api/feedback 供之後加強。
+        self.assertIn('"thumbs-up"', script)
+        self.assertIn('"thumbs-down"', script)
+        self.assertIn('"/api/feedback"', script)
+        self.assertIn(".feedback-button", css)
+
+    def test_new_chat_button_has_no_permanent_highlight(self):
+        html = INDEX.read_text(encoding="utf-8")
+
+        self.assertIn('class="primary-nav-item" id="new-chat"', html)
 
     def test_conversation_delete_uses_in_page_confirmation(self):
         script = CHAT_JS.read_text(encoding="utf-8")

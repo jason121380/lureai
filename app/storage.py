@@ -93,6 +93,16 @@ class KnowledgeStore:
             );
 
             CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON sessions(token_hash);
+
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY,
+                trace_id TEXT NOT NULL,
+                user_id INTEGER,
+                rating TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(trace_id, user_id)
+            );
+
             CREATE TABLE IF NOT EXISTS app_metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -199,6 +209,33 @@ class KnowledgeStore:
                     str(record.get("model", "")),
                 ),
             )
+
+    def add_feedback(self, trace_id: str, user_id: int | None, rating: str, created_at: str) -> None:
+        """每人對每則回答一票，重按就更新（讚改倒讚）。"""
+        with self._lock, self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO feedback (trace_id, user_id, rating, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(trace_id, user_id) DO UPDATE SET rating = excluded.rating, created_at = excluded.created_at
+                """,
+                (trace_id, user_id, rating, created_at),
+            )
+
+    def list_feedback(self, limit: int = 100) -> list[dict]:
+        """回饋列表（附上稽核裡的問題與狀態），給後台看哪些回答要加強。"""
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT f.trace_id, f.user_id, f.rating, f.created_at,
+                       a.question, a.status, a.reason, a.top_score
+                FROM feedback f
+                LEFT JOIN audits a ON a.trace_id = f.trace_id
+                ORDER BY f.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def usage_totals(self, user_id: int, start_at: str, end_at: str) -> dict:
         with self._lock:
