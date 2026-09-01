@@ -13,6 +13,9 @@ import re
 # lurebot 端還會再夾一次剩餘效期。
 DELAY_RANGE = (8, 25)
 
+# 同一次回覆裡，每一則之間再等幾秒才送下一則——真人不會三則同時跳出來。
+MESSAGE_GAP_RANGE = (2, 4)
+
 # LINE 一次最多送幾則（和 line 語氣裡寫的規則一致）。
 MAX_PARTS = 4
 
@@ -57,22 +60,32 @@ def strip_citations(text: str) -> str:
 
 
 def postprocess(reply_text: str) -> list[str]:
-    """去引用、去標點（空白分段）、依模型換行分則（備援對半切）。回傳訊息列表。"""
+    """去引用、去標點（空白分段）、依空行分則（備援對半切）。回傳訊息列表。
+
+    一則訊息裡面可以有好幾行（LINE 也支援換行），所以**空一行才代表換一則**，
+    單純換行只是同一則裡的下一行。
+    """
     text = PUNCTUATION_PATTERN.sub(" ", strip_citations(reply_text))
-    # 保留換行（模型用換行分則），只收斂行內空白。
+    # 保留換行（模型用空行分則），只收斂行內空白。
     text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n"))
     text = text.strip()
     if not text:
         return []
-    parts = [part.strip() for part in text.split("\n") if part.strip()]
+    parts = [
+        "\n".join(line for line in block.split("\n") if line.strip()).strip()
+        for block in re.split(r"\n[ \t]*\n+", text)
+    ]
+    parts = [part for part in parts if part]
     if len(parts) >= 2:
         if len(parts) <= MAX_PARTS:
             return parts
         # 超過上限就把中間併成一則，不要直接砍掉尾巴——砍掉會連收尾的問句
         # 和範例正文一起消失，設計師收到的就是一段沒講完的話。
-        return [*parts[:MAX_PARTS - 2], " ".join(parts[MAX_PARTS - 2:-1]), parts[-1]]
+        # 併起來時用換行接，不要接成一長條。
+        return [*parts[:MAX_PARTS - 2], "\n".join(parts[MAX_PARTS - 2:-1]), parts[-1]]
     single = parts[0]
-    if len(single) <= 10:
+    if len(single) <= 10 or "\n" in single:
+        # 已經自己分行的就照原樣送，不要再切。
         return [single]
     # 備援：模型沒分行的長句，在最接近中間的空白處切成兩句。
     mid = len(single) // 2
@@ -85,6 +98,22 @@ def postprocess(reply_text: str) -> list[str]:
     head = single[:best].strip(SPLIT_CHARS)
     tail = single[best:].strip(SPLIT_CHARS)
     return [part for part in (head, tail) if part] or [single]
+
+
+def message_gaps(count: int, rng: random.Random | None = None,
+                 gap_range: tuple[float, float] | None = None) -> list[float]:
+    """每一則送出前要等幾秒：第一則用 reply_delay，後面幾則各等一小段。
+
+    lurebot 照這個列表依序 sleep 再送，訊息才會像真人一則一則打出來，
+    而不是三則同時跳出來。
+    """
+    low, high = gap_range or MESSAGE_GAP_RANGE
+    picker = rng or random
+    if count <= 1:
+        return []
+    if high <= low:
+        return [round(max(0.0, low), 1)] * (count - 1)
+    return [round(picker.uniform(low, high), 1) for _ in range(count - 1)]
 
 
 def reply_delay(rng: random.Random | None = None,

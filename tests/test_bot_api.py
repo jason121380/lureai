@@ -43,19 +43,26 @@ class HumanizeTests(unittest.TestCase):
     def test_citations_are_stripped_before_sending(self):
         self.assertEqual(strip_citations("先看回覆率 [1]"), "先看回覆率")
 
-    def test_postprocess_splits_lines_and_drops_punctuation(self):
-        parts = postprocess("先看回覆率，這週抓 20 則 [1]\n明天再回報給我 [2]")
+    def test_postprocess_splits_on_blank_lines_and_drops_punctuation(self):
+        parts = postprocess("先看回覆率，這週抓 20 則 [1]\n\n明天再回報給我 [2]")
 
         self.assertEqual(parts, ["先看回覆率 這週抓 20 則", "明天再回報給我"])
 
+    def test_one_message_can_have_several_lines(self):
+        """一則裡面可以列東西（換行），空一行才換一則。"""
+        parts = postprocess("我想要吃\n海鮮\n玉米\n薯條")
+
+        self.assertEqual(parts, ["我想要吃\n海鮮\n玉米\n薯條"])
+
     def test_postprocess_caps_at_four_messages(self):
-        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四")), 4)
-        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四\n五\n六")), 4)
+        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 4)
+        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四\n\n五\n\n六")), 4)
 
     def test_postprocess_keeps_every_line_when_capping(self):
         """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問句不能消失。"""
         parts = postprocess(
-            "可以先用這個貼文範例\n最近想整理髮型的你\n這週有 2 個名額\n想換個顏色嗎\n要一起改嗎"
+            "可以先用這個貼文範例\n\n最近想整理髮型的你\n\n這週有 2 個名額"
+            "\n\n想換個顏色嗎\n\n要一起改嗎"
         )
 
         self.assertEqual(parts[0], "可以先用這個貼文範例")
@@ -68,6 +75,20 @@ class HumanizeTests(unittest.TestCase):
         parts = postprocess("先看這週的回覆率 抓 20 則來看 明天再回報給我")
 
         self.assertEqual(len(parts), 2)
+
+    def test_message_gaps_make_the_replies_arrive_one_by_one(self):
+        """三則不能同時跳出來——每一則之間要再等一小段。"""
+        from app.humanize import message_gaps
+
+        gaps = message_gaps(3)
+
+        self.assertEqual(len(gaps), 2)
+        self.assertTrue(all(2 <= gap <= 4 for gap in gaps), gaps)
+
+    def test_a_single_message_needs_no_gap(self):
+        from app.humanize import message_gaps
+
+        self.assertEqual(message_gaps(1), [])
 
     def test_delay_stays_inside_the_reply_token_window(self):
         for _ in range(20):
@@ -139,7 +160,7 @@ class BotApiTests(unittest.TestCase):
         )
 
     def test_reply_returns_line_ready_messages(self):
-        stub = StubAnswerer("先看這週回覆率 [1]\n明天回報給我 [1]")
+        stub = StubAnswerer("先看這週回覆率 [1]\n\n明天回報給我 [1]")
         self.context.service.answerer = stub
 
         status, body = self.request("POST", "/api/bot/reply", {
@@ -154,6 +175,8 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "answered")
         self.assertEqual(body["messages"], ["先看這週回覆率", "明天回報給我"])
+        # 兩則訊息＝一個間隔，lurebot 照這個秒數 sleep 再送下一則。
+        self.assertEqual(len(body["message_gaps"]), 1)
         self.assertGreaterEqual(body["delay_seconds"], DELAY_RANGE[0])
         self.assertNotIn("[1]", body["answer"])
         self.assertEqual(body["citations"][0]["locator"], "aftercare-1")
@@ -165,7 +188,7 @@ class BotApiTests(unittest.TestCase):
 
     def test_reply_survives_a_missing_citation(self):
         # 引用只給後台核對用，送出前就剝掉；少了編號不該讓 LINE 整則不回。
-        self.context.service.answerer = StubAnswerer("先看這週回覆率\n明天回報給我")
+        self.context.service.answerer = StubAnswerer("先看這週回覆率\n\n明天回報給我")
 
         status, body = self.request("POST", "/api/bot/reply", {
             "message": "燙髮後怎麼整理？", "conversation_id": "C123",

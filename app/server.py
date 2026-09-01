@@ -40,6 +40,8 @@ USER_PREF_KEYS = {"tone"}
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .humanize import (
     DELAY_RANGE,
+    MESSAGE_GAP_RANGE,
+    message_gaps,
     context_instruction,
     postprocess,
     reply_delay,
@@ -373,7 +375,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
 
         def _line_delivery(self) -> dict:
             low, high = DELAY_RANGE
-            return {"delivery-delay": f"{low:g}-{high:g}"}
+            gap_low, gap_high = MESSAGE_GAP_RANGE
+            return {
+                "delivery-delay": f"{low:g}-{high:g}",
+                "delivery-gap": f"{gap_low:g}-{gap_high:g}",
+            }
 
         def _catalogue_defaults(self) -> dict:
             return {
@@ -733,10 +739,18 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             response["messages"] = messages
             response["answer"] = strip_citations(result["answer"]).strip()
+            rules = context.store.model_rules()
             response["delay_seconds"] = reply_delay(
                 delay_range=tuning.parse_delay_range(
-                    context.store.model_rules().get("delivery-delay", ""), DELAY_RANGE
+                    rules.get("delivery-delay", ""), DELAY_RANGE
                 )
+            )
+            # 每一則之間再等一小段，訊息才會一則一則出現而不是同時跳出來。
+            response["message_gaps"] = message_gaps(
+                len(response.get("messages") or []),
+                gap_range=tuning.parse_delay_range(
+                    rules.get("delivery-gap", ""), MESSAGE_GAP_RANGE
+                ),
             )
             self._json(HTTPStatus.OK, response)
 
