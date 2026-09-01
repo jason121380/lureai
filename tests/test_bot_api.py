@@ -69,6 +69,17 @@ class HumanizeTests(unittest.TestCase):
 
         self.assertEqual(len(parts), 3)
 
+    def test_postprocess_keeps_every_line_when_capping(self):
+        """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問題不能消失。"""
+        style = normalize_style({"split_long": True})
+
+        parts = postprocess("可以先用這個貼文範例\n最近想整理髮型的你\n這週有 2 個名額\n要一起改嗎", style)
+
+        self.assertEqual(parts[0], "可以先用這個貼文範例")
+        self.assertEqual(parts[-1], "要一起改嗎")
+        self.assertIn("最近想整理髮型的你", parts[1])
+        self.assertIn("這週有 2 個名額", parts[1])
+
     def test_postprocess_merges_lines_when_split_is_off(self):
         style = normalize_style({"split_long": False, "no_punct": False})
 

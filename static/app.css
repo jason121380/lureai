@@ -18,6 +18,13 @@
   --caution-soft: #fff3e0;
   --focus: #2f6fca;
   --sidebar-width: 260px;
+  /* 空白頁三段式排版：標題 → 輸入框 → 建議題目。三者都從同一組變數推算，
+     不要讓標題用 vh、輸入框用 % 各算各的——視窗一矮兩者就會疊在一起。 */
+  --topbar-h: 66px;
+  --welcome-top: min(24vh, 250px);
+  --welcome-title-h: 38px;
+  --welcome-gap: 40px;
+  --welcome-composer-h: 58px;
   --drawer-width: 420px;
   --radius: 16px;
   --radius-sm: 12px;
@@ -138,9 +145,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tone-confirm { position: absolute; top: calc(100% - 4px); right: 13px; z-index: 70; width: 208px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10); }
 .tone-confirm p { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
 .tone-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.tone-cancel { min-height: 32px; padding: 0 12px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer; font-size: 12px; }
-.tone-cancel:hover { color: var(--ink); background: var(--bubble); }
-.tone-ok { min-height: 32px; padding: 0 14px; border-radius: 10px; font-size: 12px; }
+/* 兩顆按鈕同形狀同尺寸（都是藥丸），只有填色不同：切換是黑底、取消是白底黑框。
+   選擇器要比 .command-button 更明確，否則會被它的圓角與高度蓋過去。 */
+.tone-confirm-actions .tone-cancel,
+.tone-confirm-actions .tone-ok { min-height: 34px; padding: 0 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; }
+.tone-confirm-actions .tone-cancel { color: var(--ink); background: var(--surface); border: 1px solid var(--ink); cursor: pointer; }
+.tone-confirm-actions .tone-cancel:hover { background: var(--bubble); }
 .topbar-title { min-width: 0; display: flex; align-items: center; gap: 2px; margin-right: auto; }
 .rename-button { width: 30px; height: 30px; color: var(--muted); flex: 0 0 30px; }
 .rename-button svg { width: 15px; height: 15px; }
@@ -167,9 +177,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 .messages::-webkit-scrollbar { width: 7px; }
 .messages::-webkit-scrollbar-thumb { background: #d7d7d7; border: 2px solid transparent; border-radius: 4px; background-clip: padding-box; }
-.welcome { width: min(760px, 100%); margin: 0 auto; padding-top: min(28vh, 310px); }
-.welcome h2 { margin: 0; color: var(--ink); font-size: 28px; line-height: 1.35; text-align: center; font-weight: 500; }
-.prompt-list { width: min(680px, 100%); display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 130px auto 0; }
+.welcome { width: min(760px, 100%); margin: 0 auto; padding-top: var(--welcome-top); }
+.welcome h2 { height: var(--welcome-title-h); margin: 0; color: var(--ink); font-size: 28px; line-height: var(--welcome-title-h); text-align: center; font-weight: 500; }
+/* 上緣留出「間距＋輸入框＋間距」，輸入框正好浮在標題與建議題目中間。 */
+.prompt-list { width: min(680px, 100%); display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: calc(var(--welcome-gap) * 2 + var(--welcome-composer-h)) auto 0; }
 .prompt-suggestion { min-height: 42px; display: inline-flex; align-items: center; gap: 9px; padding: 8px 16px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); text-align: left; cursor: pointer; font-size: 13px; }
 .prompt-suggestion:hover { color: var(--ink); background: var(--bubble); }
 .prompt-suggestion svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--ink); fill: none; stroke-width: 1.8; }
@@ -221,7 +232,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @keyframes pulse { 0%, 100% { opacity: .3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
 
 .composer-shell { position: relative; z-index: 5; padding: 12px 24px 16px; background: rgba(255, 255, 255, 0.97); border-top: 1px solid transparent; }
-.is-empty .composer-shell { position: absolute; top: 42%; left: 0; right: 0; bottom: auto; padding: 0 40px; background: transparent; }
+.is-empty .composer-shell { position: absolute; top: calc(var(--topbar-h) + var(--welcome-top) + var(--welcome-title-h) + var(--welcome-gap)); left: 0; right: 0; bottom: auto; padding: 0 40px; background: transparent; }
 .composer { width: min(820px, 100%); min-height: 58px; display: flex; align-items: center; gap: 8px; margin: 0 auto; padding: 7px 8px 7px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 28px; }
 .is-empty .composer { width: min(640px, 100%); }
 /* 輸入列永遠不加陰影（含 focus），只用邊框變深提示 */
@@ -387,6 +398,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .sidebar.open { transform: translateX(0); }
   .sidebar-close, .menu-button, .sidebar.desktop-hidden + .chat-main .menu-button { display: inline-grid; }
   .sidebar-panel { display: none; }
+  /* 手機版 topbar 是 auto row，高度含安全區，所以變數要跟著算。 */
+  :root {
+    --topbar-h: max(58px, calc(max(8px, env(safe-area-inset-top)) + 42px));
+    --welcome-top: 20vh;
+    --welcome-title-h: 32px;
+    --welcome-gap: 34px;
+    --welcome-composer-h: 52px;
+  }
   .chat-main { height: 100svh; height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; }
   .topbar { min-height: 58px; padding: max(8px, env(safe-area-inset-top)) 13px 8px; }
   .topbar h1 { max-width: 52vw; font-size: 15px; }
@@ -395,15 +414,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .mode-switch { top: 8px; grid-template-columns: repeat(2, 84px); }
   .mode-option { height: 36px; font-size: 13px; }
   .messages { padding: 0 14px 26px; }
-  .welcome { padding-top: 22vh; }
   .welcome h2 { font-size: 23px; }
-  .prompt-list { margin-top: 150px; }
   .prompt-suggestion { font-size: 13px; }
   .message-row { margin-top: 22px; }
   .message-row.user .message-content { max-width: 86%; }
   .message-text { font-size: 16px; line-height: 1.75; }
   .composer-shell { padding: 9px 11px max(10px, env(safe-area-inset-bottom)); }
-  .is-empty .composer-shell { top: 35%; padding: 0 24px; }
+  .is-empty .composer-shell { padding: 0 24px; }
   .composer { min-height: 52px; padding: 5px 6px 5px 10px; }
   /* 手機版空白頁輸入框不要滿版 */
   .is-empty .composer { width: min(400px, 100%); }
