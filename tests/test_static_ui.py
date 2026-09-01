@@ -171,8 +171,10 @@ class StaticUiTests(unittest.TestCase):
         # 超過 3 則時把中間併起來，不可直接丟掉（丟掉會吃掉範例正文）。
         self.assertIn("SERVICE_MAX_BUBBLES = 4", script)
         # 超過上限時把中間併起來，不可直接丟掉（丟掉會吃掉範例正文）。
-        self.assertIn("lines.slice(SERVICE_MAX_BUBBLES - 2, -1).join", script)
-        self.assertNotIn("[lines[0], lines[1], lines[lines.length - 1]]", script)
+        self.assertIn("bubbles.slice(SERVICE_MAX_BUBBLES - 2, -1).join", script)
+        # 空一行才換一則：一則裡面可以有好幾行。
+        self.assertIn("split(/\\n[ \\t]*\\n+/)", script)
+
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
         self.assertIn("1500 + Math.random() * 1000", script)

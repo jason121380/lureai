@@ -585,27 +585,40 @@
   // - 引用編號只給系統核對，句尾不顯示 [1]——來源照樣列在泡泡下方。
   // - 標點一律拿掉，以空白分段，像平常打字（「～」保留）。
   // - 依語意斷句：模型的每一行就是一則訊息，不做字數硬拆（硬拆會把句子切壞）。
+  function cleanChatLine(line) {
+    return line
+      .trim()
+      .replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, "")
+      .replace(/\s*\[\d{1,2}\]/g, "")
+      .replace(/[，。、；：！？!?；「」『』（）()]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  // 一則訊息裡面可以有好幾行（像「我想要吃 / 海鮮 / 玉米 / 薯條」）：
+  // **空一行才代表換一則**，單純換行只是同一則裡的下一行。
   function serviceSentences(content) {
-    const lines = String(content || "")
-      .split("\n")
-      .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
-      .map((line) => line.replace(/\s*\[\d{1,2}\]/g, ""))
-      .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
-      .map((line) => line.replace(/\s+/g, " ").trim())
+    const bubbles = String(content || "")
+      .split(/\n[ \t]*\n+/)
+      .map((block) => block.split("\n").map(cleanChatLine).filter(Boolean).join("\n"))
       .filter(Boolean);
     // 每次最多 4 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
     // 丟中間會把「範例」「話術」的正文整段吃掉，只剩開頭跟結尾，答案就不到位了。
-    if (lines.length <= SERVICE_MAX_BUBBLES) return lines;
+    // 併起來時用換行接（不是空白），才不會變成一長條讀不動的句子。
+    if (bubbles.length <= SERVICE_MAX_BUBBLES) return bubbles;
     return [
-      ...lines.slice(0, SERVICE_MAX_BUBBLES - 2),
-      lines.slice(SERVICE_MAX_BUBBLES - 2, -1).join(" "),
-      lines[lines.length - 1],
+      ...bubbles.slice(0, SERVICE_MAX_BUBBLES - 2),
+      bubbles.slice(SERVICE_MAX_BUBBLES - 2, -1).join("\n"),
+      bubbles[bubbles.length - 1],
     ];
   }
 
   function renderServiceBubbles(content) {
     return serviceSentences(content)
-      .map((line) => `<p class="chat-line">${inlineMarkup(line, 0)}</p>`)
+      .map((bubble) => {
+        const html = bubble.split("\n").map((line) => inlineMarkup(line, 0)).join("<br>");
+        return `<p class="chat-line">${html}</p>`;
+      })
       .join("");
   }
 
