@@ -92,7 +92,7 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(all(item["score"] >= 0.72 for item in result["citations"]))
 
     def test_sensitive_question_escalates_without_citations(self):
-        result = self.service.chat("客人要求退費，我要賠多少？")
+        result = self.service.chat("客人說要提告，我有法律責任嗎？")
 
         self.assertEqual(result["status"], "escalated")
         self.assertEqual(result["reason"], "legal_refund_or_compensation")

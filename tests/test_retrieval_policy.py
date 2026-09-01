@@ -80,13 +80,17 @@ class RetrievalPolicyTests(unittest.TestCase):
             "設計師薪資抽成怎麼算？",
             "客人說頭皮有點紅，可以染嗎？",
             "年假有幾天？",
+            # 客訴／退費是每天都會遇到的現場題，擋掉等於最需要陪伴時反而不說話。
+            "客人要求退費怎麼辦？",
+            "染壞了客人要退費",
+            "客人說要留負評",
         ):
             self.assertEqual(self.policy.precheck(question).action, "continue", question)
 
     def test_requests_only_a_person_can_settle_still_escalate(self):
         for question, reason in (
-            ("客人要求退費怎麼辦？", "legal_refund_or_compensation"),
             ("客人說要提告", "legal_refund_or_compensation"),
+            ("客人找律師來談求償", "legal_refund_or_compensation"),
             ("幫我預約明天下午", "live_schedule"),
             ("客人的信用卡卡號可以留嗎？", "personal_or_payment"),
             ("這個頭皮狀況要看醫生嗎？", "health_or_medical"),
