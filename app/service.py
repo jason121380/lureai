@@ -4,7 +4,7 @@ from typing import Iterator
 from uuid import uuid4
 
 from .answer import AnswerEngine, log_model_failure, normalize_citation_marks, normalize_tone
-from .followups import FollowupPlanner
+from .followups import FollowupPlanner, welcome_questions
 from .policy import PolicyEngine
 from .retrieval import Retriever
 from .storage import KnowledgeStore
@@ -89,6 +89,11 @@ class CustomerService:
 
     def _route(self, question: str, recent_history: list[dict]) -> tuple[list, list, object | None]:
         """Return (all_hits, grounded_hits, escalation_decision_or_None)."""
+        # 邊界題（離題、不當請求、問身分、情緒挑釁）不進檢索：硬走 RAG 只會撈到
+        # 不相干知識再崩潰。直接給固定回應。
+        boundary = self.policy.boundary_reply(question)
+        if boundary is not None:
+            return [], [], boundary
         precheck = self.policy.precheck(question)
         if precheck.action == "escalate":
             return [], [], precheck
@@ -120,6 +125,13 @@ class CustomerService:
         return hits, grounded_hits, None
 
     @staticmethod
+    def _citations(grounded_hits: list, mode: str, model_status: str) -> list[dict]:
+        """生成失敗降級時不掛來源：那則回答並沒有用到這些知識。"""
+        if mode != "llm" and model_status not in ("not_configured", "budget_exhausted"):
+            return []
+        return [hit.citation() for hit in grounded_hits]
+
+    @staticmethod
     def _asked_questions(history: list[dict] | None, question: str) -> set[str]:
         """Everything already asked in this conversation, for follow-up dedup."""
         asked = {
@@ -142,16 +154,21 @@ class CustomerService:
         decision,
         hits: list | None = None,
     ) -> dict:
-        followups = self._nearest_questions(hits or [])
+        # 邊界題（離題／不當請求／問身分／被罵）是正常回答，不是轉人工。
+        direct = getattr(decision, "action", "") == "direct"
+        # 答不出來時的建議題目要是安全的：拿檢索不到的那批 hits 去衍生，
+        # 會冒出「毛髮構造」這種完全不相干的題目。改用驗證過的開場題庫。
+        followups = welcome_questions(limit=3)
         return {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
-            "status": "escalated",
+            "status": "answered" if direct else "escalated",
             "reason": decision.reason,
             "answer": decision.message,
             "citations": [],
             "followups": followups,
-            "answer_mode": "policy",
+            "answer_mode": "boundary" if direct else "policy",
+            "model_status": "boundary" if direct else "policy",
         }
 
     def chat(
@@ -194,7 +211,7 @@ class CustomerService:
             "status": "answered",
             "reason": "grounded",
             "answer": answer,
-            "citations": [hit.citation() for hit in grounded_hits],
+            "citations": self._citations(grounded_hits, mode, model_status),
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
@@ -216,6 +233,9 @@ class CustomerService:
         """Yield {"type":"delta"} events followed by one authoritative {"type":"result"}."""
         question = self._validated_question(message)
         tone = normalize_tone(tone)
+        # 先吐一個開場事件：伺服器才能立刻送出 header 與第一批位元組。
+        # 檢索與模型生成可能要好幾秒，中間完全沒有位元組會被閘道當成無回應（503）。
+        yield {"type": "start"}
         recent_history = self._safe_history(history)
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
@@ -283,7 +303,7 @@ class CustomerService:
             "status": "answered",
             "reason": "grounded",
             "answer": answer,
-            "citations": [hit.citation() for hit in grounded_hits],
+            "citations": self._citations(grounded_hits, mode, model_status),
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,

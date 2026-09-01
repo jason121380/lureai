@@ -574,7 +574,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         allow_model=within_budget,
                         tone=payload.get("tone"),
                     )
-                    # Validation errors must surface as JSON before the stream starts.
+                    # 驗證錯誤要在串流開始前用 JSON 回覆；service 會先 yield 一個
+                    # start 事件，所以這裡幾乎立刻返回，header 不會被模型生成卡住。
                     try:
                         first_event = next(events)
                     except StopIteration:
