@@ -48,30 +48,38 @@
         <input id="conversation-search-input" type="search" placeholder="搜尋對話" aria-label="搜尋最近對話">
       </label>
       <nav class="primary-nav" aria-label="主要功能">
-        <button class="primary-nav-item active" id="new-chat" type="button"><i data-lucide="square-pen"></i><span>新對話</span></button>
+        <button class="primary-nav-item" id="new-chat" type="button"><i data-lucide="square-pen"></i><span>新對話</span></button>
       </nav>
       <div class="sidebar-label">最近</div>
       <nav id="conversation-list" class="conversation-list" aria-label="最近對話"></nav>
       <div class="sidebar-footer">
-        <div id="account-menu" class="account-menu" hidden>
-          <div class="account-tabs" role="tablist" aria-label="帳號選單分頁">
-            <button class="account-tab active" type="button" data-tab="settings">設定</button>
-            <button class="account-tab" type="button" data-tab="usage">用量</button>
-          </div>
-          <div id="account-panel-settings" class="account-panel">
-            <div class="menu-label">語氣設定</div>
-            <div class="tone-toggle" id="tone-toggle" role="group" aria-label="語氣設定">
-              <button type="button" class="tone-option active" data-tone="expert" aria-pressed="true" title="專家模式：完整條列、講深講透">專家</button>
-              <button type="button" class="tone-option" data-tone="service" aria-pressed="false" title="客服模式：像真人聊天，一句一句回">客服</button>
+        <div id="account-menu" class="account-modal" hidden role="dialog" aria-modal="true" aria-label="帳號選單">
+          <button class="account-backdrop" id="account-backdrop" type="button" aria-label="關閉帳號選單"></button>
+          <div class="account-card">
+            <nav class="account-side" aria-label="帳號選單分頁">
+              <button class="account-tab active" type="button" data-tab="settings"><i data-lucide="sliders-horizontal"></i><span>設定</span></button>
+              <button class="account-tab" type="button" data-tab="usage"><i data-lucide="chart-pie"></i><span>用量</span></button>
+            </nav>
+            <div class="account-content">
+              <button id="account-close" class="icon-button account-close" type="button" title="關閉" aria-label="關閉帳號選單"><i data-lucide="x"></i></button>
+              <div id="account-panel-settings" class="account-panel">
+                <h3 class="account-heading">語氣設定</h3>
+                <div class="tone-toggle" id="tone-toggle" role="group" aria-label="語氣設定">
+                  <button type="button" class="tone-option active" data-tone="expert" aria-pressed="true" title="專家模式：完整條列、講深講透">專家</button>
+                  <button type="button" class="tone-option" data-tone="service" aria-pressed="false" title="客服模式：像真人聊天，一句一句回">客服</button>
+                </div>
+                <p class="account-hint">專家：完整條列、講深講透<br>客服：像真人聊天、一句一句回</p>
+              </div>
+              <div id="account-panel-usage" class="account-panel" hidden>
+                <h3 class="account-heading">本月用量</h3>
+                <section class="usage-panel" aria-labelledby="usage-title">
+                  <div class="usage-heading"><span id="usage-title">本月用量</span><strong id="usage-percent">0%</strong></div>
+                  <div class="usage-track" role="progressbar" aria-label="本月預算用量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="usage-progress"></span></div>
+                  <strong id="usage-spend" class="usage-spend">NT$0 / NT$0</strong>
+                  <span id="usage-tokens" class="usage-tokens">0 tokens</span>
+                </section>
+              </div>
             </div>
-          </div>
-          <div id="account-panel-usage" class="account-panel" hidden>
-            <section class="usage-panel" aria-labelledby="usage-title">
-              <div class="usage-heading"><span id="usage-title">本月用量</span><strong id="usage-percent">0%</strong></div>
-              <div class="usage-track" role="progressbar" aria-label="本月預算用量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="usage-progress"></span></div>
-              <strong id="usage-spend" class="usage-spend">NT$0 / NT$0</strong>
-              <span id="usage-tokens" class="usage-tokens">0 tokens</span>
-            </section>
           </div>
         </div>
         <div class="user-account" id="user-account" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" title="帳號選單">
