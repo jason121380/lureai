@@ -125,6 +125,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .topbar { position: relative; min-height: 66px; display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; }
 .topbar h1 { max-width: min(32vw, 420px); margin: 0; overflow: hidden; color: var(--ink); font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; opacity: 1; }
 .is-empty .topbar-title { opacity: 0; pointer-events: none; }
+/* 右上角常駐的回覆模式標示（點擊開語氣設定） */
+.tone-indicator { margin-left: auto; min-height: 28px; padding: 4px 13px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tone-indicator:hover { color: var(--ink); background: var(--hover); }
 .topbar-title { min-width: 0; display: flex; align-items: center; gap: 2px; margin-right: auto; }
 .rename-button { width: 30px; height: 30px; color: var(--muted); flex: 0 0 30px; }
 .rename-button svg { width: 15px; height: 15px; }
@@ -204,7 +207,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .is-empty .composer-shell { position: absolute; top: 42%; left: 0; right: 0; bottom: auto; padding: 0 40px; background: transparent; }
 .composer { width: min(820px, 100%); min-height: 58px; display: flex; align-items: center; gap: 8px; margin: 0 auto; padding: 7px 8px 7px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 28px; }
 .is-empty .composer { width: min(640px, 100%); }
-.composer:focus-within { border-color: #c8c8c8; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1); }
+/* 輸入列永遠不加陰影（含 focus），只用邊框變深提示 */
+.composer:focus-within { border-color: #c8c8c8; }
 .composer textarea { min-width: 0; max-height: 160px; flex: 1; resize: none; padding: 9px 4px; color: var(--ink); background: transparent; border: 0; outline: 0; line-height: 1.5; }
 .composer textarea::placeholder { color: var(--muted); }
 .composer-tool, .composer-action { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
@@ -218,8 +222,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .send-action:hover { background: #3d3d3d; }
 .send-action:disabled { color: #a5a5a5; background: #e6e6e6; cursor: default; }
 .stop-action { color: #fff; background: var(--ink); }
-.composer-meta { width: min(820px, 100%); display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 7px auto 0; color: var(--muted); font-size: 10px; }
-.is-empty .composer-meta { display: none; }
 
 /* 語氣設定：專家（條列講深）／客服（真人聊天一句一句回） */
 .tone-toggle { display: inline-flex; gap: 2px; padding: 2px; background: var(--bubble); border-radius: var(--radius-pill); }
@@ -338,6 +340,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .table-status { display: inline-flex; padding: 3px 8px; color: var(--ok); background: var(--ok-soft); border-radius: var(--radius-pill); font-size: 10px; font-weight: 700; }
 .table-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .empty-state { padding: 24px; color: var(--muted); text-align: center; font-size: 12px; }
+.knowledge-count { margin: 2px 2px 0; color: var(--muted); font-size: 12px; }
 .toast { position: fixed; right: 22px; bottom: 22px; z-index: 80; max-width: min(360px, calc(100vw - 44px)); padding: 11px 16px; color: #fff; background: var(--ink); border-radius: var(--radius-sm); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity 140ms ease, transform 140ms ease; font-size: 12px; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--warning); }
@@ -383,8 +386,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .account-content { padding: 16px 14px; }
   .composer-tool, .composer-action { width: 38px; height: 38px; flex-basis: 38px; }
   .retrieval-mode { display: none; }
-  .composer-meta #knowledge-scope { display: none; }
-  .composer-meta { justify-content: flex-end; }
   .admin-shell { display: block; }
   .admin-nav { position: sticky; top: 0; z-index: 20; width: 100%; height: auto; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
   .admin-brand, .admin-nav-label { display: none; }

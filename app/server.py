@@ -446,7 +446,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         if chunk["chunk_id"] in found
                     ]
                 else:
-                    items = context.store.list_chunks(limit=200, origin=origin, domain=domain)
+                    # 沒搜尋時列出全部：知識庫超過 200 塊後，硬上限會讓清單「滑到底就沒了」。
+                    items = context.store.list_chunks(limit=100000, origin=origin, domain=domain)
                 # Send only what the list renders: the full rows carry
                 # metadata_json and search_text, which made this a 1.5 MB reply.
                 self._json(HTTPStatus.OK, {"items": [
@@ -461,7 +462,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "text": str(item["text"])[:400],
                         "length": len(str(item["text"])),
                     }
-                    for item in items[:200]
+                    for item in items
                 ]})
                 return
             if parsed.path.startswith("/api/"):

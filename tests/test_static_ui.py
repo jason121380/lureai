@@ -139,8 +139,9 @@ class StaticUiTests(unittest.TestCase):
     def test_service_mode_talks_like_a_real_person(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 每則 10 字內、標點改空白、逐句 1~2 秒發送。
-        self.assertIn("SERVICE_BUBBLE_MAX = 10", script)
+        # 依語意斷句（不做字數硬拆）、標點改空白、逐句 1~2 秒發送。
+        self.assertNotIn("SERVICE_BUBBLE_MAX", script)
+        self.assertIn("不做字數硬拆", script)
         self.assertIn("function serviceSentences", script)
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
@@ -165,6 +166,25 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".account-modal", css)
         card_rule = css.split(".account-card {", 1)[1].split("}", 1)[0]
         self.assertIn("grid-template-columns", card_rule)
+
+    def test_topbar_shows_the_active_reply_mode(self):
+        html = INDEX.read_text(encoding="utf-8")
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 右上角常駐顯示目前的回覆模式，點擊開語氣設定。
+        self.assertIn('id="tone-indicator"', html)
+        self.assertIn("客服模式", script)
+        self.assertIn("專家模式", script)
+        self.assertIn(".tone-indicator", css)
+
+    def test_composer_meta_row_is_removed(self):
+        html = INDEX.read_text(encoding="utf-8")
+
+        # 使用者要求移除輸入框下方的知識範圍說明與字數統計。
+        self.assertNotIn("composer-meta", html)
+        self.assertNotIn('id="char-count"', html)
+        self.assertNotIn('id="knowledge-scope"', html)
 
     def test_answers_offer_thumbs_feedback(self):
         script = CHAT_JS.read_text(encoding="utf-8")
@@ -201,6 +221,9 @@ class StaticUiTests(unittest.TestCase):
 
         composer_rule = css.split(".composer {", 1)[1].split("}", 1)[0]
         self.assertNotIn("box-shadow", composer_rule)
+        # focus（按下輸入框）也不加陰影。
+        focus_rule = css.split(".composer:focus-within {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("box-shadow", focus_rule)
         self.assertIn(".is-empty .composer { width: min(640px, 100%); }", css)
 
     def test_new_chat_reuses_the_existing_empty_conversation(self):
@@ -217,6 +240,12 @@ class StaticUiTests(unittest.TestCase):
             self.assertIn('content="#ffffff" media="(prefers-color-scheme: light)"', html)
             self.assertIn('name="color-scheme" content="light"', html)
         self.assertIn("color-scheme: light;", CSS.read_text(encoding="utf-8"))
+
+    def test_admin_knowledge_list_shows_total_count(self):
+        script = ADMIN_JS.read_text(encoding="utf-8")
+
+        # 知識庫清單顯示「共 N 則」，搭配後端列出全部（不再吃 200 筆上限）。
+        self.assertIn("knowledge-count", script)
 
     def test_admin_replaces_native_selects_with_in_page_dropdowns(self):
         script = ADMIN_JS.read_text(encoding="utf-8")
