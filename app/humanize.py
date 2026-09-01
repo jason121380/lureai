@@ -17,7 +17,7 @@ DELAY_RANGE = (8, 25)
 MESSAGE_GAP_RANGE = (2, 4)
 
 # LINE 一次最多送幾則（和 line 語氣裡寫的規則一致）。
-MAX_PARTS = 4
+MAX_PARTS = 3
 
 CITATION_PATTERN = re.compile(r"\s*\[\d{1,2}\]")
 PUNCTUATION_PATTERN = re.compile(r"[，。、；：！？,.;:!?]+")

@@ -54,9 +54,9 @@ class HumanizeTests(unittest.TestCase):
 
         self.assertEqual(parts, ["我想要吃\n海鮮\n玉米\n薯條"])
 
-    def test_postprocess_caps_at_four_messages(self):
-        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 4)
-        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四\n\n五\n\n六")), 4)
+    def test_postprocess_caps_at_three_messages(self):
+        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 3)
+        self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四\n\n五\n\n六")), 3)
 
     def test_postprocess_keeps_every_line_when_capping(self):
         """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問句不能消失。"""

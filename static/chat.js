@@ -7,7 +7,7 @@
   const WELCOME_PROMPT_COUNT = 5;
   // 客服模式一次最多幾顆泡泡；超過的中間會被併起來（併起來會變長訊息，
   // 所以長度控制主要靠 tuning 的 12 字規則，這裡只是安全網）。
-  const SERVICE_MAX_BUBBLES = 4;
+  const SERVICE_MAX_BUBBLES = 3;
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
@@ -602,7 +602,7 @@
       .split(/\n[ \t]*\n+/)
       .map((block) => block.split("\n").map(cleanChatLine).filter(Boolean).join("\n"))
       .filter(Boolean);
-    // 每次最多 4 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
+    // 每次最多 3 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
     // 丟中間會把「範例」「話術」的正文整段吃掉，只剩開頭跟結尾，答案就不到位了。
     // 併起來時用換行接（不是空白），才不會變成一長條讀不動的句子。
     if (bubbles.length <= SERVICE_MAX_BUBBLES) return bubbles;
