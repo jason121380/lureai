@@ -480,13 +480,15 @@
   // - 標點一律拿掉，以空白分段，像平常打字（「～」保留）。
   // - 依語意斷句：模型的每一行就是一則訊息，不做字數硬拆（硬拆會把句子切壞）。
   function serviceSentences(content) {
-    return String(content || "")
+    const lines = String(content || "")
       .split("\n")
       .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
       .map((line) => line.replace(/\s*\[\d{1,2}\]/g, ""))
       .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);
+    // 每次最多 3 則（硬上限）：模型超寫時保留前兩句＋收尾的問題那句。
+    return lines.length > 3 ? [lines[0], lines[1], lines[lines.length - 1]] : lines;
   }
 
   function renderServiceBubbles(content) {
@@ -917,9 +919,24 @@
   });
   el("account-backdrop").addEventListener("click", () => toggleAccountMenu(false));
   el("account-close").addEventListener("click", () => toggleAccountMenu(false));
-  el("tone-indicator").addEventListener("click", () => {
-    document.querySelector('.account-tab[data-tab="settings"]')?.click();
-    toggleAccountMenu(true);
+  // 右上角膠囊：跳出小彈窗確認「是否切換為◯◯模式」，確認才切換。
+  const toneLabel = (tone) => (tone === "service" ? "客服模式" : "專家模式");
+  const otherTone = () => (state.tone === "service" ? "expert" : "service");
+  el("tone-indicator").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const box = el("tone-confirm");
+    if (!box.hidden) { box.hidden = true; return; }
+    el("tone-confirm-text").textContent = `是否切換為${toneLabel(otherTone())}？`;
+    box.hidden = false;
+  });
+  el("tone-confirm-ok").addEventListener("click", () => {
+    setTone(otherTone());
+    el("tone-confirm").hidden = true;
+  });
+  el("tone-confirm-cancel").addEventListener("click", () => { el("tone-confirm").hidden = true; });
+  document.addEventListener("click", (event) => {
+    if (el("tone-confirm").hidden) return;
+    if (!event.target.closest("#tone-confirm, #tone-indicator")) el("tone-confirm").hidden = true;
   });
   el("new-chat").addEventListener("click", newConversation);
   el("sidebar-search").addEventListener("click", () => {
@@ -942,7 +959,7 @@
     if (event.key === "Escape") { event.stopPropagation(); finishRename(false); }
   });
   el("conversation-title-input").addEventListener("blur", () => finishRename(true));
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); toggleAccountMenu(false); } });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); toggleAccountMenu(false); el("tone-confirm").hidden = true; } });
 
   async function bootstrap() {
     // 不論健康檢查或連線發生什麼事，10 秒內一定要有畫面可以操作。
