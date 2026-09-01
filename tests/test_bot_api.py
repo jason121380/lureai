@@ -237,6 +237,17 @@ class BotApiTests(unittest.TestCase):
         self.assertTrue(body["messages"])
         self.assertNotIn("不該用到的模型回覆", " ".join(body["messages"]))
 
+    def test_smalltalk_reaches_line(self):
+        # 打招呼、道謝、應聲不查知識庫，但一定要回——群組裡已讀不回最傷。
+        status, body = self.request("POST", "/api/bot/reply", {
+            "message": "hello", "conversation_id": "C123",
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "answered")
+        self.assertEqual(body["answer_mode"], "smalltalk")
+        self.assertTrue(body["messages"])
+
     def test_extractive_fallback_never_reaches_line(self):
         self.context.service.answerer = StubAnswerer("知識庫原文傾印", mode="extractive")
 
