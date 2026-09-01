@@ -48,3 +48,44 @@ class RoutingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfIntroTests(unittest.TestCase):
+    """自我介紹掉到 fallback 是分流問題，改指令沒用（使用者實測回報）。"""
+
+    def setUp(self):
+        self.policy = PolicyEngine()
+
+    def route(self, message: str) -> str:
+        decision = self.policy.smalltalk(message) or self.policy.emotion_only(message)
+        return decision.reason if decision else "rag"
+
+    def test_self_introduction_never_falls_to_the_fallback(self):
+        for message in ("我叫小婷", "我叫小婷 在板橋做三年", "我是設計師 做五年了",
+                        "我在板橋一間店上班", "入行 3 年了"):
+            with self.subTest(message=message):
+                self.assertEqual(self.route(message), "self_intro")
+
+    def test_an_introduction_that_also_asks_something_still_uses_knowledge(self):
+        for message in ("我是不是該調價", "我在板橋 附近的客人要怎麼找"):
+            with self.subTest(message=message):
+                self.assertEqual(self.route(message), "rag")
+
+
+class SpeakerNameTests(unittest.TestCase):
+    def test_remembers_the_name_from_earlier_turns(self):
+        from app.policy import speaker_name
+
+        self.assertEqual(speaker_name(["嗨", "我叫小婷 在板橋做三年", "客人說太貴"]), "小婷")
+
+    def test_no_name_means_no_note(self):
+        from app.answer import AnswerEngine
+        from app.policy import speaker_name
+
+        self.assertEqual(speaker_name(["客人說太貴"]), "")
+        self.assertEqual(AnswerEngine.speaker_note(""), "")
+
+    def test_the_name_reaches_the_model_instructions(self):
+        from app.answer import AnswerEngine
+
+        self.assertIn("小婷", AnswerEngine.speaker_note("小婷"))
