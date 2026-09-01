@@ -160,7 +160,10 @@ class BotApiTests(unittest.TestCase):
         status, body = self.request("POST", "/api/bot/reply", {
             "message": "燙髮後怎麼整理？",
             "conversation_id": "C123",
-            "context": {"group_name": "台中一店", "speaker": "小美", "stage": "開權限"},
+            "context": {
+                "group_name": "台中一店", "speaker": "小美", "stage": "開權限",
+                "recent": ["設計師 小美: 版面弄好了", "輔導 阿明: 很棒"],
+            },
             "style": {"delay": "none"},
         })
 
@@ -174,6 +177,7 @@ class BotApiTests(unittest.TestCase):
         self.assertFalse(stub.include_followups)
         self.assertIn("台中一店", stub.extra_instruction)
         self.assertIn("小美", stub.extra_instruction)
+        self.assertIn("版面弄好了", stub.extra_instruction)
 
     def test_reply_stays_silent_on_sensitive_topics(self):
         self.context.service.answerer = StubAnswerer("不該送出的內容 [1]")

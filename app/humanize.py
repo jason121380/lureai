@@ -91,6 +91,13 @@ def _context_lines(context) -> list[str]:
         lines.append(f"這個群組目前的輔導階段：{stage}。")
     if summary:
         lines.append(f"這個群組的近況摘要：{summary}")
+    recent = context.get("recent")
+    if isinstance(recent, list) and recent:
+        transcript = [
+            " ".join(str(item).split())[:200] for item in recent[-20:] if str(item).strip()
+        ]
+        if transcript:
+            lines.append("最近的群組對話（由舊到新，僅供理解脈絡）：\n" + "\n".join(transcript))
     return lines
 
 
