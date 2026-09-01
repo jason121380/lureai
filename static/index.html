@@ -101,7 +101,14 @@
           <input id="conversation-title-input" class="title-input" maxlength="40" aria-label="編輯對話名稱" hidden>
           <button id="rename-conversation" class="icon-button rename-button" type="button" title="編輯名稱" aria-label="編輯對話名稱"><i data-lucide="pencil"></i></button>
         </div>
-        <button id="tone-indicator" class="tone-indicator" type="button" title="目前的回覆模式，點擊開啟語氣設定">專家模式</button>
+        <button id="tone-indicator" class="tone-indicator" type="button" title="目前的回覆模式，點擊快速切換">專家模式</button>
+        <div id="tone-confirm" class="tone-confirm" role="dialog" aria-label="切換回覆模式" hidden>
+          <p id="tone-confirm-text">是否切換為客服模式？</p>
+          <div class="tone-confirm-actions">
+            <button id="tone-confirm-cancel" class="tone-cancel" type="button">取消</button>
+            <button id="tone-confirm-ok" class="command-button tone-ok" type="button">切換</button>
+          </div>
+        </div>
       </header>
 
       <section id="messages" class="messages" aria-live="polite"></section>

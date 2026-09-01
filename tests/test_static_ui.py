@@ -172,11 +172,14 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
         css = CSS.read_text(encoding="utf-8")
 
-        # 右上角常駐顯示目前的回覆模式，點擊開語氣設定。
+        # 右上角常駐顯示目前的回覆模式，點擊跳出切換確認彈窗。
         self.assertIn('id="tone-indicator"', html)
+        self.assertIn('id="tone-confirm"', html)
+        self.assertIn("是否切換為", script)
         self.assertIn("客服模式", script)
         self.assertIn("專家模式", script)
         self.assertIn(".tone-indicator", css)
+        self.assertIn(".tone-confirm", css)
 
     def test_composer_meta_row_is_removed(self):
         html = INDEX.read_text(encoding="utf-8")
