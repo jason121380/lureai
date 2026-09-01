@@ -229,6 +229,15 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("box-shadow", focus_rule)
         self.assertIn(".is-empty .composer { width: min(640px, 100%); }", css)
 
+    def test_conversation_list_shows_date_and_time(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 對話清單每筆顯示最後活動的日期時間，有新訊息就排到最上面。
+        self.assertIn("function formatConversationTime", script)
+        self.assertIn("conversation.updatedAt = new Date().toISOString()", script)
+        self.assertIn(".conversation-time", css)
+
     def test_new_chat_reuses_the_existing_empty_conversation(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 

@@ -154,6 +154,14 @@
     render();
   }
 
+  // 對話清單顯示最後活動的日期時間（沒有就用建立時間）。
+  function formatConversationTime(conversation) {
+    const date = new Date(conversation.updatedAt || conversation.createdAt || Date.now());
+    if (Number.isNaN(date.getTime())) return "";
+    const hhmm = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    return `${date.getMonth() + 1}/${date.getDate()} ${hhmm}`;
+  }
+
   function renderSidebar() {
     const list = el("conversation-list");
     const query = el("conversation-search-input").value.trim().toLowerCase();
@@ -164,7 +172,14 @@
       item.setAttribute("role", "button");
       item.tabIndex = 0;
       const label = document.createElement("span");
-      label.textContent = conversation.title;
+      label.className = "conversation-copy";
+      const name = document.createElement("span");
+      name.className = "conversation-name";
+      name.textContent = conversation.title;
+      const time = document.createElement("span");
+      time.className = "conversation-time";
+      time.textContent = formatConversationTime(conversation);
+      label.append(name, time);
       const remove = document.createElement("button");
       remove.className = "conversation-delete";
       remove.type = "button";
@@ -548,6 +563,9 @@
     if (!value || state.controller) return;
     const conversation = activeConversation();
     conversation.messages.push({ role: "user", content: value });
+    conversation.updatedAt = new Date().toISOString();
+    // 有新訊息的對話排到最上面。
+    state.conversations = [conversation, ...state.conversations.filter((item) => item.id !== conversation.id)];
     if (conversation.messages.filter((item) => item.role === "user").length === 1) {
       conversation.title = value.slice(0, 24) || "新對話";
     }
