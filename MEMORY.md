@@ -80,7 +80,7 @@
 ## 技術決策
 
 - 零第三方依賴維持不變（stdlib + SQLite FTS5），唯一例外：`psycopg`（僅 Dockerfile 安裝、只在設 Postgres 連線時 import）。
-- **2026-09-01 持久化改 Postgres 快照（使用者明確不要 Volume）**：SQLite 仍是工作資料庫（FTS5 檢索），視為可拋棄；`app/replica.py` 把 users／sessions／audits／feedback／後台自訂知識壓成 gzip JSON 單列快照存 Postgres（預設每 120 秒、內容沒變不上傳、關機前補一次），開機時還原再重建索引。Zeabur 綁 PostgreSQL 服務即自動啟用（吃 `DATABASE_URL`／`POSTGRES_*`）；沒設定時完全 no-op、維持零依賴。取代原本「掛 Volume + APP_DB_PATH」方案。
+- **2026-09-01 持久化改 Postgres 快照（使用者明確不要 Volume）**：SQLite 仍是工作資料庫（FTS5 檢索），視為可拋棄；`app/replica.py` 把 users／sessions／audits／feedback／後台自訂知識壓成 gzip JSON 單列快照存 Postgres（預設每 120 秒、內容沒變不上傳、關機前補一次），開機時還原再重建索引。Zeabur 綁 PostgreSQL 服務即自動啟用（吃 `DATABASE_URL`／`POSTGRES_*`）；沒設定時完全 no-op、維持零依賴。取代原本「掛 Volume + APP_DB_PATH」方案。後台「系統健康」新增「Postgres 持久化」一項（會真的連線寫入一次快照）：未設定＝警告並提示重新部署會歸零、設定了但缺 psycopg 或連不上＝錯誤並顯示原因、正常＝顯示備份間隔與最後備份時間，不用翻 log。
 - 月預算（`MONTHLY_BUDGET_TWD`）為硬限制：超標自動停用模型、降級抽取式（`model_status: budget_exhausted`）。
 - 聊天限流 `CHAT_RATE_LIMIT_PER_MINUTE`（預設 20/分）。
 - LLM timeout `LLM_TIMEOUT_SECONDS`（預設 60；曾因 20 秒太短導致推理模型全數降級「模型暫時無法完成生成」）。

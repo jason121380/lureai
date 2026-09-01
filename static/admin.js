@@ -211,6 +211,8 @@
     error_type: "錯誤類型",
     users: "使用者", active_users: "啟用帳號", sessions: "Sessions",
     password_storage: "密碼儲存", session_storage: "Session 儲存",
+    storage: "儲存方式", driver: "驅動套件", interval_seconds: "備份間隔（秒）",
+    restored_on_boot: "開機已還原", last_backup_at: "最後備份", error: "錯誤",
   };
 
   function healthDetail(value) {

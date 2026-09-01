@@ -117,6 +117,46 @@ class ReplicaTests(unittest.TestCase):
         self.assertFalse(replica.restore(target))
         target.close()
 
+    def test_health_check_reports_postgres_state(self):
+        from types import SimpleNamespace
+
+        from app.health import _persistence_check
+
+        store = make_store(self.root, "health.db")
+        try:
+            unset = SimpleNamespace(store=store, replica=None, restored_from_replica=False)
+            status, message, details = _persistence_check(unset)
+            self.assertEqual(status, "warning")
+            self.assertEqual(details["storage"], "sqlite-only")
+            self.assertIn("重新部署", message)
+
+            connected = SimpleNamespace(
+                store=store,
+                replica=PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999),
+                restored_from_replica=True,
+            )
+            status, _message, details = _persistence_check(connected)
+            self.assertEqual(status, "ok")
+            self.assertEqual(details["storage"], "postgres")
+            self.assertTrue(details["restored_on_boot"])
+            # 檢查時真的寫了一次，最後備份時間要有值。
+            self.assertTrue(details["last_backup_at"])
+
+            class BrokenDriver:
+                def connect(self, _dsn, autocommit=True):
+                    raise OSError("connection refused")
+
+            broken = SimpleNamespace(
+                store=store,
+                replica=PostgresReplica("postgresql://fake", driver=BrokenDriver(), interval=999),
+                restored_from_replica=False,
+            )
+            status, _message, details = _persistence_check(broken)
+            self.assertEqual(status, "error")
+            self.assertIn("OSError", details["error"])
+        finally:
+            store.close()
+
     def test_disabled_without_connection_string(self):
         replica = PostgresReplica("", driver=None)
         self.assertFalse(replica.configured)

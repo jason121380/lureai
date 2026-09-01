@@ -134,6 +134,9 @@ class AppContext:
     pipeline_stats: dict | None = None
     max_request_bytes: int = 65536
     started_at: float = field(default_factory=time.monotonic)
+    # Postgres 持久化（run.py 接上；沒設定時維持 None，健康檢查會顯示未設定）。
+    replica: object | None = None
+    restored_from_replica: bool = False
 
     @classmethod
     def create(
