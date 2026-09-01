@@ -246,6 +246,8 @@ class StaticUiTests(unittest.TestCase):
 
         # 知識庫清單顯示「共 N 則」，搭配後端列出全部（不再吃 200 筆上限）。
         self.assertIn("knowledge-count", script)
+        # 內文照原始結構條列呈現，不壓成一整段。
+        self.assertIn("function knowledgeExcerpt", script)
 
     def test_admin_replaces_native_selects_with_in_page_dropdowns(self):
         script = ADMIN_JS.read_text(encoding="utf-8")

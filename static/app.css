@@ -45,7 +45,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar { min-width: 0; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); z-index: 30; transition: margin-left 180ms ease; }
 .sidebar.desktop-hidden { margin-left: calc(var(--sidebar-width) * -1); }
 .brand-row { min-height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 7px; }
-.brand-logo { display: block; width: 94px; height: 28px; object-fit: contain; object-position: left center; }
+.brand-logo { display: block; width: 74px; height: 22px; object-fit: contain; object-position: left center; }
 .brand-row .brand-logo { margin-right: auto; }
 .sidebar-close { display: none; }
 .sidebar-search, .sidebar-panel { flex: 0 0 34px; }
@@ -112,7 +112,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .login-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--canvas); }
 .login-panel { width: min(380px, 100%); padding: 8px; background: transparent; border: 0; }
-.login-logo { display: block; width: 122px; height: 37px; margin: 0 auto; object-fit: contain; object-position: center; }
+.login-logo { display: block; width: 104px; height: 31px; margin: 0 auto; object-fit: contain; object-position: center; }
 .login-heading { margin: 26px 0 30px; text-align: center; }
 .login-tagline { margin: 0; color: var(--muted); font-size: 15px; font-weight: 500; letter-spacing: .04em; }
 .login-panel > label { display: block; margin: 14px 0 6px; color: var(--ink-soft); font-size: 12px; font-weight: 500; }
@@ -256,7 +256,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-shell { min-height: 100%; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
 .admin-nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); }
 .admin-brand { min-height: 48px; padding: 0 7px; color: var(--ink); text-decoration: none; }
-.admin-brand .brand-logo { width: 94px; }
+.admin-brand .brand-logo { width: 74px; }
 .admin-nav-label { margin: 13px 10px 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .admin-nav-links { display: grid; gap: 2px; margin-top: 0; }
 .admin-nav-links a { min-height: 40px; display: flex; align-items: center; gap: 12px; padding: 8px 10px; color: var(--ink); border-radius: 10px; text-decoration: none; font-size: 13px; }
@@ -343,6 +343,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .table-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .empty-state { padding: 24px; color: var(--muted); text-align: center; font-size: 12px; }
 .knowledge-count { margin: 2px 2px 0; color: var(--muted); font-size: 12px; }
+/* 知識卡內文照原結構條列呈現 */
+.knowledge-text { color: var(--ink-soft); font-size: 13px; line-height: 1.7; }
+.knowledge-text p { margin: 0 0 6px; }
+.knowledge-text ul, .knowledge-text ol { margin: 0 0 6px; padding-left: 20px; }
+.knowledge-text li { margin: 3px 0; }
+.knowledge-text li::marker { color: var(--muted); }
+.knowledge-text .knowledge-more { color: var(--muted); }
 .toast { position: fixed; right: 22px; bottom: 22px; z-index: 80; max-width: min(360px, calc(100vw - 44px)); padding: 11px 16px; color: #fff; background: var(--ink); border-radius: var(--radius-sm); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity 140ms ease, transform 140ms ease; font-size: 12px; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--warning); }
