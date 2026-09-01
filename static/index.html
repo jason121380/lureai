@@ -53,13 +53,28 @@
       <div class="sidebar-label">最近</div>
       <nav id="conversation-list" class="conversation-list" aria-label="最近對話"></nav>
       <div class="sidebar-footer">
-        <section class="usage-panel" aria-labelledby="usage-title">
-          <div class="usage-heading"><span id="usage-title">本月用量</span><strong id="usage-percent">0%</strong></div>
-          <div class="usage-track" role="progressbar" aria-label="本月預算用量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="usage-progress"></span></div>
-          <strong id="usage-spend" class="usage-spend">NT$0 / NT$0</strong>
-          <span id="usage-tokens" class="usage-tokens">0 tokens</span>
-        </section>
-        <div class="user-account">
+        <div id="account-menu" class="account-menu" hidden>
+          <div class="account-tabs" role="tablist" aria-label="帳號選單分頁">
+            <button class="account-tab active" type="button" data-tab="settings">設定</button>
+            <button class="account-tab" type="button" data-tab="usage">用量</button>
+          </div>
+          <div id="account-panel-settings" class="account-panel">
+            <div class="menu-label">語氣設定</div>
+            <div class="tone-toggle" id="tone-toggle" role="group" aria-label="語氣設定">
+              <button type="button" class="tone-option active" data-tone="expert" aria-pressed="true" title="專家模式：完整條列、講深講透">專家</button>
+              <button type="button" class="tone-option" data-tone="service" aria-pressed="false" title="客服模式：像真人聊天，一句一句回">客服</button>
+            </div>
+          </div>
+          <div id="account-panel-usage" class="account-panel" hidden>
+            <section class="usage-panel" aria-labelledby="usage-title">
+              <div class="usage-heading"><span id="usage-title">本月用量</span><strong id="usage-percent">0%</strong></div>
+              <div class="usage-track" role="progressbar" aria-label="本月預算用量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="usage-progress"></span></div>
+              <strong id="usage-spend" class="usage-spend">NT$0 / NT$0</strong>
+              <span id="usage-tokens" class="usage-tokens">0 tokens</span>
+            </section>
+          </div>
+        </div>
+        <div class="user-account" id="user-account" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" title="帳號選單">
           <div id="profile-avatar" class="profile-avatar" aria-hidden="true">U</div>
           <div class="profile-copy"><strong id="user-name">使用者</strong><span id="index-scope" hidden>索引已隔離</span></div>
           <a id="admin-link" class="icon-button" href="/admin" target="_blank" rel="noopener" title="設定（另開分頁）" aria-label="設定（另開分頁）" hidden><i data-lucide="settings"></i></a>
@@ -86,14 +101,7 @@
           <button id="stop-button" class="composer-action stop-action" type="button" title="停止產生" aria-label="停止產生" hidden><i data-lucide="square"></i></button>
           <button id="send-button" class="composer-action send-action" type="submit" title="送出訊息" aria-label="送出訊息"><i data-lucide="arrow-up"></i></button>
         </form>
-        <div class="composer-meta">
-          <div class="tone-toggle" id="tone-toggle" role="group" aria-label="語氣設定">
-            <button type="button" class="tone-option active" data-tone="expert" aria-pressed="true" title="專家模式：完整條列、講深講透">專家</button>
-            <button type="button" class="tone-option" data-tone="service" aria-pressed="false" title="客服模式：像真人聊天，一句一句回">客服</button>
-          </div>
-          <span id="knowledge-scope">回答僅使用已核准知識</span>
-          <span id="char-count">0 / 1200</span>
-        </div>
+        <div class="composer-meta"><span id="knowledge-scope">回答僅使用已核准知識</span><span id="char-count">0 / 1200</span></div>
       </div>
     </main>
 

@@ -45,6 +45,7 @@
 
   function showLogin(message = "") {
     state.user = null;
+    el("account-menu").hidden = true;
     el("app-shell").hidden = true;
     el("login-gate").hidden = false;
     el("login-status").textContent = message;
@@ -69,11 +70,18 @@
   }
 
   function newConversation() {
-    const conversation = { id: makeId(), title: "新對話", createdAt: new Date().toISOString(), messages: [] };
-    state.conversations.unshift(conversation);
-    state.activeId = conversation.id;
-    persist();
+    // 已經有一個還沒開始的空白對話就直接切過去，不要再疊一個。
+    const empty = state.conversations.find((conversation) => !(conversation.messages || []).length);
+    if (empty) {
+      state.activeId = empty.id;
+    } else {
+      const conversation = { id: makeId(), title: "新對話", createdAt: new Date().toISOString(), messages: [] };
+      state.conversations.unshift(conversation);
+      state.activeId = conversation.id;
+      persist();
+    }
     render();
+    closeSidebar();
     prompt.focus();
   }
 
@@ -88,6 +96,8 @@
       state.conversations.forEach((conversation) => {
         if (Array.isArray(conversation?.messages)) {
           conversation.messages = conversation.messages.filter((message) => !message?.loading);
+          // 逐句顯示只在收到回覆的當下跑一次，重新整理後直接全部顯示。
+          conversation.messages.forEach((message) => { delete message.pendingReveal; });
         }
       });
     }
@@ -132,7 +142,6 @@
   }
 
   function deleteConversation(id) {
-    if (!window.confirm("確定要刪除這個對話嗎？")) return;
     state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
     if (!state.conversations.length) {
       newConversation();
@@ -160,9 +169,21 @@
       remove.title = "刪除對話";
       remove.setAttribute("aria-label", `刪除對話：${conversation.title}`);
       remove.innerHTML = '<i data-lucide="trash-2"></i>';
+      // 不跳瀏覽器原生視窗：第一下變成「確定刪除」，3 秒內再按一下才真的刪。
       remove.addEventListener("click", (event) => {
         event.stopPropagation();
-        deleteConversation(conversation.id);
+        if (remove.classList.contains("confirming")) {
+          deleteConversation(conversation.id);
+          return;
+        }
+        remove.classList.add("confirming");
+        remove.innerHTML = '<span class="confirm-delete">確定刪除</span>';
+        setTimeout(() => {
+          if (!remove.isConnected || !remove.classList.contains("confirming")) return;
+          remove.classList.remove("confirming");
+          remove.innerHTML = '<i data-lucide="trash-2"></i>';
+          window.lucide?.createIcons();
+        }, 3000);
       });
       const select = () => {
         state.activeId = conversation.id;
@@ -230,7 +251,8 @@
       text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>';
     } else if (item.role === "assistant") {
       text.classList.add("rich");
-      if (item.tone === "service") {
+      // 降級成知識原文時不逐句拆泡泡（會變成幾十則），維持一般排版＋降級標籤。
+      if (item.tone === "service" && item.modelStatus === "used") {
         // 客服模式：每一行都是一則獨立訊息，畫成一顆一顆的聊天泡泡。
         text.classList.add("bubbles");
         text.innerHTML = renderServiceBubbles(item.content);
@@ -265,6 +287,10 @@
     if (item.citations?.length) {
       const citations = document.createElement("div");
       citations.className = "citation-list";
+      const citationLabel = document.createElement("span");
+      citationLabel.className = "citation-label";
+      citationLabel.textContent = "知識來源：";
+      citations.append(citationLabel);
       item.citations.slice(0, 6).forEach((citation, index) => {
         const button = document.createElement("button");
         button.className = "citation-button";
@@ -300,6 +326,40 @@
     return row;
   }
 
+  // 客服模式像真人打字：第一句直接出現，之後每句停 1~2 秒再發，
+  // 中間掛著輸入中的點點；狀態列、來源與追問等全部發完才顯示。
+  function revealServiceMessage(item) {
+    const row = messages.lastElementChild;
+    const text = row?.querySelector(".message-text.bubbles");
+    if (!text) return;
+    const lines = [...text.querySelectorAll(".chat-line")];
+    const extras = [...row.querySelectorAll(".message-status, .citation-list, .followup-list")];
+    if (lines.length < 2 && !extras.length) return;
+    lines.forEach((line) => { line.hidden = true; });
+    extras.forEach((extra) => { extra.hidden = true; });
+    const typing = document.createElement("div");
+    typing.className = "typing";
+    typing.setAttribute("aria-label", "輸入中");
+    typing.innerHTML = "<span></span><span></span><span></span>";
+    text.append(typing);
+    let index = 0;
+    const step = () => {
+      if (item !== activeConversation()?.messages?.[activeConversation().messages.length - 1]) return;
+      if (index < lines.length) {
+        lines[index].hidden = false;
+        index += 1;
+        messages.scrollTop = messages.scrollHeight;
+        setTimeout(step, 1000 + Math.random() * 1000);
+        return;
+      }
+      typing.remove();
+      extras.forEach((extra) => { extra.hidden = false; });
+      messages.scrollTop = messages.scrollHeight;
+      window.lucide?.createIcons();
+    };
+    step();
+  }
+
   function renderMessages() {
     const conversation = activeConversation();
     messages.replaceChildren();
@@ -308,6 +368,11 @@
     if (isEmpty) messages.append(welcomeView());
     else conversation.messages.forEach((item, index) => messages.append(messageView(item, index === conversation.messages.length - 1)));
     el("conversation-title").textContent = conversation.title;
+    const last = conversation.messages[conversation.messages.length - 1];
+    if (last?.pendingReveal) {
+      last.pendingReveal = false;
+      revealServiceMessage(last);
+    }
     requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; window.lucide?.createIcons(); });
   }
 
@@ -391,15 +456,41 @@
     return blocks.join("");
   }
 
-  // 客服模式：模型輸出一行一句，每個非空行渲染成一顆訊息泡泡；
-  // 萬一模型仍然給了條列符號，先剝掉再畫。
-  // 引用編號只給系統核對，句尾不顯示 [1] 這種編號——來源照樣列在泡泡下方。
-  function renderServiceBubbles(content) {
-    return String(content || "")
+  // 客服模式：像真人一句一句發訊息。
+  // - 引用編號只給系統核對，句尾不顯示 [1]——來源照樣列在泡泡下方。
+  // - 標點一律拿掉（保留數字裡的小數點），以空白分段，像平常打字。
+  // - 每則不超過 10 個字，太長的自動拆成下一則。
+  const SERVICE_BUBBLE_MAX = 10;
+
+  function serviceSentences(content) {
+    const lines = String(content || "")
       .split("\n")
       .map((line) => line.trim().replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, ""))
-      .map((line) => line.replace(/\s*\[\d{1,2}\]/g, "").trim())
-      .filter(Boolean)
+      .map((line) => line.replace(/\s*\[\d{1,2}\]/g, ""))
+      .map((line) => line.replace(/[，。、；：！？!?；～「」『』（）()]/g, " "))
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const bubbles = [];
+    for (const line of lines) {
+      let current = "";
+      for (let segment of line.split(" ")) {
+        while (segment.length > SERVICE_BUBBLE_MAX) {
+          if (current) { bubbles.push(current); current = ""; }
+          bubbles.push(segment.slice(0, SERVICE_BUBBLE_MAX));
+          segment = segment.slice(SERVICE_BUBBLE_MAX);
+        }
+        if (!segment) continue;
+        if (!current) current = segment;
+        else if (current.length + 1 + segment.length <= SERVICE_BUBBLE_MAX) current += ` ${segment}`;
+        else { bubbles.push(current); current = segment; }
+      }
+      if (current) bubbles.push(current);
+    }
+    return bubbles;
+  }
+
+  function renderServiceBubbles(content) {
+    return serviceSentences(content)
       .map((line) => `<p class="chat-line">${inlineMarkup(line, 0)}</p>`)
       .join("");
   }
@@ -483,6 +574,8 @@
         state.controller.signal,
         (delta) => {
           streamedText += delta;
+          // 客服模式不即時吐字：維持輸入中的點點，等結果再一句一句發。
+          if (tone === "service") return;
           const textNode = messages.lastElementChild?.querySelector(".message-text");
           if (textNode) {
             textNode.textContent = streamedText;
@@ -497,6 +590,8 @@
         reason: body.reason,
         modelStatus: body.model_status,
         tone: body.tone || tone,
+        // 客服模式像真人打字：一句一句出現，每句停 1~2 秒（僅模型成功回覆時）。
+        pendingReveal: (body.tone || tone) === "service" && body.status === "answered" && body.model_status === "used",
         citations: body.citations || [],
         followups: body.followups || [],
         traceId: body.trace_id,
@@ -624,6 +719,15 @@
     el("sidebar").classList.remove("open");
     el("drawer-overlay").classList.remove("clear");
     if (!el("source-drawer").classList.contains("open")) el("drawer-overlay").hidden = true;
+  }
+
+  // 左下角帳號彈窗：設定（語氣）／用量（本月用量）兩個分頁。
+  function toggleAccountMenu(force) {
+    const menu = el("account-menu");
+    const open = force !== undefined ? force : menu.hidden;
+    menu.hidden = !open;
+    el("user-account").setAttribute("aria-expanded", String(open));
+    if (open && state.user) loadUsage();
   }
 
   function updateComposer() {
@@ -788,6 +892,24 @@
   document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
     button.addEventListener("click", () => setTone(button.dataset.tone));
   });
+  el("user-account").addEventListener("click", (event) => {
+    if (event.target.closest("#admin-link, #logout-button")) return;
+    toggleAccountMenu();
+  });
+  el("user-account").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleAccountMenu(); }
+  });
+  document.querySelectorAll(".account-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".account-tab").forEach((other) => other.classList.toggle("active", other === tab));
+      el("account-panel-settings").hidden = tab.dataset.tab !== "settings";
+      el("account-panel-usage").hidden = tab.dataset.tab !== "usage";
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (el("account-menu").hidden) return;
+    if (!event.target.closest(".sidebar-footer")) toggleAccountMenu(false);
+  });
   el("new-chat").addEventListener("click", newConversation);
   el("sidebar-search").addEventListener("click", () => {
     const search = el("conversation-search");
@@ -809,7 +931,7 @@
     if (event.key === "Escape") { event.stopPropagation(); finishRename(false); }
   });
   el("conversation-title-input").addEventListener("blur", () => finishRename(true));
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); } });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSources(); closeSidebar(); toggleAccountMenu(false); } });
 
   async function bootstrap() {
     // 不論健康檢查或連線發生什麼事，10 秒內一定要有畫面可以操作。

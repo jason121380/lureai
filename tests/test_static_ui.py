@@ -136,6 +136,60 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".tone-toggle", css)
         self.assertIn(".message-text.bubbles", css)
 
+    def test_service_mode_talks_like_a_real_person(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        # 每則 10 字內、標點改空白、逐句 1~2 秒發送。
+        self.assertIn("SERVICE_BUBBLE_MAX = 10", script)
+        self.assertIn("function serviceSentences", script)
+        self.assertIn("function revealServiceMessage", script)
+        self.assertIn("pendingReveal", script)
+        self.assertIn("1000 + Math.random() * 1000", script)
+
+    def test_account_popup_hosts_tone_and_usage_tabs(self):
+        html = INDEX.read_text(encoding="utf-8")
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 左下角按名字打開彈窗：設定（語氣）／用量 兩個分頁。
+        self.assertIn('id="account-menu"', html)
+        self.assertIn('id="user-account"', html)
+        self.assertIn('data-tab="settings"', html)
+        self.assertIn('data-tab="usage"', html)
+        menu = html.split('id="account-menu"', 1)[1].split('id="user-account"', 1)[0]
+        self.assertIn('id="tone-toggle"', menu)
+        self.assertIn('id="usage-progress"', menu)
+        self.assertIn("function toggleAccountMenu", script)
+        self.assertIn(".account-menu", css)
+
+    def test_conversation_delete_uses_in_page_confirmation(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        self.assertNotIn("window.confirm", script)
+        self.assertIn('classList.contains("confirming")', script)
+        self.assertIn(".conversation-delete.confirming", css)
+
+    def test_citations_are_labelled_as_knowledge_sources(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        self.assertIn("知識來源：", script)
+        self.assertIn(".citation-label", css)
+
+    def test_composer_has_no_shadow_and_stays_compact_when_empty(self):
+        css = CSS.read_text(encoding="utf-8")
+
+        composer_rule = css.split(".composer {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("box-shadow", composer_rule)
+        self.assertIn(".is-empty .composer { width: min(640px, 100%); }", css)
+
+    def test_new_chat_reuses_the_existing_empty_conversation(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        opener = script.split("function newConversation()", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("state.conversations.find", opener)
+
     def test_installed_app_keeps_a_white_status_bar(self):
         for page in (INDEX, ADMIN):
             html = page.read_text(encoding="utf-8")
