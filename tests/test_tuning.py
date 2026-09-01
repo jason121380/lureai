@@ -50,6 +50,20 @@ class ComposeTests(unittest.TestCase):
         self.assertIn("line-01", ids)
 
 
+class DelayRangeTests(unittest.TestCase):
+    def test_parses_a_range(self):
+        self.assertEqual(tuning.parse_delay_range("3-9", (8, 25)), (3.0, 9.0))
+
+    def test_falls_back_when_unreadable(self):
+        self.assertEqual(tuning.parse_delay_range("亂寫", (8, 25)), (8, 25))
+
+    def test_caps_at_the_reply_token_window(self):
+        self.assertEqual(tuning.parse_delay_range("5-90", (8, 25)), (5.0, 30.0))
+
+    def test_zero_means_send_immediately(self):
+        self.assertEqual(tuning.parse_delay_range("0", (8, 25)), (0.0, 0.0))
+
+
 class EngineTests(unittest.TestCase):
     def test_answer_engine_uses_the_overrides(self):
         engine = AnswerEngine(
@@ -86,7 +100,8 @@ class TuningApiTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             [group["id"] for group in body["groups"]],
-            ["policy", "tone_expert", "tone_service", "tone_line", "fixed_replies"],
+            ["policy", "tone_expert", "tone_service", "tone_line",
+             "smalltalk", "line_delivery", "fixed_replies"],
         )
         self.assertEqual(body["customized"], 0)
 
@@ -147,6 +162,16 @@ class TuningApiTests(ServerTestCase):
 
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "too_long")
+
+    def test_line_delay_setting_is_editable(self):
+        status, _body = self.request("POST", "/api/admin/tuning", {
+            "rule_id": "delivery-delay", "text": "3-9",
+        }, token="secret-token")
+        body = self.request("GET", "/api/admin/tuning", token="secret-token")[1]
+        delivery = [g for g in body["groups"] if g["id"] == "line_delivery"][0]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(delivery["rules"][0]["text"], "3-9")
 
     def test_reset_all_clears_every_override(self):
         self.request("POST", "/api/admin/tuning", {"rule_id": "service-01", "text": "改一下"}, token="secret-token")

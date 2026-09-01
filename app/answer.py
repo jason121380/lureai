@@ -47,6 +47,82 @@ FOLLOWUP_INSTRUCTION = (
     "每行 20 字內、繁體中文、不加引用編號、不加其他說明。"
 )
 
+def extract_usage(body: dict) -> dict:
+    """Responses API 的用量欄位；缺欄位一律當 0，不要讓記帳炸掉。"""
+    usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+    input_details = usage.get("input_tokens_details")
+    if not isinstance(input_details, dict):
+        input_details = {}
+    return {
+        "input_tokens": max(0, int(usage.get("input_tokens", 0))),
+        "cached_input_tokens": max(0, int(input_details.get("cached_tokens", 0))),
+        "cache_write_input_tokens": max(0, int(input_details.get("cache_write_tokens", 0))),
+        "output_tokens": max(0, int(usage.get("output_tokens", 0))),
+    }
+
+
+def extract_output_text(body: dict) -> str:
+    if isinstance(body.get("output_text"), str):
+        return body["output_text"]
+    for item in body.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") == "output_text" and isinstance(content.get("text"), str):
+                return content["text"]
+    return ""
+
+
+def tone_smalltalk_hint(tone: str) -> str:
+    """閒聊也要照該語氣的排版走，否則客服模式會冒出一整段長文。"""
+    if normalize_tone(tone) in ("service", "line"):
+        return (
+            "\n每行是一則獨立的短訊息，最多 2 行；不用標點符號，需要斷開就用空白。"
+        )
+    return "\n回一段自然的話就好，不要條列、不要小標題。"
+
+
+# 閒聊：打招呼、道謝、應聲這種沒有輔導內容的話不進檢索，也不需要來源。
+# 只回一兩句自然的話，再輕輕把話題帶回輔導，不要在這裡開始給方法。
+SMALLTALK_BASE = (
+    "你是設計師的行銷輔導教練，正在跟他聊天。用「我」跟「你」說話，"
+    "像認識的人在傳訊息：不要客服腔、不要制式開場白、不要自稱 AI 或助理。\n"
+    "**這一則不要給方法、步驟、數字或建議，也不要跟他要任何數字**——他還沒問。\n"
+    "最多 2 句、每句 15 字左右；不要寫引用編號，也不要提到來源或知識庫。"
+)
+
+SMALLTALK_INSTRUCTION = (
+    SMALLTALK_BASE + "\n他這一句是打招呼、道謝、應聲或閒聊，不是在問問題。"
+    "自然接一句，再用一個輕鬆的問句把話題帶回他的店或客人"
+    "（例如「最近私訊還順嗎」），不要一次丟很多選項。"
+)
+
+# 情緒句：只承接，不派任務。同理完接一句「請給我私訊數」會把前面的效果全部抵銷。
+EMOTION_INSTRUCTION = (
+    SMALLTALK_BASE + "\n他在抒發情緒，不是在問問題。"
+    "**只承接情緒**：第一句點名他說的那件事表示理解（用他自己的話，不要換成術語），"
+    "第二句讓他知道你在。\n"
+    "絕對不要給任務、不要給步驟、不要問他數字、不要急著幫他解決——"
+    "他想解決的時候會自己問。最後也不要用二選一問句逼他選。"
+)
+
+# 欲言又止：「算了 沒事」不要放他走，也不要逼問。
+HESITATION_INSTRUCTION = (
+    SMALLTALK_BASE + "\n他講到一半又收回去（「算了」「沒事」）。"
+    "不要當作沒事就結束，也不要逼問。輕輕接一句讓他知道你有聽到、"
+    "他想說的時候你都在（例如「聽起來有事欸 想說再說就好」）。"
+)
+
+# 模型不能用時的備援：短、自然、把球丟回去。
+SMALLTALK_FALLBACK = "嗨 我在唷\n最近店裡還順嗎"
+EMOTION_FALLBACK = "這樣真的很累呀\n我在這 你想講就講"
+HESITATION_FALLBACK = "聽起來有事欸\n你想說的時候我都在"
+
+# reason -> (指令的 rule_id, 備援句的 rule_id, 預設指令, 預設備援)
+SMALLTALK_KINDS = {
+    "smalltalk": ("smalltalk-01", "smalltalk-02", SMALLTALK_INSTRUCTION, SMALLTALK_FALLBACK),
+    "emotion": ("smalltalk-03", "smalltalk-04", EMOTION_INSTRUCTION, EMOTION_FALLBACK),
+    "hesitation": ("smalltalk-05", "smalltalk-06", HESITATION_INSTRUCTION, HESITATION_FALLBACK),
+}
+
 # 語氣設定：附加在 policy 之後。expert 放寬長度、講深一點；service 改成
 # 真人聊天式的一句一句短訊息，覆蓋 policy 裡的條列與字數規則。
 DEFAULT_TONE = "expert"
@@ -287,6 +363,54 @@ class AnswerEngine:
         "看客人怎麼來 還是看客人來了之後怎麼接"
     )
 
+    def smalltalk(self, question: str, history: list[dict] | None = None,
+                  allow_model: bool = True, tone: str = DEFAULT_TONE,
+                  kind: str = "smalltalk") -> tuple[str, str, str, dict]:
+        """閒聊／情緒／欲言又止都不查知識庫、不附來源，只讓模型自然回一句話。"""
+        empty_usage = {
+            "input_tokens": 0, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 0,
+        }
+        overrides = self._overrides()
+        instruction_id, fallback_id, default_instruction, default_fallback = SMALLTALK_KINDS.get(
+            kind, SMALLTALK_KINDS["smalltalk"]
+        )
+        instruction = overrides.get(instruction_id, "").strip() or default_instruction
+        fallback = overrides.get(fallback_id, "").strip() or default_fallback
+        if not self.model_enabled or not allow_model:
+            return fallback, "smalltalk", "not_configured" if not self.model_enabled else "budget_exhausted", empty_usage
+        model_input = [
+            {"role": item["role"], "content": item["content"]} for item in (history or [])
+        ]
+        model_input.append({"role": "user", "content": question})
+        payload = {
+            "model": os.environ["LLM_MODEL"],
+            "instructions": instruction + tone_smalltalk_hint(tone),
+            "input": model_input,
+            "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
+            "store": False,
+        }
+        request = urllib.request.Request(
+            responses_url(os.environ["LLM_BASE_URL"]),
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {os.environ['LLM_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 - 閒聊失敗就用備援句，不要讓對話斷掉
+            log_model_failure("smalltalk", exc, f"model={self.model_name}")
+            return fallback, "smalltalk", "unavailable", empty_usage
+        text = extract_output_text(body).strip()
+        usage = extract_usage(body)
+        if not text:
+            return fallback, "smalltalk", "empty", usage
+        return text, "smalltalk", "used", usage
+
     def model_failed_message(self) -> str:
         return self._overrides().get("reply-model_failed", "").strip() or self.MODEL_FAILED_MESSAGE
 
@@ -440,23 +564,7 @@ class AnswerEngine:
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read())
-        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
-        input_details = usage.get("input_tokens_details")
-        if not isinstance(input_details, dict):
-            input_details = {}
-        token_usage = {
-            "input_tokens": max(0, int(usage.get("input_tokens", 0))),
-            "cached_input_tokens": max(0, int(input_details.get("cached_tokens", 0))),
-            "cache_write_input_tokens": max(0, int(input_details.get("cache_write_tokens", 0))),
-            "output_tokens": max(0, int(usage.get("output_tokens", 0))),
-        }
-        if isinstance(body.get("output_text"), str):
-            return body["output_text"], token_usage
-        for item in body.get("output", []):
-            for content in item.get("content", []):
-                if content.get("type") == "output_text" and isinstance(content.get("text"), str):
-                    return content["text"], token_usage
-        return "", token_usage
+        return extract_output_text(body), extract_usage(body)
 
     def generate_title(self, question: str, answer: str, allow_model: bool = True) -> tuple[str, str, dict]:
         empty_usage = {
