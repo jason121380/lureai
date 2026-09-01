@@ -60,27 +60,40 @@
           </div>
         </div>
 
-        <!-- 上傳分析：拖檔進來 → 分析成候選知識 → 一塊一塊確認 → 一次存檔。
-             檔案本身不留，只留萃取出來的知識。 -->
-        <section id="upload-panel" class="upload-panel" hidden>
-          <div id="upload-drop" class="upload-drop" tabindex="0" role="button"
-               aria-label="拖曳檔案到這裡，或點擊選擇檔案">
-            <i data-lucide="upload-cloud"></i>
-            <strong>把檔案拖進來</strong>
-            <span>或點這裡選檔案 · 支援 .md .txt .csv .json .jsonl · 單檔 6 萬字以內</span>
-            <input id="upload-input" type="file" multiple accept=".md,.txt,.csv,.json,.jsonl,.markdown,text/*" hidden>
-          </div>
-          <div id="upload-progress" class="upload-progress" hidden>
-            <div class="upload-bar"><span id="upload-bar-fill"></span></div>
-            <p id="upload-progress-text" class="editor-hint">分析中…</p>
-          </div>
-          <div id="upload-results" class="upload-results"></div>
-          <div id="upload-actions" class="editor-actions" hidden>
-            <span id="upload-hint" class="editor-hint"></span>
-            <button type="button" id="upload-cancel" class="command-button ghost-button">取消</button>
-            <button type="button" id="upload-save" class="command-button"><i data-lucide="check"></i><span>儲存全部</span></button>
-          </div>
-        </section>
+        <!-- 上傳分析彈窗：拖檔進來 → 分析成候選知識 → 一塊一塊確認 → 一次存檔。
+             檔案本身不留，只留萃取出來的知識。比照帳號彈窗：背景壓暗、卡片置中。 -->
+        <div id="upload-modal" class="upload-modal" role="dialog" aria-modal="true"
+             aria-label="上傳檔案分析成知識" hidden>
+          <button type="button" id="upload-backdrop" class="account-backdrop" aria-label="關閉"></button>
+          <section id="upload-panel" class="upload-panel">
+            <header class="upload-head">
+              <div>
+                <h3>上傳檔案</h3>
+                <p class="editor-hint">分析成知識後可以逐則修改，按儲存才會寫進知識庫；檔案本身不會留下</p>
+              </div>
+              <button type="button" id="upload-close" class="icon-button" aria-label="關閉"><i data-lucide="x"></i></button>
+            </header>
+            <div class="upload-scroll">
+              <div id="upload-drop" class="upload-drop" tabindex="0" role="button"
+                   aria-label="拖曳檔案到這裡，或點擊選擇檔案">
+                <i data-lucide="upload-cloud"></i>
+                <strong>把檔案拖進來</strong>
+                <span>或點這裡選檔案 · 支援 .md .txt .csv .json .jsonl · 單檔 6 萬字以內</span>
+                <input id="upload-input" type="file" multiple accept=".md,.txt,.csv,.json,.jsonl,.markdown,text/*" hidden>
+              </div>
+              <div id="upload-progress" class="upload-progress" hidden>
+                <div class="upload-bar"><span id="upload-bar-fill"></span></div>
+                <p id="upload-progress-text" class="editor-hint">分析中…</p>
+              </div>
+              <div id="upload-results" class="upload-results"></div>
+              <div id="upload-actions" class="editor-actions" hidden>
+                <span id="upload-hint" class="editor-hint"></span>
+                <button type="button" id="upload-cancel" class="command-button ghost-button">取消</button>
+                <button type="button" id="upload-save" class="command-button"><i data-lucide="check"></i><span>儲存全部</span></button>
+              </div>
+            </div>
+          </section>
+        </div>
 
         <form id="knowledge-editor" class="knowledge-editor" hidden>
           <input type="hidden" id="editor-chunk-id">

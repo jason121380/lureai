@@ -127,6 +127,30 @@ class StaticUiTests(unittest.TestCase):
         opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
         self.assertIn('classList.add("clear")', opener)
 
+    def test_upload_opens_as_a_modal(self):
+        """「上傳檔案」按下去是彈窗，不是頁面裡的一塊。"""
+        html = ADMIN.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+        script = ADMIN_JS.read_text(encoding="utf-8")
+
+        # 彈窗殼：壓暗背景 + 置中卡片，比照帳號彈窗。
+        self.assertIn('id="upload-modal"', html)
+        self.assertIn('role="dialog"', html)
+        self.assertIn('aria-modal="true"', html)
+        self.assertIn('id="upload-backdrop"', html)
+        modal = css.split(".upload-modal {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: fixed", modal)
+        self.assertIn("place-items: center", modal)
+        # 內容再多也不能把彈窗撐出畫面：卡片夾高度，捲動交給內層。
+        panel = css.split(".upload-panel {", 1)[1].split("}", 1)[0]
+        self.assertIn("max-height", panel)
+        self.assertIn("overflow: hidden", panel)
+        self.assertIn("overflow-y: auto", css.split(".upload-scroll {", 1)[1].split("}", 1)[0])
+        # 三種關法都要有：關閉鈕、點背景、Esc。
+        self.assertIn('el("upload-close").addEventListener("click", closeUpload)', script)
+        self.assertIn('el("upload-backdrop").addEventListener("click", closeUpload)', script)
+        self.assertIn('event.key === "Escape"', script)
+
     def test_mobile_edge_swipe_opens_the_sidebar(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
