@@ -969,36 +969,65 @@
     prompt.focus();
   }
 
+  // 伺服器那份是主的：以 id 為準合併，本機獨有的（其他裝置還沒同步過的）留著。
+  function mergeConversations(server) {
+    const local = state.conversations.filter((item) => (item.messages || []).length);
+    const byId = new Map(server.map((item) => [item.id, item]));
+    local.forEach((item) => { if (!byId.has(item.id)) byId.set(item.id, item); });
+    state.conversations = [...byId.values()].sort(
+      (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+    );
+    state.conversations.forEach((conversation) => {
+      (conversation.messages || []).forEach((message) => {
+        delete message.loading;
+        delete message.pendingReveal;
+      });
+    });
+    if (!state.conversations.some((item) => item.id === state.activeId)) {
+      state.activeId = state.conversations[0]?.id || null;
+    }
+    if (!state.activeId) newConversation();
+    render();
+    persist();
+  }
+
   async function syncWithServer() {
     const local = state.conversations.filter((item) => (item.messages || []).length);
     const remote = await pullConversations();
     if (!remote) { syncedOnce = true; return; }
     const server = Array.isArray(remote.conversations) ? remote.conversations : [];
-    if (server.length) {
-      // 伺服器那份是主的：以 id 為準合併，本機獨有的（其他裝置還沒同步過的）留著。
-      const byId = new Map(server.map((item) => [item.id, item]));
-      local.forEach((item) => { if (!byId.has(item.id)) byId.set(item.id, item); });
-      state.conversations = [...byId.values()].sort(
-        (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
-      );
-      state.conversations.forEach((conversation) => {
-        (conversation.messages || []).forEach((message) => {
-          delete message.loading;
-          delete message.pendingReveal;
-        });
-      });
-      if (!state.conversations.some((item) => item.id === state.activeId)) {
-        state.activeId = state.conversations[0]?.id || null;
-      }
-      if (!state.activeId) newConversation();
-      render();
-      persist();
-    }
+    if (server.length) mergeConversations(server);
     syncedOnce = true;
     // 舊使用者的紀錄本來只在瀏覽器裡，第一次登入時搬上去。
     const missing = local.filter((item) => !server.some((entry) => entry.id === item.id));
     if (missing.length) await pushConversations(missing);
     if (remote.prefs?.tone && remote.prefs.tone !== state.tone) setTone(remote.prefs.tone);
+  }
+
+  // 分頁回到前景時再拉一次。只在登入那一刻同步的話，PWA 開著不關就會一直看到舊的，
+  // 另一台裝置新增的對話永遠等不到。
+  async function refreshFromServer() {
+    if (!syncedOnce || !state.user || state.controller) return;
+    const remote = await pullConversations();
+    const server = Array.isArray(remote?.conversations) ? remote.conversations : [];
+    if (server.length) mergeConversations(server);
+  }
+
+  // 關掉分頁前把還沒送出的那一次補送出去：debounce 還沒到就切走的話，
+  // 最後幾則訊息會只留在這台裝置上。keepalive 讓請求在分頁關掉後仍然送得出去。
+  function flushSync() {
+    if (!syncedOnce) return;
+    clearTimeout(syncTimer);
+    const conversation = activeConversation();
+    if (!conversation || !(conversation.messages || []).length) return;
+    try {
+      fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversations: [conversation] }),
+        keepalive: true,
+      });
+    } catch (_) { /* 送不出去就等下次開啟時再同步 */ }
   }
 
   async function login(event) {
@@ -1165,6 +1194,12 @@
       }
     }, 10000);
     registerServiceWorker();
+    // 分頁回到前景時再同步一次；切走或關掉前把還沒送出的補送出去。
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshFromServer();
+      else flushSync();
+    });
+    window.addEventListener("pagehide", flushSync);
     try {
       await checkHealth();
       await restoreSession();
