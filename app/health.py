@@ -16,10 +16,13 @@ FRONTEND_ASSETS = (
     "app.css",
     "chat.js",
     "admin.js",
-    "logo.svg",
+    "logo.png",
+    "favicon.png",
     "manifest.webmanifest",
     "vendor/lucide.min.js",
 )
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def _chunk_fingerprint(payload: dict) -> str:
@@ -96,7 +99,6 @@ def _frontend_check(context) -> tuple[str, str, dict]:
         "app.css": (".chat-main", ".admin-shell"),
         "chat.js": ("/api/chat",),
         "admin.js": ("/api/admin/health",),
-        "logo.svg": ("<svg", "lure ai"),
         "manifest.webmanifest": ('"name"', "LUREAI"),
         "vendor/lucide.min.js": ("lucide",),
     }
@@ -110,11 +112,21 @@ def _frontend_check(context) -> tuple[str, str, dict]:
             missing.append(name)
             continue
         try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            raw = path.read_bytes()
+        except OSError:
             unreadable.append(name)
             continue
-        total_bytes += len(content.encode("utf-8"))
+        total_bytes += len(raw)
+        if name.endswith(".png"):
+            # 圖片資產只驗 PNG 簽章，不做文字標記比對。
+            if not raw.startswith(PNG_SIGNATURE):
+                invalid.append(name)
+            continue
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            unreadable.append(name)
+            continue
         if not content or any(marker not in content for marker in markers[name]):
             invalid.append(name)
     if missing or unreadable or invalid:

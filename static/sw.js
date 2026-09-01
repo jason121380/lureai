@@ -1,11 +1,11 @@
 "use strict";
 
-const CACHE_NAME = "lureai-shell-v1";
+const CACHE_NAME = "lureai-shell-v2";
 const SHELL_ASSETS = [
   "/",
   "/app.css",
   "/chat.js",
-  "/logo.svg",
+  "/logo.png",
   "/favicon.png",
   "/app-icon-192.png",
   "/app-icon.png",

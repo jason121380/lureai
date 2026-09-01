@@ -302,16 +302,38 @@
   };
 
   let knowledgeCache = [];
+  // 全部知識只抓一次進記憶體：切換主題／來源用前端過濾，不再每次打 API
+  // 重新載入（那會出現「載入中」並卡住整個清單）。
+  let knowledgeAll = null;
 
-  async function loadKnowledge(event) {
+  async function fetchAllKnowledge(force = false) {
+    if (force || knowledgeAll === null) {
+      const body = await api("/api/admin/chunks?q=&origin=&domain=", { timeoutMs: 20000 });
+      knowledgeAll = body.items || [];
+    }
+    return knowledgeAll;
+  }
+
+  async function loadKnowledge(event, options = {}) {
     event?.preventDefault();
     try {
-      el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
-      const query = encodeURIComponent(el("knowledge-query")?.value.trim() || "");
-      const origin = encodeURIComponent(el("knowledge-origin")?.value || "");
-      const domain = encodeURIComponent(el("knowledge-domain")?.value || "");
-      const body = await api(`/api/admin/chunks?q=${query}&origin=${origin}&domain=${domain}`, { timeoutMs: 15000 });
-      knowledgeCache = body.items || [];
+      const query = el("knowledge-query")?.value.trim() || "";
+      const origin = el("knowledge-origin")?.value || "";
+      const domain = el("knowledge-domain")?.value || "";
+      if (query) {
+        el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
+        const body = await api(
+          `/api/admin/chunks?q=${encodeURIComponent(query)}&origin=${encodeURIComponent(origin)}&domain=${encodeURIComponent(domain)}`,
+          { timeoutMs: 15000 },
+        );
+        knowledgeCache = body.items || [];
+      } else {
+        if (knowledgeAll === null) el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
+        const all = await fetchAllKnowledge(options.force);
+        knowledgeCache = all.filter((chunk) => (
+          (!origin || (chunk.origin || "file") === origin) && (!domain || chunk.domain === domain)
+        ));
+      }
       el("knowledge-results").innerHTML = knowledgeCache.length
         ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>` + knowledgeCache.map(knowledgeCard).join("")
         : '<div class="empty-state">沒有符合的知識</div>';
@@ -319,7 +341,7 @@
     } catch (error) {
       el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}
         <button type="button" class="command-button ghost-button" data-retry-knowledge>重新載入</button></div>`;
-      el("knowledge-results").querySelector("[data-retry-knowledge]")?.addEventListener("click", () => loadKnowledge());
+      el("knowledge-results").querySelector("[data-retry-knowledge]")?.addEventListener("click", () => loadKnowledge(undefined, { force: true }));
       toast(error.message, true);
     }
   }
@@ -367,7 +389,7 @@
       });
       toast(`已儲存：${body.chunk.section_title}`);
       closeEditor();
-      await Promise.all([loadKnowledge(), loadStats()]);
+      await Promise.all([loadKnowledge(undefined, { force: true }), loadStats()]);
     } catch (error) {
       toast(error.message, true);
     } finally {
@@ -383,7 +405,7 @@
         body: JSON.stringify({ chunk_id: chunkId }),
       });
       toast("知識已刪除");
-      await Promise.all([loadKnowledge(), loadStats()]);
+      await Promise.all([loadKnowledge(undefined, { force: true }), loadStats()]);
     } catch (error) { toast(error.message, true); }
   }
 
@@ -472,7 +494,7 @@
     try {
       const body = await api("/api/admin/reindex", { method: "POST", body: "{}" });
       toast(`索引完成：匯入 ${body.imported}，拒絕 ${body.rejected}`);
-      await Promise.all([loadStats(), loadKnowledge(), loadQuality(), loadHealth()]);
+      await Promise.all([loadStats(), loadKnowledge(undefined, { force: true }), loadQuality(), loadHealth()]);
     } catch (error) { toast(error.message, true); }
     finally { button.disabled = false; }
   }

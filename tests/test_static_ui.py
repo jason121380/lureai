@@ -8,7 +8,7 @@ ADMIN = ROOT / "static" / "admin.html"
 CSS = ROOT / "static" / "app.css"
 CHAT_JS = ROOT / "static" / "chat.js"
 ADMIN_JS = ROOT / "static" / "admin.js"
-LOGO = ROOT / "static" / "logo.svg"
+LOGO = ROOT / "static" / "logo.png"
 FAVICON = ROOT / "static" / "favicon.png"
 APP_ICON = ROOT / "static" / "app-icon.png"
 
@@ -53,7 +53,7 @@ class StaticUiTests(unittest.TestCase):
     def test_brand_assets_are_installed(self):
         html = INDEX.read_text(encoding="utf-8")
 
-        self.assertIn('src="logo.svg"', html)
+        self.assertIn('src="logo.png"', html)
         self.assertIn('href="favicon.png"', html)
         self.assertIn('href="app-icon.png"', html)
         for path in (LOGO, FAVICON, APP_ICON):
@@ -275,7 +275,9 @@ class StaticUiTests(unittest.TestCase):
         for label in ("店務營運管理", "設計師一對一行銷輔導"):
             self.assertIn(label, html)
             self.assertIn(label, script)
-        self.assertIn("domain=${domain}", script)
+        self.assertIn("domain=${encodeURIComponent(domain)}", script)
+        # 切換主題／來源走前端過濾（整包快取），不再每次重打 API。
+        self.assertIn("function fetchAllKnowledge", script)
 
     def test_admin_token_is_kept_in_memory_only(self):
         script = ADMIN_JS.read_text(encoding="utf-8")
