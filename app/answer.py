@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
-from . import tuning
+from . import quality, tuning
 from .retrieval import SearchHit
 
 
@@ -92,7 +92,12 @@ SMALLTALK_BASE = (
 SMALLTALK_INSTRUCTION = (
     SMALLTALK_BASE + "\n他這一句是打招呼、道謝、應聲或閒聊，不是在問問題。"
     "自然接一句，再用一個輕鬆的問句把話題帶回他的店或客人"
-    "（例如「最近私訊還順嗎」），不要一次丟很多選項。"
+    "（例如「最近私訊還順嗎」），不要一次丟很多選項。\n"
+    "**如果他只回「好」「嗯」「ok」這種短字，而你上一則問過問題**："
+    "不要再問一次一樣的話——把上一個問題改成二選一讓他好回答，"
+    "或直接給一個他現在就能做的小動作。"
+    "例如上一則問了業績，這次就說「先給我兩個數字 這個月做幾個客人 平均客單多少」。\n"
+    "絕對不要憑空叫出一個名字或稱呼，他沒說過的事就是不知道。"
 )
 
 # 情緒句：只承接，不派任務。同理完接一句「請給我私訊數」會把前面的效果全部抵銷。
@@ -280,6 +285,23 @@ class AnswerEngine:
                 if generated and (
                     not self.requires_citations(tone) or re.search(r"\[\d+\]", generated)
                 ):
+                    # 診斷完給不出東西是實測扣分最重的一項：只寫「我陪你拆」、
+                    # 承諾了成品卻沒給、問到立場卻不表態——帶著具體理由重打一次。
+                    found = quality.problems(question, generated)
+                    if found:
+                        log_model_failure(
+                            "quality", detail=f"{len(found)} issue(s); retrying | {found[0][:60]}"
+                        )
+                        improved, retry_usage = self.retry_for_quality(
+                            question, hits, found, history=history, tone=tone,
+                            extra_instruction=extra_instruction,
+                            include_followups=include_followups,
+                        )
+                        usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
+                        if improved:
+                            return improved, "llm", "used", usage
+                        # 重打還是不合格就送原本那則：它至少是通順的話，
+                        # 比降級訊息好。
                     return generated.strip(), "llm", "used", usage
                 log_model_failure(
                     "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"
@@ -373,6 +395,34 @@ class AnswerEngine:
                 text = text[:597].rstrip() + "..."
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
+
+    def retry_for_quality(
+        self, question, hits, found, history=None, tone=DEFAULT_TONE,
+        extra_instruction="", include_followups=True,
+    ):
+        """品質檢查沒過時，把具體原因寫給模型再打一次；仍不合格就回空字串。"""
+        empty_usage = {
+            "input_tokens": 0, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 0,
+        }
+        try:
+            generated, usage = self._call_model(
+                question, hits, history=history,
+                extra_instruction=extra_instruction + quality.retry_note(found),
+                tone=tone, include_followups=include_followups,
+            )
+        except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
+            log_model_failure("quality-retry", exc, f"model={self.model_name}")
+            return "", empty_usage
+        generated = normalize_citation_marks(generated).strip()
+        if not generated:
+            return "", usage
+        if self.requires_citations(tone) and not re.search(r"\[\d+\]", generated):
+            return "", usage
+        if quality.problems(question, generated):
+            log_model_failure("quality-retry", detail="still not concrete enough")
+            return "", usage
+        return generated, usage
 
     def retry_with_citations(
         self, question, hits, history=None, tone=DEFAULT_TONE,
