@@ -54,8 +54,9 @@ class StaticUiTests(unittest.TestCase):
         html = INDEX.read_text(encoding="utf-8")
 
         self.assertIn('src="logo.png"', html)
-        self.assertIn('href="favicon.png"', html)
-        self.assertIn('href="app-icon.png"', html)
+        # icon 網址帶版本參數：換圖時避免瀏覽器沿用快取的舊圖。
+        self.assertIn('href="favicon.png?v=2"', html)
+        self.assertIn('href="app-icon.png?v=2"', html)
         for path in (LOGO, FAVICON, APP_ICON):
             self.assertTrue(path.is_file())
             self.assertGreater(path.stat().st_size, 100)
