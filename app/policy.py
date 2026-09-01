@@ -4,6 +4,8 @@ from .retrieval import SearchHit
 
 
 FALLBACK_MESSAGE = "目前知識庫沒有足夠且已核准的資料，我幫您轉由專人確認。"
+# 敏感題（退費賠償、勞資、醫療）跟「查不到資料」是兩件事，訊息要分開。
+SENSITIVE_MESSAGE = "這題要人來判斷比較保險唷\n我先不亂給方向 你跟主管確認過我們再接著談"
 
 
 # 提問者是「設計師本人」，不是顧客。談客人的報價、追客、頭皮狀況、店內請假
@@ -72,10 +74,12 @@ class PolicyEngine:
         minimum_score: float = 0.72,
         blocked_topics: dict | None = None,
         fallback_message: str = FALLBACK_MESSAGE,
+        sensitive_message: str = SENSITIVE_MESSAGE,
     ):
         self.minimum_score = minimum_score
         self.blocked_topics = SENSITIVE_TOPICS if blocked_topics is None else blocked_topics
         self.fallback_message = fallback_message
+        self.sensitive_message = sensitive_message
 
     def boundary_reply(self, question: str) -> PolicyDecision | None:
         """非輔導題直接給固定回應，不進檢索。"""
@@ -89,7 +93,7 @@ class PolicyEngine:
         normalized = "".join(str(question or "").lower().split())
         for reason, terms in self.blocked_topics.items():
             if any(term in normalized for term in terms):
-                return PolicyDecision("escalate", reason, self.fallback_message)
+                return PolicyDecision("escalate", reason, self.sensitive_message)
         return PolicyDecision("continue", "passed")
 
     def evaluate(self, hits: list[SearchHit]) -> PolicyDecision:

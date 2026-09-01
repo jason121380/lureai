@@ -151,13 +151,13 @@ class StaticUiTests(unittest.TestCase):
     def test_service_mode_talks_like_a_real_person(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 依語意斷句（不做字數硬拆）、標點改空白、逐句 1~2 秒發送。
+        # 依語意斷句（不做字數硬拆）、標點改空白、逐句 1.5~2.5 秒發送。
         self.assertNotIn("SERVICE_BUBBLE_MAX", script)
         self.assertIn("不做字數硬拆", script)
         self.assertIn("function serviceSentences", script)
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
-        self.assertIn("1000 + Math.random() * 1000", script)
+        self.assertIn("1500 + Math.random() * 1000", script)
 
     def test_account_popup_hosts_tone_and_usage_tabs(self):
         html = INDEX.read_text(encoding="utf-8")

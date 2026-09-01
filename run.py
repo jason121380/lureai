@@ -55,7 +55,8 @@ PROFILES = {
             key: SENSITIVE_TOPICS[key]
             for key in ("personal_or_payment", "health_or_medical", "legal_refund_or_compensation", "labor_hr")
         },
-        "fallback_message": "這題我手上沒有夠明確的資料，換個問法可能就有了——你可以直接點下面的題目，或告訴我你目前的數字（私訊數、預約數、到店數）。",
+        # 查不到資料時的說法：短、口語、不用破折號，直接把球丟回去。
+        "fallback_message": "我目前沒有資料 比較難幫你評估\n還是你可以貼給我一下你的數據",
     },
 }
 
