@@ -84,6 +84,41 @@ class AnswerTests(unittest.TestCase):
             "output_tokens": 45,
         })
 
+    def test_default_tone_is_expert_and_lands_in_instructions(self):
+        hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
+        api_response = {
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "好。[1]"}]}],
+        }
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", return_value=FakeResponse(api_response)) as urlopen:
+            AnswerEngine().answer("先查什麼？", [hit])
+
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertIn("專家模式", payload["instructions"])
+        self.assertNotIn("客服模式", payload["instructions"])
+
+    def test_service_tone_switches_to_chatty_instructions(self):
+        hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
+        api_response = {
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "好。[1]"}]}],
+        }
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", return_value=FakeResponse(api_response)) as urlopen:
+            AnswerEngine().answer("先查什麼？", [hit], tone="service")
+
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertIn("客服模式", payload["instructions"])
+        self.assertIn("一句一句", payload["instructions"])
+        self.assertNotIn("專家模式", payload["instructions"])
+
     def test_records_usage_even_when_model_returns_no_output_text(self):
         hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
         api_response = {

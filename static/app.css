@@ -191,8 +191,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .send-action:hover { background: #3d3d3d; }
 .send-action:disabled { color: #a5a5a5; background: #e6e6e6; cursor: default; }
 .stop-action { color: #fff; background: var(--ink); }
-.composer-meta { width: min(820px, 100%); display: flex; justify-content: space-between; margin: 7px auto 0; color: var(--muted); font-size: 10px; }
-.is-empty .composer-meta { display: none; }
+.composer-meta { width: min(820px, 100%); display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 7px auto 0; color: var(--muted); font-size: 10px; }
+/* 空白對話只留語氣切換（置中），字數與範圍說明等開始對話再出現 */
+.is-empty .composer-meta { justify-content: center; margin-top: 12px; }
+.is-empty .composer-meta #knowledge-scope, .is-empty .composer-meta #char-count { display: none; }
+
+/* 語氣設定：專家（條列講深）／客服（真人聊天一句一句回） */
+.tone-toggle { display: inline-flex; gap: 2px; padding: 2px; background: var(--bubble); border-radius: var(--radius-pill); }
+.tone-option { min-height: 24px; padding: 2px 12px; color: var(--ink-soft); background: transparent; border: 0; border-radius: var(--radius-pill); cursor: pointer; font-size: 11px; font-weight: 600; }
+.tone-option.active { color: #fff; background: var(--ink); }
+
+/* 客服模式的回答：每行畫成一顆獨立訊息泡泡 */
+.message-text.bubbles { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+.message-text.bubbles .chat-line { max-width: 92%; margin: 0; padding: 9px 15px; background: var(--bubble); border-radius: 18px; line-height: 1.6; }
 
 .source-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 50; width: min(var(--drawer-width), 92vw); padding: 22px; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--line); box-shadow: -18px 0 50px rgba(0, 0, 0, 0.12); transform: translateX(104%); transition: transform 180ms ease; }
 .source-drawer.open { transform: translateX(0); }
@@ -341,8 +352,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .composer { min-height: 52px; padding: 5px 6px 5px 10px; }
   .composer-tool, .composer-action { width: 38px; height: 38px; flex-basis: 38px; }
   .retrieval-mode { display: none; }
-  .composer-meta span:first-child { display: none; }
-  .composer-meta { justify-content: flex-end; }
+  .composer-meta #knowledge-scope { display: none; }
+  .composer-meta { justify-content: space-between; }
   .admin-shell { display: block; }
   .admin-nav { position: sticky; top: 0; z-index: 20; width: 100%; height: auto; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
   .admin-brand, .admin-nav-label { display: none; }

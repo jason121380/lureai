@@ -28,9 +28,10 @@ class RecordingAnswerer:
     def __init__(self):
         self.history = None
 
-    def answer(self, _question, _hits, history=None, allow_model=True):
+    def answer(self, _question, _hits, history=None, allow_model=True, tone="expert"):
         self.history = history
         self.allow_model = allow_model
+        self.tone = tone
         return "先檢查回覆速度。[1]", "llm", "used", {
             "input_tokens": 120, "output_tokens": 30,
         }
@@ -137,7 +138,7 @@ class ServiceTests(unittest.TestCase):
             model_enabled = True
             model_name = "test-model"
 
-            def stream_answer(self, _question, _hits, history=None):
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
                 yield ("delta", "先檢查回覆速度")
                 yield ("delta", "。[1]")
                 yield ("usage", {
@@ -165,7 +166,7 @@ class ServiceTests(unittest.TestCase):
             model_enabled = True
             model_name = "test-model"
 
-            def stream_answer(self, _question, _hits, history=None):
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
                 yield ("delta", "先檢查回覆速度。[1]\n\n▷ 回覆速度標準是什麼？\n▷ 如何抽查私訊品質？\n▷ 預約引導怎麼寫？")
                 yield ("usage", {
                     "input_tokens": 1, "cached_input_tokens": 0,
@@ -192,7 +193,7 @@ class ServiceTests(unittest.TestCase):
             model_enabled = True
             model_name = "test-model"
 
-            def stream_answer(self, _question, _hits, history=None):
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
                 yield ("delta", "先算回覆率【1】，再改第一句（2）。")
                 yield ("usage", {
                     "input_tokens": 1, "cached_input_tokens": 0,
@@ -215,14 +216,14 @@ class ServiceTests(unittest.TestCase):
             model_enabled = True
             model_name = "test-model"
 
-            def stream_answer(self, _question, _hits, history=None):
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
                 yield ("delta", "答案沒有引用編號。")
                 yield ("usage", {
                     "input_tokens": 1, "cached_input_tokens": 0,
                     "cache_write_input_tokens": 0, "output_tokens": 1,
                 })
 
-            def retry_with_citations(self, question, hits, history=None):
+            def retry_with_citations(self, question, hits, history=None, tone="expert"):
                 calls.append(question)
                 return "重試後有引用了 [1]", {
                     "input_tokens": 2, "cached_input_tokens": 0,
@@ -246,7 +247,7 @@ class ServiceTests(unittest.TestCase):
             model_enabled = True
             model_name = "test-model"
 
-            def stream_answer(self, _question, _hits, history=None):
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
                 yield ("delta", "沒有引用的回答")
 
             def _extractive_answer(self, hits, model_failed=False):
@@ -335,6 +336,48 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(answerer.history, history)
         self.assertEqual(result["answer_mode"], "llm")
         self.assertEqual(result["model_status"], "used")
+
+    def test_tone_is_passed_to_the_answerer_and_echoed_in_the_result(self):
+        answerer = RecordingAnswerer()
+        self.service.answerer = answerer
+
+        result = self.service.chat("燙髮後怎麼整理？", tone="service")
+
+        self.assertEqual(answerer.tone, "service")
+        self.assertEqual(result["tone"], "service")
+
+    def test_unknown_tone_falls_back_to_expert(self):
+        answerer = RecordingAnswerer()
+        self.service.answerer = answerer
+
+        result = self.service.chat("燙髮後怎麼整理？", tone="hacker")
+
+        self.assertEqual(answerer.tone, "expert")
+        self.assertEqual(result["tone"], "expert")
+
+    def test_stream_passes_tone_to_the_answerer(self):
+        tones = []
+
+        class ToneRecordingAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
+                tones.append(tone)
+                yield ("delta", "先檢查回覆速度。[1]")
+                yield ("usage", {
+                    "input_tokens": 1, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 1,
+                })
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = ToneRecordingAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？", tone="service"))[-1]
+
+        self.assertEqual(tones, ["service"])
+        self.assertEqual(result["tone"], "service")
 
     def test_chat_rejects_client_supplied_assistant_history(self):
         with self.assertRaisesRegex(ValueError, "對話紀錄格式"):

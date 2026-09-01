@@ -86,7 +86,14 @@
           <button id="stop-button" class="composer-action stop-action" type="button" title="停止產生" aria-label="停止產生" hidden><i data-lucide="square"></i></button>
           <button id="send-button" class="composer-action send-action" type="submit" title="送出訊息" aria-label="送出訊息"><i data-lucide="arrow-up"></i></button>
         </form>
-        <div class="composer-meta"><span id="knowledge-scope">回答僅使用已核准知識</span><span id="char-count">0 / 1200</span></div>
+        <div class="composer-meta">
+          <div class="tone-toggle" id="tone-toggle" role="group" aria-label="語氣設定">
+            <button type="button" class="tone-option active" data-tone="expert" aria-pressed="true" title="專家模式：完整條列、講深講透">專家</button>
+            <button type="button" class="tone-option" data-tone="service" aria-pressed="false" title="客服模式：像真人聊天，一句一句回">客服</button>
+          </div>
+          <span id="knowledge-scope">回答僅使用已核准知識</span>
+          <span id="char-count">0 / 1200</span>
+        </div>
       </div>
     </main>
 

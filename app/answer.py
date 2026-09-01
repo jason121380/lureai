@@ -46,6 +46,32 @@ FOLLOWUP_INSTRUCTION = (
     "每行 20 字內、繁體中文、不加引用編號、不加其他說明。"
 )
 
+# 語氣設定：附加在 policy 之後。expert 放寬長度、講深一點；service 改成
+# 真人聊天式的一句一句短訊息，覆蓋 policy 裡的條列與字數規則。
+DEFAULT_TONE = "expert"
+TONE_INSTRUCTIONS = {
+    "expert": (
+        "\n\n## 語氣設定：專家模式（放寬前面的長度規則）\n"
+        "條列給 3~5 點、每點可到 60 字，除了「做什麼」也要講清楚「為什麼這樣做」"
+        "與「怎麼驗收」（附具體數字或門檻）；全篇上限放寬到 400 字。"
+        "結構不變：一句結論開頭、條列行動、講得完就停，引用規則照舊。"
+    ),
+    "service": (
+        "\n\n## 語氣設定：客服模式（覆蓋前面的條列與字數規則）\n"
+        "你現在像真人在通訊軟體上跟他聊天，一句一句發訊息。"
+        "輸出 3~6 行，每行就是一則要發給他的獨立短訊息：口語短句、10~40 字、一句講一件事。"
+        "禁止條列符號、編號清單、小標題與表格；口吻自然親切，可以像朋友一樣接話，"
+        "但每句都要具體到他知道要做什麼。"
+        "引用照舊：內容出自來源的那一行，行尾附半形 [1] 這種編號；"
+        "整篇至少要有一個引用，否則會被系統丟棄。"
+    ),
+}
+
+
+def normalize_tone(tone) -> str:
+    value = str(tone or "").strip().lower()
+    return value if value in TONE_INSTRUCTIONS else DEFAULT_TONE
+
 
 CITATION_MARK = re.compile(r"[【〔\[（(]\s*([0-9０-９]{1,2})\s*[】〕\]）)]")
 FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
@@ -117,6 +143,7 @@ class AnswerEngine:
         hits: list[SearchHit],
         history: list[dict] | None = None,
         allow_model: bool = True,
+        tone: str = DEFAULT_TONE,
     ) -> tuple[str, str, str, dict]:
         empty_usage = {
             "input_tokens": 0,
@@ -128,14 +155,14 @@ class AnswerEngine:
             return self._extractive_answer(hits), "extractive", "budget_exhausted", empty_usage
         if self.model_enabled:
             try:
-                generated, usage = self._call_model(question, hits, history=history)
+                generated, usage = self._call_model(question, hits, history=history, tone=tone)
                 generated = normalize_citation_marks(generated)
                 if generated and re.search(r"\[\d+\]", generated):
                     return generated.strip(), "llm", "used", usage
                 log_model_failure(
                     "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"
                 )
-                retried, retry_usage = self.retry_with_citations(question, hits, history=history)
+                retried, retry_usage = self.retry_with_citations(question, hits, history=history, tone=tone)
                 usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                 if retried:
                     return retried, "llm", "used", usage
@@ -161,11 +188,11 @@ class AnswerEngine:
             lines.append(f"\n{text} [{index}]")
         return "".join(lines)
 
-    def retry_with_citations(self, question, hits, history=None):
+    def retry_with_citations(self, question, hits, history=None, tone=DEFAULT_TONE):
         """缺引用時的最後一搏：加上明確警語重打一次，仍失敗就回空字串。"""
         try:
             generated, usage = self._call_model(
-                question, hits, history=history, extra_instruction=CITATION_RETRY_NOTE
+                question, hits, history=history, extra_instruction=CITATION_RETRY_NOTE, tone=tone
             )
         except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
             log_model_failure("citation-retry", exc, f"model={self.model_name}")
@@ -188,6 +215,7 @@ class AnswerEngine:
         history: list[dict] | None,
         stream: bool,
         extra_instruction: str = "",
+        tone: str = DEFAULT_TONE,
     ) -> urllib.request.Request:
         source_text = "\n\n".join(
             f"<source id=\"{index}\" title=\"{hit.title}\" locator=\"{hit.locator}\">\n{hit.text}\n</source>"
@@ -203,7 +231,12 @@ class AnswerEngine:
         })
         payload = {
             "model": os.environ["LLM_MODEL"],
-            "instructions": self.policy + FOLLOWUP_INSTRUCTION + extra_instruction,
+            "instructions": (
+                self.policy
+                + TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS[DEFAULT_TONE])
+                + FOLLOWUP_INSTRUCTION
+                + extra_instruction
+            ),
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
             "store": False,
@@ -236,9 +269,15 @@ class AnswerEngine:
             "output_tokens": max(0, int(usage.get("output_tokens", 0))),
         }
 
-    def stream_answer(self, question: str, hits: list[SearchHit], history: list[dict] | None = None):
+    def stream_answer(
+        self,
+        question: str,
+        hits: list[SearchHit],
+        history: list[dict] | None = None,
+        tone: str = DEFAULT_TONE,
+    ):
         """Yield ("delta", text) chunks and a final ("usage", tokens) event."""
-        request = self._model_request(question, hits, history, stream=True)
+        request = self._model_request(question, hits, history, stream=True, tone=tone)
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", "replace").strip()
@@ -276,8 +315,11 @@ class AnswerEngine:
         hits: list[SearchHit],
         history: list[dict] | None = None,
         extra_instruction: str = "",
+        tone: str = DEFAULT_TONE,
     ) -> tuple[str, dict]:
-        request = self._model_request(question, hits, history, stream=False, extra_instruction=extra_instruction)
+        request = self._model_request(
+            question, hits, history, stream=False, extra_instruction=extra_instruction, tone=tone
+        )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read())
         usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
