@@ -237,11 +237,16 @@
     const list = el("conversation-list");
     const query = el("conversation-search-input").value.trim().toLowerCase();
     list.replaceChildren();
-    state.conversations.filter((conversation) => conversation.title.toLowerCase().includes(query)).forEach((conversation) => {
+    state.conversations.filter((conversation) => conversation.title.toLowerCase().includes(query)).forEach((conversation, index) => {
       const item = document.createElement("div");
       item.className = `conversation-item${conversation.id === state.activeId ? " active" : ""}`;
       item.setAttribute("role", "button");
       item.tabIndex = 0;
+      // 編號從最新那一段開始數，跟清單順序一致（最上面是 1）。
+      const order = document.createElement("span");
+      order.className = "conversation-order";
+      order.textContent = index + 1;
+      order.setAttribute("aria-hidden", "true");
       const label = document.createElement("span");
       label.className = "conversation-copy";
       const name = document.createElement("span");
@@ -282,7 +287,7 @@
       item.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
       });
-      item.append(label, remove);
+      item.append(order, label, remove);
       list.append(item);
     });
   }

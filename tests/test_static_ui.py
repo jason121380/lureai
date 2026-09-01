@@ -405,6 +405,8 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("lastSyncAt", script)
         # 側欄可以下拉更新（手機上最直覺的「我要看最新的」動作）。
         self.assertIn("function setupPullToRefresh", script)
+        # 側欄每一段對話前面顯示編號（最上面是 1）。
+        self.assertIn("conversation-order", script)
         self.assertIn("touchstart", script)
         # 每次進到空白對話都要換一組建議問題。
         self.assertIn("function pickRandom", script)
