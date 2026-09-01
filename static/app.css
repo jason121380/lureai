@@ -69,10 +69,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-delete svg { width: 15px; height: 15px; }
 .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
 .conversation-delete:hover { color: var(--warning); background: #e4e4e4; }
+/* 刪除不用瀏覽器原生視窗：第一下變成「確定刪除」，再按一下才刪 */
+.conversation-delete.confirming { width: auto; flex-basis: auto; padding: 0 8px; opacity: 1; color: var(--warning); background: var(--warning-soft); }
+.confirm-delete { font-size: 11px; font-weight: 600; white-space: nowrap; }
 @media (hover: none) {
   .conversation-delete { opacity: 1; }
 }
-.sidebar-footer { display: grid; gap: 12px; padding: 14px 7px 5px; border-top: 1px solid var(--line); }
+.sidebar-footer { position: relative; display: grid; gap: 12px; padding: 14px 7px 5px; border-top: 1px solid var(--line); }
+/* 帳號彈窗：按名字打開，設定（語氣）／用量 兩個分頁 */
+.account-menu { position: absolute; left: 7px; right: 7px; bottom: calc(100% + 6px); z-index: 80; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.08); }
+.account-tabs { display: flex; gap: 2px; padding: 2px; margin-bottom: 10px; background: var(--sidebar); border-radius: var(--radius-pill); }
+.account-tab { flex: 1; min-height: 28px; color: var(--ink-soft); background: transparent; border: 0; border-radius: var(--radius-pill); cursor: pointer; font-size: 12px; font-weight: 600; }
+.account-tab.active { color: #fff; background: var(--ink); }
+.menu-label { margin: 2px 2px 8px; color: var(--muted); font-size: 11px; }
+.account-panel .tone-toggle { display: flex; }
+.account-menu .usage-panel { border: 0; padding: 2px; }
 .usage-panel { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }
 .usage-heading strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
@@ -81,7 +92,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .usage-spend, .usage-tokens { display: block; }
 .usage-spend { font-size: 11px; font-weight: 650; }
 .usage-tokens { margin-top: 3px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
-.user-account { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.user-account { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px; border-radius: 10px; cursor: pointer; }
+.user-account:hover { background: var(--hover); }
 .user-account .icon-button { flex: 0 0 30px; width: 30px; height: 30px; color: var(--muted); }
 .profile-avatar { width: 31px; height: 31px; flex: 0 0 31px; display: grid; place-items: center; color: #fff; background: var(--ink); border-radius: 50%; font-size: 13px; font-weight: 700; }
 .profile-copy { min-width: 0; flex: 1; }
@@ -163,10 +175,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .message-status { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; margin-top: 13px; padding: 4px 10px; color: var(--ok); background: var(--ok-soft); border: 0; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; }
 .message-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .message-status svg { width: 13px; height: 13px; }
-.citation-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-.citation-button { min-height: 31px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 6px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: 12px; }
+.citation-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.citation-label { color: var(--muted); font-size: 11px; }
+.citation-button { min-height: 25px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: 11px; }
 .citation-button:hover { color: var(--ink); background: var(--bubble); }
-.citation-number { display: grid; place-items: center; width: 19px; height: 19px; color: #fff; background: var(--ink); border-radius: 50%; font-size: 10px; font-weight: 700; }
+.citation-number { display: grid; place-items: center; width: 15px; height: 15px; color: #fff; background: var(--ink); border-radius: 50%; font-size: 9px; font-weight: 700; }
 .typing { display: flex; gap: 5px; padding: 8px 0; }
 .typing span { width: 6px; height: 6px; background: var(--muted); border-radius: 50%; animation: pulse 900ms ease-in-out infinite; }
 .typing span:nth-child(2) { animation-delay: 150ms; }
@@ -175,8 +188,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .composer-shell { position: relative; z-index: 5; padding: 12px 24px 16px; background: rgba(255, 255, 255, 0.97); border-top: 1px solid transparent; }
 .is-empty .composer-shell { position: absolute; top: 42%; left: 0; right: 0; bottom: auto; padding: 0 40px; background: transparent; }
-.composer { width: min(820px, 100%); min-height: 58px; display: flex; align-items: center; gap: 8px; margin: 0 auto; padding: 7px 8px 7px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 28px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.07); }
-.is-empty .composer { width: min(980px, 100%); }
+.composer { width: min(820px, 100%); min-height: 58px; display: flex; align-items: center; gap: 8px; margin: 0 auto; padding: 7px 8px 7px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 28px; }
+.is-empty .composer { width: min(640px, 100%); }
 .composer:focus-within { border-color: #c8c8c8; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1); }
 .composer textarea { min-width: 0; max-height: 160px; flex: 1; resize: none; padding: 9px 4px; color: var(--ink); background: transparent; border: 0; outline: 0; line-height: 1.5; }
 .composer textarea::placeholder { color: var(--muted); }
@@ -192,9 +205,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .send-action:disabled { color: #a5a5a5; background: #e6e6e6; cursor: default; }
 .stop-action { color: #fff; background: var(--ink); }
 .composer-meta { width: min(820px, 100%); display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 7px auto 0; color: var(--muted); font-size: 10px; }
-/* 空白對話只留語氣切換（置中），字數與範圍說明等開始對話再出現 */
-.is-empty .composer-meta { justify-content: center; margin-top: 12px; }
-.is-empty .composer-meta #knowledge-scope, .is-empty .composer-meta #char-count { display: none; }
+.is-empty .composer-meta { display: none; }
 
 /* 語氣設定：專家（條列講深）／客服（真人聊天一句一句回） */
 .tone-toggle { display: inline-flex; gap: 2px; padding: 2px; background: var(--bubble); border-radius: var(--radius-pill); }
@@ -355,7 +366,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .composer-tool, .composer-action { width: 38px; height: 38px; flex-basis: 38px; }
   .retrieval-mode { display: none; }
   .composer-meta #knowledge-scope { display: none; }
-  .composer-meta { justify-content: space-between; }
+  .composer-meta { justify-content: flex-end; }
   .admin-shell { display: block; }
   .admin-nav { position: sticky; top: 0; z-index: 20; width: 100%; height: auto; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
   .admin-brand, .admin-nav-label { display: none; }
