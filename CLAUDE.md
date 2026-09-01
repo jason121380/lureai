@@ -61,6 +61,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_knowledge_index.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。
 - **知識治理**：匯入強制 `review_status=approved` + `access_level` 相符 + `rag_allowed=true`；任何一筆不合格整批拒絕。
+- **HTTP/1.1 與串流收尾**：`app/server.py` 的 Handler 明寫 `protocol_version = "HTTP/1.1"`（預設的 1.0 沒有 keep-alive，每個靜態檔都要重開連線＋重做 TLS，畫面會變成「HTML 出來了但 CSS 沒有、一直轉」），`request_queue_size = 128`（預設 5 會被一頁的靜態檔塞爆）。代價是**每個回應都要讓瀏覽器知道 body 到哪裡結束**：`/api/chat/stream` 沒有 `Content-Length`，所以它自己送 `Connection: close` ＋ `close_connection = True`。新增任何不帶 Content-Length 的回應時務必比照辦理，否則游標會一直轉。`tests/test_api.py` 的 `ConnectionTests` 守著。
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
 - **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
 - **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。

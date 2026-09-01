@@ -1,3 +1,4 @@
+import http.client
 import json
 import os
 import tempfile
@@ -533,3 +534,58 @@ class ApiTests(ServerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConnectionTests(ServerTestCase):
+    """靜態檔要能共用同一條連線。
+
+    預設的 HTTP/1.0 會讓每一個檔（CSS、JS、logo、icon）各開一條 TCP 連線，
+    在雲端還要各做一次 TLS 交握；再加上 backlog 只有 5，同時湧進來就有連線
+    被作業系統丟掉——症狀是「HTML 出來了但 CSS 沒有、分頁一直轉」。
+    """
+
+    def test_responses_are_http_1_1(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        connection.request("GET", "/app.css")
+        response = connection.getresponse()
+        response.read()
+
+        self.assertEqual(response.version, 11)
+        connection.close()
+
+    def test_one_connection_serves_several_files(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        for path in ("/app.css", "/app.css", "/app.css"):
+            connection.request("GET", path)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            # 沒讀完就換下一個請求會炸；讀得完代表 Content-Length 是對的。
+            self.assertTrue(response.read())
+            self.assertFalse(response.will_close, "連線被關掉了，keep-alive 沒生效")
+        connection.close()
+
+    def test_the_socket_backlog_is_not_the_default_five(self):
+        # 一頁的靜態檔加上其他分頁很容易超過 5。
+        self.assertGreaterEqual(type(self.server).request_queue_size, 64)
+
+    def test_streaming_still_ends_by_itself(self):
+        """串流沒有 Content-Length，靠關連線收尾。
+
+        改成 HTTP/1.1 之後如果忘了送 Connection: close，瀏覽器會一直等下一則
+        訊息，畫面就是回答出來了但游標一直轉。
+        """
+        self.request("POST", "/api/auth/login", {"username": "designer", "password": "designer-password"})
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        jar = next(h.cookiejar for h in self.client.handlers if hasattr(h, "cookiejar"))
+        cookie = "; ".join(f"{item.name}={item.value}" for item in jar)
+        connection.request(
+            "POST", "/api/chat/stream",
+            body=json.dumps({"message": "顧客不滿意怎麼處理？"}).encode(),
+            headers={"Content-Type": "application/json", "Cookie": cookie},
+        )
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Connection"), "close")
+        # read() 讀到 EOF 才會回來；沒收尾的話這裡會卡到 timeout。
+        self.assertTrue(response.read())
+        connection.close()
