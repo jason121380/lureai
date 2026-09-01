@@ -81,17 +81,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pull-refresh.ready span::before, .pull-refresh.loading span::before { font-size: 14px; }
 .pull-refresh.ready span::before { content: "放開更新"; }
 .pull-refresh.loading span::before { content: "更新中"; }
-.conversation-item { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 15px; }
+.conversation-item { width: 100%; min-height: 52px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 17px; }
 .conversation-item:hover, .conversation-item.active { background: var(--hover); }
-/* 對話編號：固定寬度靠右對齊，兩位數也不會把標題推歪。 */
 /* 編號要跟標題同一列（不是夾在標題與時間中間），而且靠左。固定寬度讓兩位數
    也不會把標題推歪；`align-self: flex-start` ＋ 跟標題一樣的行高才對得齊。 */
-.conversation-order { flex: 0 0 23px; align-self: flex-start; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; line-height: 21px; text-align: left; }
+.conversation-order { flex: 0 0 28px; align-self: flex-start; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 15px; line-height: 24px; text-align: left; }
 .conversation-item.active .conversation-order { color: var(--ink-soft); }
 .conversation-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .conversation-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 每個對話記錄最後活動的日期時間 */
-.conversation-time { color: var(--muted); font-size: 12px; font-family: "SFMono-Regular", Consolas, monospace; }
+.conversation-time { color: var(--muted); font-size: 14px; font-family: "SFMono-Regular", Consolas, monospace; }
 .conversation-delete { width: 28px; height: 28px; flex: 0 0 28px; display: inline-grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
 .conversation-delete svg { width: 15px; height: 15px; }
 .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
