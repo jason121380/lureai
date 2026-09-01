@@ -39,7 +39,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/tuning.py` | AI 模型校調：把送給模型的規則整理成目錄，後台可逐條改；`compose_policy`／`compose_tone` 負責組回去 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
-| `knowledge/*.md` | 七本人工整理的知識手冊（coach／chat／ads／social／session／career／ops），編譯後共 241 塊 |
+| `knowledge/*.md` | 九本人工整理的知識手冊（coach／chat／ads／social／session／career／ops／script／metric），編譯後共 278 塊 |
 | `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.4 萬筆檢索別名 |
 | `scripts/build_knowledge_index.py` | 唯一的索引編譯器（手冊 → JSONL，含問法展開）|
 | `scripts/coverage_report.py` | 用問法索引量測檢索覆蓋率 |
@@ -59,6 +59,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **開場題庫**：`run.py` 的歡迎題庫共 100 題，每題都必須答得出來且不重複，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳整份打散的題庫、前端每次抽 5 題（`WELCOME_PROMPT_COUNT`）。加題目前先用檢索驗過分數有沒有過 0.72。
 - **ADMIN_TOKEN 可以不設**：未設定時自動改用隨機權杖（stderr 有警語），等於停用 header 管理 API，後台仍走 admin 帳號登入——這是部署韌性設計，不要改回缺少就 exit。
 - **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_knowledge_index.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
+- **話術範本與關鍵數字是成品，不是原則**：`knowledge/scripts_playbook.md`（script-01~20）給的是可以直接複製貼上的逐字稿，`knowledge/benchmarks_playbook.md`（metric-01~11）給的是判斷高低的基準數字與拆解順序。這兩本是拿來解「說要給成品卻沒給」與「問到立場不表態」的——沒有成品可給，品質守門也擠不出東西來。**基準數字是使用者提供的實務值，不要自己改也不要自己補新的數字**（到店率 20%、回流率 30-40%、燙染對話成本 100/150/200/250、接髮 350/500、漲價 5-10%）；客單價與指名率刻意不給基準，因為它們沒有通用值，只能跟自己比。
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。
 - **知識治理**：匯入強制 `review_status=approved` + `access_level` 相符 + `rag_allowed=true`；任何一筆不合格整批拒絕。
 - **HTTP/1.1 與串流收尾**：`app/server.py` 的 Handler 明寫 `protocol_version = "HTTP/1.1"`（預設的 1.0 沒有 keep-alive，每個靜態檔都要重開連線＋重做 TLS，畫面會變成「HTML 出來了但 CSS 沒有、一直轉」），`request_queue_size = 128`（預設 5 會被一頁的靜態檔塞爆）。代價是**每個回應都要讓瀏覽器知道 body 到哪裡結束**：`/api/chat/stream` 沒有 `Content-Length`，所以它自己送 `Connection: close` ＋ `close_connection = True`。新增任何不帶 Content-Length 的回應時務必比照辦理，否則游標會一直轉。`tests/test_api.py` 的 `ConnectionTests` 守著。
