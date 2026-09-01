@@ -102,6 +102,14 @@ class StaticUiTests(unittest.TestCase):
         opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
         self.assertIn('classList.add("clear")', opener)
 
+    def test_mobile_edge_swipe_opens_the_sidebar(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        # 手機版從左緣往右滑展開選單。
+        self.assertIn('addEventListener("touchstart"', script)
+        self.assertIn("touch.clientX > 24", script)
+        self.assertIn("deltaX > 50", script)
+
     def test_bootstrap_never_spins_for_ever(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 

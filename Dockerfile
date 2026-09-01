@@ -4,6 +4,11 @@
 FROM public.ecr.aws/docker/library/python:3.12-slim
 
 WORKDIR /app
+
+# 唯一的第三方套件：psycopg（Postgres 持久化快照用）。
+# 程式在沒有 Postgres 連線設定時完全不 import 它，本機開發仍是零依賴。
+RUN pip3 install --no-cache-dir "psycopg[binary]>=3.1,<4"
+
 COPY . .
 
 ENV PYTHONUNBUFFERED=1

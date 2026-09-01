@@ -57,7 +57,7 @@ KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
 APP_DB_PATH=/data/hair-brain/designer_coach.db
 ```
 
-SQLite 負責索引、使用者、session、用量與稽核紀錄，不需要另外建立 PostgreSQL；正式環境建議掛載持久化 Volume，否則重新部署時後四項紀錄會重置。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
+SQLite 是工作資料庫（索引、檢索、當下狀態）。**持久化走 PostgreSQL、不需要 Volume**：在 Zeabur 加一個 PostgreSQL 服務並綁定到本服務（`DATABASE_URL`／`POSTGRES_*` 變數會自動注入），帳號、session、用量稽核、回饋評分與後台自訂知識會定期（預設 120 秒、可用 `PG_BACKUP_INTERVAL_SECONDS` 調整）壓成快照存進 Postgres，重新部署時自動還原；知識索引照常由 JSONL 重建，不進快照。沒綁 Postgres 時這些資料只活在容器內，重新部署會歸零。設定 `USER_USERNAME` 與 `USER_PASSWORD` 可在空資料庫自動建立第一個前台帳號，之後也能在管理後台建立或重設帳號。
 
 ## 系統需求
 
