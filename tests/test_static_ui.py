@@ -87,6 +87,19 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
 
+    def test_app_shell_row_cannot_be_stretched_by_the_sidebar(self):
+        """側欄對話一多時不可以撐破版面：隱含的 auto row 會讓整頁捲動、topbar 被捲掉。"""
+        css = CSS.read_text(encoding="utf-8")
+
+        shell = css.split(".app-shell {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-rows: minmax(0, 1fr)", shell)
+        self.assertIn("height: 100%", shell)
+        # 側欄要能被壓縮，內部清單才會接手捲動。
+        sidebar = css.split(".sidebar {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 0", sidebar)
+        # html 也要關掉整頁捲動（body 有、html 沒有時仍會整頁捲）。
+        self.assertIn("html, body { height: 100%; margin: 0; overflow: hidden; }", css)
+
     def test_mobile_sidebar_opens_as_a_white_80_percent_drawer(self):
         css = CSS.read_text(encoding="utf-8")
         script = CHAT_JS.read_text(encoding="utf-8")

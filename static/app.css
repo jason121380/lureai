@@ -30,7 +30,7 @@
 
 * { box-sizing: border-box; letter-spacing: 0; }
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
 body { overflow: hidden; background: var(--canvas); overscroll-behavior-y: none; }
 /* 安裝成 App 後畫面會延伸到瀏海與底部，這兩塊要跟內容同色。 */
 @supports (padding: env(safe-area-inset-top)) {
@@ -39,10 +39,12 @@ body { overflow: hidden; background: var(--canvas); overscroll-behavior-y: none;
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); outline-offset: 2px; }
-.app-shell { min-height: 0; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); height: 100%; }
+/* row 一定要寫死成一列 minmax(0,1fr)：留成隱含的 auto 時，側欄對話一多就會把
+   整個 grid 撐超過視窗，<html> 開始整頁捲動，position:relative 的 topbar 會被捲掉。 */
+.app-shell { min-height: 0; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; overflow: hidden; }
 .app-shell:has(.sidebar.desktop-hidden) { grid-template-columns: 0 minmax(0, 1fr); }
 
-.sidebar { min-width: 0; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); z-index: 30; transition: margin-left 180ms ease; }
+.sidebar { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 10px 8px 8px; color: var(--ink); background: var(--sidebar); border-right: 1px solid var(--line); z-index: 30; transition: margin-left 180ms ease; }
 .sidebar.desktop-hidden { margin-left: calc(var(--sidebar-width) * -1); }
 .brand-row { min-height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 7px; }
 .brand-logo { display: block; width: 74px; height: 22px; object-fit: contain; object-position: left center; }
