@@ -62,6 +62,50 @@ BOUNDARY_REPLIES = (
 )
 
 
+# 閒聊：打招呼、道謝、應聲、道別這種沒有輔導內容的話。這些不該進檢索——
+# 撈不到東西就會回「我手邊的資料不夠」，一句「哈囉」被當成問題，講話就很硬。
+# 條件放很緊（短訊息＋整句就是這些詞），像「謝謝 那廣告預算怎麼抓」這種
+# 後面接了真問題的訊息不會被當成閒聊，照樣走 RAG。
+SMALLTALK_TERMS = (
+    "哈囉", "哈嘍", "嗨", "hi", "hello", "hey", "你好", "妳好", "您好",
+    "早安", "午安", "晚安", "早", "在嗎", "在不在", "有人在嗎",
+    "謝謝", "謝啦", "感謝", "感恩", "thanks", "thank you", "thx", "3q",
+    "好", "好的", "好喔", "好唷", "了解", "瞭解", "收到", "知道了", "我知道了",
+    "ok", "okay", "okok", "嗯", "恩", "沒問題", "辛苦了", "辛苦你了",
+    "掰掰", "拜拜", "bye", "再見", "先這樣", "下次聊", "晚點聊",
+    "厲害", "讚", "太強了", "你很棒", "不錯",
+)
+
+# 標點兩端都去；語助詞只從句尾去（「了解」的「了」在開頭，不能一起剝掉）。
+SMALLTALK_PUNCTUATION = "~～!！?？.。,，、 "
+SMALLTALK_PARTICLES = "啊呀喔唷哦囉了呢嗎吧欸耶"
+# 允許在後面加一個稱呼（謝謝你、哈囉大家）。
+SMALLTALK_SUFFIXES = ("你", "您", "妳", "大家", "唷", "喔")
+# 超過這個長度就當成有內容的問題，一律走 RAG。
+SMALLTALK_MAX_CHARS = 12
+
+# 情緒句：對方在抒發，不是在問問題。只承接情緒，不檢索、不派任務、不要數字——
+# 同理一句之後接「請給我私訊數 預約數 到店數」等於前功盡棄。
+EMOTION_TERMS = (
+    "好累", "很累", "累死", "累爆", "好煩", "很煩", "煩死", "不爽", "生氣", "火大",
+    "好挫折", "很挫折", "難過", "想哭", "委屈", "無力", "沒動力", "提不起勁",
+    "好焦慮", "很焦慮", "好慌", "很慌", "壓力好大", "壓力很大", "撐不住",
+    "想放棄", "不想做了", "做不下去", "覺得自己很爛", "覺得自己沒用", "懷疑自己",
+    "心情不好", "心情很差", "好無奈", "有點difficult", "有點沮喪", "沮喪",
+)
+
+# 有這些字就代表他其實在問問題／要東西，情緒判斷讓路給 RAG。
+# 注意不要放「可以」這種日常詞：「本來可以接別的客人 有點不爽」是抒發，不是提問。
+ACTION_MARKERS = (
+    "?", "？", "嗎", "呢", "怎麼", "如何", "該不該", "要不要", "值不值得",
+    "幫我", "給我", "教我", "建議", "方法", "怎辦", "該怎", "有沒有辦法",
+    "什麼", "哪一", "哪個", "哪些", "幾個", "多久", "多少",
+)
+
+# 欲言又止：「算了 沒事」這種，不要當成問題，也不要放他走。
+HESITATION_TERMS = ("算了", "沒事", "沒什麼", "沒有啦", "沒事了", "當我沒說", "不說了")
+
+
 @dataclass(frozen=True)
 class PolicyDecision:
     action: str
@@ -108,6 +152,51 @@ class PolicyEngine:
         for reason, terms, message in BOUNDARY_REPLIES:
             if any(term in normalized for term in terms):
                 return PolicyDecision("direct", reason, self._override(f"reply-{reason}", message))
+        return None
+
+    def smalltalk(self, question: str) -> PolicyDecision | None:
+        """純打招呼／道謝／應聲就不要進檢索，讓模型自然接一句話。
+
+        比對得很嚴：整句去掉語助詞後要正好是那個詞（或疊字、或加個稱呼）。
+        用「包含」比對會把「好累」當成「好」，但那是有知識可查的情緒題。
+        """
+        normalized = "".join(str(question or "").lower().split())
+        normalized = normalized.strip(SMALLTALK_PUNCTUATION)
+        if not normalized or len(normalized) > SMALLTALK_MAX_CHARS:
+            return None
+        # 原句與「去掉句尾語助詞」的版本都比一次：「哈囉」本身是招呼語，
+        # 「好喔」則要剝掉「喔」才等於「好」。
+        candidates = {normalized, normalized.rstrip(SMALLTALK_PARTICLES)}
+        for candidate in candidates:
+            if not candidate:
+                continue
+            for term in SMALLTALK_TERMS:
+                if candidate in (term, term * 2) or any(
+                    candidate == term + suffix for suffix in SMALLTALK_SUFFIXES
+                ):
+                    return PolicyDecision("smalltalk", "smalltalk")
+        # 「算了 沒事」是兩個詞接在一起，逐個剝掉之後如果什麼都不剩就是欲言又止。
+        remainder = normalized
+        for term in HESITATION_TERMS:
+            remainder = remainder.replace(term, "")
+        if normalized != remainder and not remainder.strip(SMALLTALK_PARTICLES):
+            return PolicyDecision("smalltalk", "hesitation")
+        return None
+
+    def emotion_only(self, question: str) -> PolicyDecision | None:
+        """在抒發情緒又沒有提問時，只承接情緒，不進檢索。
+
+        「這個時段我本來可以接別的客人 有點不爽」接一句「請給我數字」會把
+        前面同理的效果全部抵銷；等他自己問「那我該怎麼調」再去拿知識。
+        """
+        text = str(question or "").lower()
+        normalized = "".join(text.split())
+        if not normalized:
+            return None
+        if any(marker in text for marker in ACTION_MARKERS):
+            return None
+        if any(term in normalized for term in EMOTION_TERMS):
+            return PolicyDecision("smalltalk", "emotion")
         return None
 
     def precheck(self, question: str) -> PolicyDecision:

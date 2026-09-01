@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from .answer import AnswerEngine
+from .answer import SMALLTALK_KINDS, AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
 from . import tuning
@@ -30,6 +30,7 @@ TUNING_RULE_MAX_CHARS = 4000
 WELCOME_PROMPT_POOL = 100
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .humanize import (
+    DELAY_RANGE,
     context_instruction,
     postprocess,
     reply_delay,
@@ -314,6 +315,24 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 **{f"reply-{reason}": message for reason, _terms, message in BOUNDARY_REPLIES},
             }
 
+        def _smalltalk_rules(self) -> dict:
+            return {
+                rule_id: default
+                for _kind, (rule_id, fallback_id, instruction, fallback) in SMALLTALK_KINDS.items()
+                for rule_id, default in ((rule_id, instruction), (fallback_id, fallback))
+            }
+
+        def _line_delivery(self) -> dict:
+            low, high = DELAY_RANGE
+            return {"delivery-delay": f"{low:g}-{high:g}"}
+
+        def _catalogue_defaults(self) -> dict:
+            return {
+                "fixed_replies": self._fixed_replies(),
+                "smalltalk_rules": self._smalltalk_rules(),
+                "line_delivery": self._line_delivery(),
+            }
+
         def _require_admin(self) -> bool:
             if self._is_admin():
                 return True
@@ -484,7 +503,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     return
                 overrides = context.store.model_rules()
                 groups = []
-                for group in tuning.catalogue(self._fixed_replies()):
+                for group in tuning.catalogue(**self._catalogue_defaults()):
                     rules = []
                     for rule in group["rules"]:
                         override = overrides.get(rule["id"], "")
@@ -655,7 +674,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             response["messages"] = messages
             response["answer"] = strip_citations(result["answer"]).strip()
-            response["delay_seconds"] = reply_delay()
+            response["delay_seconds"] = reply_delay(
+                delay_range=tuning.parse_delay_range(
+                    context.store.model_rules().get("delivery-delay", ""), DELAY_RANGE
+                )
+            )
             self._json(HTTPStatus.OK, response)
 
         def do_POST(self) -> None:
@@ -858,7 +881,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         return
                     rule_id = str(payload.get("rule_id", "")).strip()
                     text = str(payload.get("text", ""))
-                    if rule_id not in tuning.known_rule_ids(self._fixed_replies()):
+                    if rule_id not in tuning.known_rule_ids(**self._catalogue_defaults()):
                         self._json(HTTPStatus.BAD_REQUEST, {"error": "unknown_rule", "message": "找不到這條規則"})
                         return
                     if len(text) > TUNING_RULE_MAX_CHARS:

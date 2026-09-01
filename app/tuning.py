@@ -139,6 +139,51 @@ TONE_GROUPS = (
 )
 
 
+SMALLTALK_GROUP = {
+    "id": "smalltalk",
+    "label": "閒聊與情緒",
+    "hint": "打招呼、道謝、抒發情緒、欲言又止這幾種話不查知識庫，直接讓 AI 自然接一句。",
+}
+
+SMALLTALK_LABELS = {
+    "smalltalk-01": ("打招呼／道謝時怎麼回", "「哈囉」「謝謝」「收到」這種話的回應方式。"),
+    "smalltalk-02": ("打招呼的備援句", "模型不能用時直接送出這句。"),
+    "smalltalk-03": ("對方在抒發情緒時怎麼回", "只承接情緒，不派任務、不跟他要數字。"),
+    "smalltalk-04": ("情緒的備援句", "模型不能用時直接送出這句。"),
+    "smalltalk-05": ("對方欲言又止時怎麼回", "「算了」「沒事」不要放他走，也不要逼問。"),
+    "smalltalk-06": ("欲言又止的備援句", "模型不能用時直接送出這句。"),
+}
+
+LINE_DELIVERY_GROUP = {
+    "id": "line_delivery",
+    "label": "LINE 出口設定",
+    "hint": "只影響 lurebot 送進 LINE 的動作，不影響網頁對話。",
+}
+
+LINE_DELIVERY_LABELS = {
+    "delivery-delay": (
+        "回覆停頓秒數",
+        "AI 想好之後等幾秒才送出，像真人在打字。寫成「最短-最長」，"
+        "每則會在這個範圍內隨機。LINE 的 reply token 只有 60 秒，最長不要超過 30。",
+    ),
+}
+
+
+def parse_delay_range(text: str, default: tuple[float, float]) -> tuple[float, float]:
+    """把「8-25」這種設定解析成秒數區間；看不懂就用預設。"""
+    parts = str(text or "").replace("~", "-").replace("～", "-").split("-")
+    try:
+        values = [float(part.strip()) for part in parts if part.strip()]
+    except ValueError:
+        return default
+    if not values:
+        return default
+    low = max(0.0, values[0])
+    high = max(low, values[1] if len(values) > 1 else values[0])
+    # LINE 的 reply token 只有 60 秒，留一半給生成時間。
+    return (min(low, 30.0), min(high, 30.0))
+
+
 def _policy_text() -> str:
     try:
         return POLICY_PATH.read_text(encoding="utf-8")
@@ -165,8 +210,12 @@ def policy_sections() -> list[dict]:
     return sections
 
 
-def catalogue(fixed_replies: dict[str, dict] | None = None) -> list[dict]:
-    """完整的規則目錄：基本規則 → 三種語氣 → 固定回覆句。"""
+def catalogue(
+    fixed_replies: dict | None = None,
+    smalltalk_rules: dict | None = None,
+    line_delivery: dict | None = None,
+) -> list[dict]:
+    """完整的規則目錄：基本規則 → 三種語氣 → 閒聊 → LINE 出口 → 固定回覆句。"""
     groups: list[dict] = [{
         "id": "policy",
         "label": "基本回答規則",
@@ -180,6 +229,18 @@ def catalogue(fixed_replies: dict[str, dict] | None = None) -> list[dict]:
             "hint": group["hint"],
             "rules": [dict(rule, hint="") for rule in group["rules"]],
         })
+    if smalltalk_rules:
+        rules = []
+        for rule_id, text in smalltalk_rules.items():
+            label, hint = SMALLTALK_LABELS.get(rule_id, (rule_id, ""))
+            rules.append({"id": rule_id, "label": label, "text": text, "hint": hint})
+        groups.append({**SMALLTALK_GROUP, "rules": rules})
+    if line_delivery:
+        rules = []
+        for rule_id, text in line_delivery.items():
+            label, hint = LINE_DELIVERY_LABELS.get(rule_id, (rule_id, ""))
+            rules.append({"id": rule_id, "label": label, "text": text, "hint": hint})
+        groups.append({**LINE_DELIVERY_GROUP, "rules": rules})
     if fixed_replies:
         rules = []
         for rule_id, text in fixed_replies.items():
@@ -189,16 +250,16 @@ def catalogue(fixed_replies: dict[str, dict] | None = None) -> list[dict]:
     return groups
 
 
-def default_text(rule_id: str, fixed_replies: dict[str, dict] | None = None) -> str:
-    for group in catalogue(fixed_replies):
+def default_text(rule_id: str, **extras) -> str:
+    for group in catalogue(**extras):
         for rule in group["rules"]:
             if rule["id"] == rule_id:
                 return rule["text"]
     return ""
 
 
-def known_rule_ids(fixed_replies: dict[str, dict] | None = None) -> set[str]:
-    return {rule["id"] for group in catalogue(fixed_replies) for rule in group["rules"]}
+def known_rule_ids(**extras) -> set[str]:
+    return {rule["id"] for group in catalogue(**extras) for rule in group["rules"]}
 
 
 def _resolved(rule: dict, overrides: dict[str, str]) -> str:

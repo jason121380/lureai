@@ -94,6 +94,12 @@ class CustomerService:
         boundary = self.policy.boundary_reply(question)
         if boundary is not None:
             return [], [], boundary
+        # 打招呼、道謝、應聲這種話沒有東西可查，硬走 RAG 只會回「我手邊的資料不夠」，
+        # 一句「哈囉」被當成問題，講話就很硬。交給模型自然接一句，等他問到真正的
+        # 問題再從知識庫拿。
+        smalltalk = self.policy.smalltalk(question) or self.policy.emotion_only(question)
+        if smalltalk is not None:
+            return [], [], smalltalk
         precheck = self.policy.precheck(question)
         if precheck.action == "escalate":
             return [], [], precheck
@@ -171,6 +177,36 @@ class CustomerService:
             "model_status": "boundary" if direct else "policy",
         }
 
+    def _smalltalk_result(
+        self,
+        trace_id: str,
+        conversation_id: str | None,
+        question: str,
+        recent_history: list[dict],
+        allow_model: bool = True,
+        tone: str = "expert",
+        kind: str = "smalltalk",
+    ) -> dict:
+        """閒聊／情緒／欲言又止：不查知識庫、不掛來源，但照樣記帳與稽核。"""
+        answer, mode, model_status, usage = self.answerer.smalltalk(
+            question, history=recent_history, allow_model=allow_model, tone=tone, kind=kind,
+        )
+        return {
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+            "status": "answered",
+            "reason": kind,
+            "answer": answer,
+            "citations": [],
+            "answer_mode": mode,
+            "model_status": model_status,
+            "usage": usage,
+            # 打招呼時給幾個開場題目讓他知道可以問什麼；情緒與欲言又止不要塞，
+            # 那等於在他抒發的時候又派任務給他。
+            "followups": welcome_questions(limit=3) if kind == "smalltalk" else [],
+            "tone": tone,
+        }
+
     def chat(
         self,
         message: str,
@@ -187,6 +223,13 @@ class CustomerService:
         recent_history = self._safe_history(history)
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
+        if escalation is not None and getattr(escalation, "action", "") == "smalltalk":
+            result = self._smalltalk_result(
+                trace_id, conversation_id, question, recent_history,
+                allow_model=allow_model, tone=tone, kind=escalation.reason,
+            )
+            self._audit(question, result, [], user_id=user_id)
+            return result
         if escalation is not None:
             result = self._escalated_result(trace_id, conversation_id, escalation, hits)
             self._audit(question, result, hits, user_id=user_id)
@@ -247,6 +290,14 @@ class CustomerService:
         recent_history = self._safe_history(history)
         trace_id = str(uuid4())
         hits, grounded_hits, escalation = self._route(question, recent_history)
+        if escalation is not None and getattr(escalation, "action", "") == "smalltalk":
+            result = self._smalltalk_result(
+                trace_id, conversation_id, question, recent_history,
+                allow_model=allow_model, tone=tone, kind=escalation.reason,
+            )
+            self._audit(question, result, [], user_id=user_id)
+            yield {"type": "result", **result}
+            return
         if escalation is not None:
             result = self._escalated_result(trace_id, conversation_id, escalation, hits)
             self._audit(question, result, hits, user_id=user_id)

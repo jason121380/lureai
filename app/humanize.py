@@ -87,6 +87,13 @@ def postprocess(reply_text: str) -> list[str]:
     return [part for part in (head, tail) if part] or [single]
 
 
-def reply_delay(rng: random.Random | None = None) -> float:
-    """回覆停頓秒數；lurebot 收到後直接 sleep 這麼久再送出，像真人打字。"""
-    return round((rng or random).uniform(*DELAY_RANGE), 1)
+def reply_delay(rng: random.Random | None = None,
+                delay_range: tuple[float, float] | None = None) -> float:
+    """回覆停頓秒數；lurebot 收到後直接 sleep 這麼久再送出，像真人打字。
+
+    區間可在後台「AI 模型校調 → LINE 出口設定」改，沒設定就用 DELAY_RANGE。
+    """
+    low, high = delay_range or DELAY_RANGE
+    if high <= low:
+        return round(max(0.0, low), 1)
+    return round((rng or random).uniform(low, high), 1)
