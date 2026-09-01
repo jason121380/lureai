@@ -70,6 +70,22 @@ PLAYBOOKS = [
         "evidence": "一對一輔導職涯與工作狀態整理",
     },
     {
+        "path": "knowledge/scripts_playbook.md",
+        "prefix": "script",
+        "doc_id": "scripts-playbook",
+        "title": "設計師話術範本庫",
+        "domain": COACHING,
+        "evidence": "一對一輔導話術整理",
+    },
+    {
+        "path": "knowledge/benchmarks_playbook.md",
+        "prefix": "metric",
+        "doc_id": "benchmarks-playbook",
+        "title": "設計師關鍵數字與診斷框架",
+        "domain": COACHING,
+        "evidence": "一對一輔導數據基準整理",
+    },
+    {
         "path": "knowledge/salon_operations_playbook.md",
         "prefix": "ops",
         "doc_id": "salon-operations-playbook",

@@ -10,6 +10,10 @@
 
 ## 產品決策
 
+- **2026-09-01 補上知識庫最缺的兩塊：成品與基準**（使用者：「做，你不知道的關鍵數字問我」）：查出來 241 塊知識幾乎全是原則，缺兩種東西——(1) 可以直接複製貼上的逐字話術（整份手冊只有 22 處帶引號的例句），這正是實測「說要給成品卻沒給」的根因，不是模型偷懶而是知識庫裡沒有成品；(2) 判斷高低的基準數字（整份只有 1 處帶 % 的正常值），這是「不表態」的根因，沒有基準就只能反問。新增 `knowledge/scripts_playbook.md`（script-01~20 逐字話術，每塊是「情境→可以直接傳的話→為什麼→不要這樣講」）與 `knowledge/benchmarks_playbook.md`（metric-01~11 基準數字＋診斷框架），social 手冊補 social-26~31 題材庫。241 → 278 塊。
+  **數字全部由使用者提供，我沒有自己編**：私訊到店率 >20% 才及格、三個月回流率 30-40% 算健康、燙染廣告每次對話成本 <100 很棒／150 平均／>200 偏貴／>250 不行、接髮 <350 便宜／350-500 平均／>500 偏高、漲價一次 5-10%。客單價與指名率刻意寫成「沒有通用基準，跟自己比」，因為那本來就沒有標準答案，硬給一個數字會讓 AI 拿去跟設計師講得斬釘截鐵。**以後要改這些數字或加新的基準，一律先問使用者。**
+  順帶關掉之前記錄的已知缺口：「客人要留負評怎麼辦」現在撈到 script-12（0.96），不再掉到 career-12。16 題實測前三名命中 16/16。
+
 - **2026-09-01 一直轉、CSS 沒下來的真正原因是 HTTP/1.0**（使用者回報「為什麼有時候會這樣 load 不出來一直轉」，截圖是 HTML 有出來但 logo 破圖、輸入框是瀏覽器預設樣式）：伺服器沒設 `protocol_version`，`BaseHTTPRequestHandler` 預設就是 **HTTP/1.0＝沒有 keep-alive**，所以 index.html、app.css、chat.js、logo、icon 每一個檔都要重開一條 TCP 連線，在 Zeabur 前面還各要一次 TLS 交握；再加上 `ThreadingHTTPServer.request_queue_size` 預設只有 **5**，一頁的檔同時湧進來就會滿出 backlog、被作業系統直接丟掉。改成 `protocol_version = "HTTP/1.1"` ＋ `request_queue_size = 128` ＋ `allow_reuse_address`，實測五個檔從五條連線變一條。
   **改 1.1 的唯一風險是串流**：`/api/chat/stream` 邊生成邊寫，沒有 `Content-Length`，本來靠關連線收尾；HTTP/1.1 底下瀏覽器會一直等下一則（畫面就是答案出來了游標還在轉）。所以那條要自己送 `Connection: close` ＋ `self.close_connection = True`，實測 0.29 秒正常收尾。`tests/test_api.py` 的 `ConnectionTests` 四條守住這四件事。**以後新增不帶 Content-Length 的回應，一定要一起送 Connection: close。**
 
