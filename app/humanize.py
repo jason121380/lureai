@@ -14,7 +14,7 @@ import re
 DELAY_RANGE = (8, 25)
 
 # LINE 一次最多送幾則（和 line 語氣裡寫的規則一致）。
-MAX_PARTS = 3
+MAX_PARTS = 4
 
 CITATION_PATTERN = re.compile(r"\s*\[\d{1,2}\]")
 PUNCTUATION_PATTERN = re.compile(r"[，。、；：！？,.;:!?]+")
@@ -70,7 +70,7 @@ def postprocess(reply_text: str) -> list[str]:
             return parts
         # 超過上限就把中間併成一則，不要直接砍掉尾巴——砍掉會連收尾的問句
         # 和範例正文一起消失，設計師收到的就是一段沒講完的話。
-        return [parts[0], " ".join(parts[1:-1]), parts[-1]]
+        return [*parts[:MAX_PARTS - 2], " ".join(parts[MAX_PARTS - 2:-1]), parts[-1]]
     single = parts[0]
     if len(single) <= 10:
         return [single]

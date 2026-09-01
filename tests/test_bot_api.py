@@ -48,17 +48,21 @@ class HumanizeTests(unittest.TestCase):
 
         self.assertEqual(parts, ["先看回覆率 這週抓 20 則", "明天再回報給我"])
 
-    def test_postprocess_caps_at_three_messages(self):
-        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四")), 3)
+    def test_postprocess_caps_at_four_messages(self):
+        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四")), 4)
+        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四\n五\n六")), 4)
 
     def test_postprocess_keeps_every_line_when_capping(self):
         """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問句不能消失。"""
-        parts = postprocess("可以先用這個貼文範例\n最近想整理髮型的你\n這週有 2 個名額\n要一起改嗎")
+        parts = postprocess(
+            "可以先用這個貼文範例\n最近想整理髮型的你\n這週有 2 個名額\n想換個顏色嗎\n要一起改嗎"
+        )
 
         self.assertEqual(parts[0], "可以先用這個貼文範例")
         self.assertEqual(parts[-1], "要一起改嗎")
-        self.assertIn("最近想整理髮型的你", parts[1])
-        self.assertIn("這週有 2 個名額", parts[1])
+        joined = " ".join(parts)
+        for line in ("最近想整理髮型的你", "這週有 2 個名額", "想換個顏色嗎"):
+            self.assertIn(line, joined)
 
     def test_postprocess_splits_a_long_single_line(self):
         parts = postprocess("先看這週的回覆率 抓 20 則來看 明天再回報給我")
