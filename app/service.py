@@ -277,7 +277,11 @@ class CustomerService:
                 log_model_failure("stream", exc, f"model={self.answerer.model_name}")
                 model_status = "stream_failed"
             candidate, followups = split_followups(normalize_citation_marks(partial.strip()))
-            if model_status == "used" and candidate and re.search(r"\[\d+\]", candidate):
+            # 客服模式不用引用守門（編號本來就不顯示），避免好答案被丟掉。
+            needs_citation = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
+            if model_status == "used" and candidate and (
+                not needs_citation or re.search(r"\[\d+\]", candidate)
+            ):
                 answer = candidate
                 mode = "llm"
             else:
