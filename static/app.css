@@ -137,10 +137,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tone-indicator:hover { color: var(--ink); background: var(--hover); }
 .tone-confirm { position: absolute; top: calc(100% - 4px); right: 13px; z-index: 70; width: 208px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10); }
 .tone-confirm p { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
-.tone-confirm-actions { display: flex; gap: 6px; justify-content: flex-end; }
-.tone-cancel { min-height: 30px; padding: 4px 12px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: 12px; }
+.tone-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tone-cancel { min-height: 32px; padding: 0 12px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer; font-size: 12px; }
 .tone-cancel:hover { color: var(--ink); background: var(--bubble); }
-.tone-ok { min-height: 30px; padding: 4px 14px; font-size: 12px; }
+.tone-ok { min-height: 32px; padding: 0 14px; border-radius: 10px; font-size: 12px; }
 .topbar-title { min-width: 0; display: flex; align-items: center; gap: 2px; margin-right: auto; }
 .rename-button { width: 30px; height: 30px; color: var(--muted); flex: 0 0 30px; }
 .rename-button svg { width: 15px; height: 15px; }

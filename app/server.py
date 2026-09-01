@@ -20,6 +20,9 @@ from .answer import AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
 from .followups import welcome_questions
+
+# 開場題庫一次全部送給前端，讓每次抽題都從整個池子隨機。
+WELCOME_PROMPT_POOL = 100
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .health import build_health_report
 from .ingest import ingest_jsonl
@@ -353,9 +356,9 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     "profile": context.profile,
                     "app_name": context.app_name,
                     "assistant_name": context.assistant_name,
-                    # 每次開新對話都給不一樣的題目，前端再從中隨機挑三個。
+                    # 整份題庫都送出去（順序已洗過），前端每次開空白對話再抽五題。
                     "welcome_prompts": welcome_questions(
-                        limit=12, fallback=context.welcome_prompts
+                        limit=WELCOME_PROMPT_POOL, fallback=context.welcome_prompts
                     ),
                 })
                 return

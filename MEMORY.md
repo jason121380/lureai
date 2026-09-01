@@ -10,6 +10,10 @@
 
 ## 產品決策
 
+- **2026-09-01 開場建議 100 題、每次抽 5**（使用者要求「建議訊息到 5 則、每次都不一樣、randomize 100 個」）：`run.py` 題庫 24 → 100 題（不重複），涵蓋私訊對話健檢、廣告、社群、輔導流程、設計師人生題與店務營運六大塊；每題都先跑過檢索驗證（policy 放行＋top1 分數 ≥ 0.72，138 個候選全數通過後平均取樣成 100）。`/api/health` 改回傳整份打散的題庫（`WELCOME_PROMPT_POOL`），前端每次渲染空白對話再抽 5 題（`WELCOME_PROMPT_COUNT`）。桌機排成 2 列、手機 5 列，實測都不撐破版面。加題時務必先驗分數，`tests/test_welcome_prompts.py` 會逐題擋。
+
+- **2026-09-01 客服模式不做引用守門**（使用者回報正常回覆卻跳出「這題我剛剛沒有整理好」）：根因是設計自相矛盾——客服指令要求口語短句、前端又會把 `[n]` 剝掉，但守門仍硬性要求整篇至少一個 `[n]`，模型照指令寫出來的好答案（例：「我幫你看一下唷～／私訊盡量 2 小時內回／你想先調速度還是先看內容～」）被丟掉、重試再丟掉，使用者只看到降級訊息。修法：新增 `AnswerEngine.requires_citations(tone)`，客服模式直接放行（`app/answer.py` 與 `app/service.py` 串流路徑同步），並把客服指令裡的「要寫編號」改成「不用寫編號，但內容只能出自來源」。專家模式守門不變。
+
 - **2026-09-01 header 被捲掉（版面骨架）**：使用者回報對話一多 header 就不見，並自己抓到根因——`.app-shell` 的 grid 只定了 columns，隱含的 row 是 `auto`，不受 `height:100%` 限制；20 段對話時側欄內容 1187px > 視窗 824px，把整個 grid 撐大，`<html>` 開始整頁捲動（body 有 `overflow:hidden`、html 沒有），`position:relative` 的 topbar 被捲出畫面（實測 scrollY 363、headerTop −363）。修法：`.app-shell` 補 `grid-template-rows: minmax(0,1fr)` 與 `overflow:hidden`、`.sidebar` 補 `min-height:0`、`html` 也加 `overflow:hidden`。修後 1187→824、scrollY 0、headerTop 0。教訓：我第一次只用「一段長對話」測所以沒重現——版面題要用「側欄很多筆」而不是「訊息很多則」來測。已加 `test_app_shell_row_cannot_be_stretched_by_the_sidebar` 防回歸。
 
 - **2026-09-01 補上「設計師人生題」知識（健檢報告 P1-1）**：新增 `knowledge/career_playbook.md`（career-01~32，domain=coaching），補齊報告中失敗率 60~80% 的七個缺口——開店評估與損益兩平、工時與晚下班、界線與拒絕客人、休假與產能、職涯低潮與業績挫折、店內客人歸屬與同事衝突、定價調整幅度（一次 10% 上下、不要一次漲 200）、訂金金額與話術、進修投資回本、產品銷售的具體開口句。同步補 32 組問法種子。索引 209→241 塊、問法 1.2 萬→1.42 萬；覆蓋率 89.3%（原 88%）、100% 過門檻；報告裡 16 題實測全部命中正確知識塊。

@@ -88,9 +88,8 @@ TONE_INSTRUCTIONS = {
         "禁止條列符號、編號清單、小標題與表格。\n"
         "說了「你可以說」「你可以回」「你可以問」，下一句就一定要把那句話寫出來，"
         "不能只給指示卻沒有內容。\n"
-        "引用編號只給系統核對用，畫面不會顯示給對方，所以句子本身不要提到編號或「來源」："
-        "照樣在內容出自來源的行尾放半形 [1] 這種編號（不算入 10 個字），"
-        "整篇至少一個，否則會被系統丟棄。"
+        "這個模式不用寫引用編號，畫面也不會顯示；來源會另外列在對話下方。"
+        "但內容一樣只能出自我給你的來源，不要自己補知識庫沒有的數字或做法。"
     ),
 }
 
@@ -164,6 +163,15 @@ class AnswerEngine:
     def model_name(self) -> str:
         return os.getenv("LLM_MODEL", "")
 
+    @staticmethod
+    def requires_citations(tone: str) -> bool:
+        """只有會把 [n] 顯示出來的模式才用引用守門。
+
+        客服模式的編號本來就會被前端剝掉，硬性要求只會讓一則正常的口語回覆
+        因為「沒寫編號」被整篇丟棄，使用者看到的反而是降級訊息。
+        """
+        return normalize_tone(tone) != "service"
+
     def answer(
         self,
         question: str,
@@ -184,7 +192,9 @@ class AnswerEngine:
             try:
                 generated, usage = self._call_model(question, hits, history=history, tone=tone)
                 generated = normalize_citation_marks(generated)
-                if generated and re.search(r"\[\d+\]", generated):
+                if generated and (
+                    not self.requires_citations(tone) or re.search(r"\[\d+\]", generated)
+                ):
                     return generated.strip(), "llm", "used", usage
                 log_model_failure(
                     "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"

@@ -31,7 +31,8 @@ class WelcomePromptTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_every_opening_prompt_can_be_answered(self):
-        self.assertGreaterEqual(len(PROMPTS), 12)
+        self.assertGreaterEqual(len(PROMPTS), 100)
+        self.assertEqual(len(PROMPTS), len(set(PROMPTS)), "開場題目不可重複")
         for prompt in PROMPTS:
             self.assertEqual(self.policy.precheck(prompt).action, "continue", prompt)
             hits = self.retriever.retrieve(prompt, limit=1)

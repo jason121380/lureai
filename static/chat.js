@@ -2,6 +2,9 @@
   "use strict";
 
   const STORAGE_PREFIX = "zhang-rag-conversations-v1";
+  // 開場建議：題庫最多收 100 題，每次空白對話隨機顯示 5 題。
+  const WELCOME_PROMPT_POOL = 100;
+  const WELCOME_PROMPT_COUNT = 5;
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
@@ -232,8 +235,8 @@
       <h2>我們該從哪裡開始？</h2>
       <div class="prompt-list"></div>`;
     const list = wrapper.querySelector(".prompt-list");
-    // 每次進到空白對話都隨機換一組題目。
-    pickRandom(state.welcomePrompts, 3).forEach((label) => {
+    // 每次進到空白對話都從整個題庫隨機換一組題目。
+    pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT).forEach((label) => {
       const button = document.createElement("button");
       button.className = "prompt-suggestion";
       button.type = "button";
@@ -936,7 +939,7 @@
     state.profile = body.profile || "customer_service";
     state.assistantName = body.assistant_name || "AI 輔導教練";
     state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
-      ? body.welcome_prompts.slice(0, 12)
+      ? body.welcome_prompts.slice(0, WELCOME_PROMPT_POOL)
       : state.welcomePrompts;
     const appName = body.app_name || "LUREAI 你的智慧大腦中心";
     document.title = appName;

@@ -49,8 +49,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **追問不能斷**：建議問題一律經 `FollowupPlanner` 驗證（政策不擋＋撈得到夠格知識），`tests/test_followup_chain.py` 會實跑 50 輪連續追問，任何一輪轉人工就算失敗。
 - **語氣設定**：chat API 的 `tone`（`expert` 預設／`service`）只切換輸出格式指令（`app/answer.py` `TONE_INSTRUCTIONS`）與前端渲染（客服模式逐行泡泡）；未知值一律當 expert，引用守門與追問規劃不受影響。
-- **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks` 與 `retry_with_citations`。
-- **開場題庫**：`run.py` 的歡迎題庫每題都必須答得出來，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳隨機 12 題、前端每次抽 3 題。
+- **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。**守門只套用在專家模式**：客服模式的編號前端本來就會剝掉，硬要求會讓正常回覆被丟掉並顯示降級訊息，因此由 `AnswerEngine.requires_citations(tone)` 放行。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks`、`retry_with_citations` 與 `requires_citations`。
+- **開場題庫**：`run.py` 的歡迎題庫共 100 題，每題都必須答得出來且不重複，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳整份打散的題庫、前端每次抽 5 題（`WELCOME_PROMPT_COUNT`）。加題目前先用檢索驗過分數有沒有過 0.72。
 - **ADMIN_TOKEN 可以不設**：未設定時自動改用隨機權杖（stderr 有警語），等於停用 header 管理 API，後台仍走 admin 帳號登入——這是部署韌性設計，不要改回缺少就 exit。
 - **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_knowledge_index.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。
 - **兩大主題**：每塊知識都屬於 `domain`＝`operations`（店務營運管理）或 `coaching`（設計師一對一行銷輔導）。資料列自帶 `domain` 優先，沒帶時由 `app/domains.py` 依分類與來源推斷；後台總覽、篩選與新增知識都以這兩個主題為軸。

@@ -119,6 +119,48 @@ class AnswerTests(unittest.TestCase):
         self.assertIn("一句一句", payload["instructions"])
         self.assertNotIn("專家模式", payload["instructions"])
 
+    def test_service_tone_keeps_an_answer_without_citation_marks(self):
+        """客服模式不寫 [n]：編號本來就不顯示，不能因此把整篇丟掉降級。"""
+        hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
+        reply = "我幫你看一下唷～\n私訊盡量 2 小時內回\n你想先調速度還是先看內容～"
+        api_response = {
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": reply}]}],
+        }
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", return_value=FakeResponse(api_response)):
+            answer, mode, model_status, _usage = AnswerEngine().answer(
+                "私訊要多久回？", [hit], tone="service"
+            )
+
+        self.assertEqual(mode, "llm")
+        self.assertEqual(model_status, "used")
+        self.assertEqual(answer, reply)
+
+    def test_expert_tone_still_requires_citation_marks(self):
+        hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
+        api_response = {
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "沒有附引用的回答"}]}],
+        }
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://api.openai.com",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", return_value=FakeResponse(api_response)):
+            _answer, mode, model_status, _usage = AnswerEngine().answer("先查什麼？", [hit])
+
+        self.assertEqual(mode, "extractive")
+        self.assertEqual(model_status, "missing_citations")
+
+    def test_requires_citations_only_outside_service_tone(self):
+        self.assertTrue(AnswerEngine.requires_citations("expert"))
+        self.assertTrue(AnswerEngine.requires_citations("unknown"))
+        self.assertFalse(AnswerEngine.requires_citations("service"))
+
     def test_records_usage_even_when_model_returns_no_output_text(self):
         hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
         api_response = {
