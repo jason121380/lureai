@@ -272,6 +272,33 @@
     }
   }
 
+  // 知識內文照原始結構條列呈現（- 與 1. 各自成 <ul>/<ol>），不再壓成一整段。
+  function knowledgeExcerpt(raw) {
+    const full = String(raw || "");
+    const text = full.slice(0, 400);
+    const blocks = [];
+    let list = null;
+    const flush = () => {
+      if (list) { blocks.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`); list = null; }
+    };
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) { flush(); continue; }
+      const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
+      const ordered = bullet ? null : trimmed.match(/^\d{1,2}[.)]\s+(.*)$/);
+      if (bullet || ordered) {
+        const tag = bullet ? "ul" : "ol";
+        if (!list || list.tag !== tag) { flush(); list = { tag, items: [] }; }
+        list.items.push(`<li>${escapeHtml(bullet ? bullet[1] : ordered[1])}</li>`);
+      } else {
+        flush();
+        blocks.push(`<p>${escapeHtml(trimmed)}</p>`);
+      }
+    }
+    flush();
+    return `<div class="knowledge-text">${blocks.join("")}${full.length > 400 ? '<p class="knowledge-more">…</p>' : ""}</div>`;
+  }
+
   function knowledgeCard(item) {
     const custom = item.origin === "custom";
     const title = item.section_title || item.title || "（無標題）";
@@ -292,7 +319,7 @@
         </div>
         <div class="knowledge-actions">${actions}</div>
       </div>
-      <p>${escapeHtml(String(item.text || "").slice(0, 260))}${String(item.text || "").length > 260 ? "…" : ""}</p>
+      ${knowledgeExcerpt(item.text)}
     </article>`;
   }
 
