@@ -145,7 +145,11 @@ def postprocess(reply_text: str, style: dict) -> list[str]:
         return [re.sub(r"\s*\n+\s*", " ", text)]
     parts = [part.strip() for part in text.split("\n") if part.strip()]
     if len(parts) >= 2:
-        return parts[:MAX_PARTS]
+        if len(parts) <= MAX_PARTS:
+            return parts
+        # 超過上限就把中間併成一則，不要直接砍掉尾巴——砍掉會連收尾的問題
+        # 和範例正文一起消失，設計師收到的就是一段沒講完的話。
+        return [parts[0], " ".join(parts[1:-1]), parts[-1]]
     single = parts[0]
     if len(single) <= 10:
         return [single]

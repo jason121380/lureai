@@ -532,8 +532,10 @@
       .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    // 每次最多 3 則（硬上限）：模型超寫時保留前兩句＋收尾的問題那句。
-    return lines.length > 3 ? [lines[0], lines[1], lines[lines.length - 1]] : lines;
+    // 每次最多 3 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
+    // 丟中間會把「範例」「話術」的正文整段吃掉，只剩開頭跟結尾，答案就不到位了。
+    if (lines.length <= 3) return lines;
+    return [lines[0], lines.slice(1, -1).join(" "), lines[lines.length - 1]];
   }
 
   function renderServiceBubbles(content) {

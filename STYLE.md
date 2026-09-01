@@ -31,6 +31,7 @@
 ## 元件規則
 
 - **主要按鈕** `.command-button`：黑底白字藥丸，hover `#3d3d3d`，不變色系。
+- **確認彈窗的兩顆按鈕**（如切換語氣）：同形狀同尺寸的藥丸，只有填色不同——確認是黑底白字、取消是白底黑框黑字。選擇器要比 `.command-button` 更明確（`.tone-confirm-actions .tone-ok`），否則圓角與高度會被它蓋掉。
 - **輸入框** focus：邊框變 `--ink` + `box-shadow 0 0 0 1px var(--ink)`（不用彩色光暈）。
 - **聊天訊息**：使用者靠右、`--bubble` 氣泡、最大寬 78%；助理靠左純文字無框無頭像、字級 15px、行高 1.8。
 - **引用**：藥丸按鈕 + 黑色圓形編號；內文中的 `[n]` 是灰底小圓鈕 `.cite-ref`，點擊開來源抽屜。
@@ -51,6 +52,13 @@
 - AI 回答一律「一句結論 + 條列行動」，條列以真正的 `<ul>/<ol>` 呈現（`.message-text.rich`），不是純文字換行。
 - 條列間距 6px、區塊間距 10px；項目符號用次要色，避免搶走文字。
 - 使用者訊息維持 `white-space: pre-wrap`，只有 AI 回答切換成 `normal`。
+
+## 空白頁排版（標題／輸入框／建議題目）
+
+- 三者的位置全部由 `:root` 的 `--welcome-top`、`--welcome-title-h`、`--welcome-gap`、`--welcome-composer-h`、`--topbar-h` 推算，**不要讓標題用 `vh`、輸入框用 `%` 各算各的**：兩套單位在矮視窗會交叉，標題會壓到輸入框上（實測 1440×700 時重疊 5px）。
+- 輸入框在空白頁是絕對定位，`top = topbar + welcome-top + 標題高 + 間距`；建議題目的 `margin-top = 間距 × 2 + 輸入框高`，所以輸入框正好浮在標題與題目中間。
+- `.welcome h2` 要給固定 `height`／`line-height`（等於 `--welcome-title-h`），推算才會準。
+- 手機版只覆寫這組變數（含含安全區的 `--topbar-h`），不要再寫個別的 `padding-top`／`top`。
 
 ## 版面骨架（不要改回 auto）
 

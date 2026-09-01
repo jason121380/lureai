@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from .retrieval import SearchHit
 
 
-FALLBACK_MESSAGE = "目前知識庫沒有足夠且已核准的資料，我幫您轉由專人確認。"
+# 預設的查無資料說法：不要提到知識庫、系統或操作方式，那聽起來就像機器人。
+FALLBACK_MESSAGE = "這題我手邊的資料不夠 沒辦法給你準的答案\n還是你先跟我說一下你現在的數字"
 # 敏感題（退費賠償、勞資、醫療）跟「查不到資料」是兩件事，訊息要分開。
 SENSITIVE_MESSAGE = "這題要人來判斷比較保險唷\n我先不亂給方向 你跟主管確認過我們再接著談"
 

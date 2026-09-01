@@ -168,6 +168,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("SERVICE_BUBBLE_MAX", script)
         self.assertIn("不做字數硬拆", script)
         self.assertIn("function serviceSentences", script)
+        # 超過 3 則時把中間併起來，不可直接丟掉（丟掉會吃掉範例正文）。
+        self.assertIn("lines.slice(1, -1).join", script)
+        self.assertNotIn("[lines[0], lines[1], lines[lines.length - 1]]", script)
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
         self.assertIn("1500 + Math.random() * 1000", script)
