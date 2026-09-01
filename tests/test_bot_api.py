@@ -134,6 +134,16 @@ class BotApiTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())
 
+    def admin_request(self, method, path, payload=None, token="secret-token"):
+        data = None if payload is None else json.dumps(payload).encode()
+        headers = {"Content-Type": "application/json", "X-Admin-Token": token}
+        request = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
     def test_bot_endpoints_reject_wrong_token(self):
         self.assertEqual(self.request("GET", "/api/bot/health", token="nope")[0], 401)
         self.assertEqual(self.request("GET", "/api/bot/health", token=None)[0], 401)
@@ -149,8 +159,8 @@ class BotApiTests(unittest.TestCase):
         self.assertIn("model_enabled", body)
         self.assertEqual(body["style"], DEFAULT_STYLE)
 
-    def test_style_is_stored_and_read_back(self):
-        status, body = self.request("POST", "/api/bot/style", {"style": {
+    def test_style_is_edited_in_the_admin_and_read_back_by_the_bot(self):
+        status, body = self.admin_request("POST", "/api/admin/bot-style", {"style": {
             "tone": "calm", "length": "medium", "no_punct": False,
             "extra_prompt": "先問對方的店在哪",
         }})
@@ -163,6 +173,23 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(body["style"]["length"], "medium")
         self.assertFalse(body["style"]["no_punct"])
         self.assertEqual(body["style"]["extra_prompt"], "先問對方的店在哪")
+
+    def test_admin_style_endpoints_need_the_admin_token(self):
+        self.assertEqual(self.admin_request("GET", "/api/admin/bot-style", token="nope")[0], 401)
+        self.assertEqual(
+            self.admin_request("POST", "/api/admin/bot-style", {"style": {}}, token="nope")[0], 401
+        )
+        status, body = self.admin_request("GET", "/api/admin/bot-style")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(body["options"]), {"delay", "length", "tone"})
+        self.assertTrue(body["bot_api_enabled"])
+
+    def test_bot_cannot_change_the_style(self):
+        # 設定只在後台改；機器人這條路只讀得到，改不動。
+        status, _body = self.request("POST", "/api/bot/style", {"style": {"tone": "humor"}})
+
+        self.assertEqual(status, 404)
+        self.assertEqual(self.request("GET", "/api/bot/style")[1]["style"]["tone"], "natural")
 
     def test_reply_returns_line_ready_messages(self):
         stub = StubAnswerer("先看這週回覆率 [1]\n明天回報給我 [1]")
@@ -189,6 +216,19 @@ class BotApiTests(unittest.TestCase):
         self.assertIn("台中一店", stub.extra_instruction)
         self.assertIn("小美", stub.extra_instruction)
         self.assertIn("版面弄好了", stub.extra_instruction)
+
+    def test_reply_survives_a_missing_citation(self):
+        # 引用只給後台核對用，送出前就剝掉；少了編號不該讓 LINE 整則不回。
+        self.context.service.answerer = StubAnswerer("先看這週回覆率\n明天回報給我")
+
+        status, body = self.request("POST", "/api/bot/reply", {
+            "message": "燙髮後怎麼整理？", "conversation_id": "C123",
+            "style": {"delay": "none"},
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "answered")
+        self.assertEqual(body["messages"], ["先看這週回覆率", "明天回報給我"])
 
     def test_reply_stays_silent_on_sensitive_topics(self):
         self.context.service.answerer = StubAnswerer("不該送出的內容 [1]")

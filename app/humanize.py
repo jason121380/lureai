@@ -33,6 +33,27 @@ TONES = {
     "humor": "幽默輕鬆，偶爾開個小玩笑",
 }
 
+# 後台下拉選單用的中文標籤（順序就是畫面上的順序）。
+DELAY_LABELS = {
+    "none": "立即回覆",
+    "short": "短（4-12 秒）",
+    "natural": "自然（8-25 秒）",
+    "slow": "慢（15-30 秒）",
+}
+
+LENGTH_LABELS = {
+    "short": "簡短（40 字內）",
+    "medium": "中等（80 字內）",
+    "long": "詳細（130 字內）",
+}
+
+TONE_LABELS = {
+    "natural": "自然口語、像朋友聊天",
+    "lively": "活潑熱情",
+    "calm": "沉穩專業",
+    "humor": "幽默輕鬆",
+}
+
 # LINE 一次最多送幾則。
 MAX_PARTS = 3
 
