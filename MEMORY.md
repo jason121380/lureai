@@ -11,6 +11,9 @@
 ## 產品決策
 
 - **2026-09-01 lurebot 的 AI 大腦搬到 lureai**：LINE 端不再自己拼知識（Gemini + SOP/FAQ + 上傳文件那套全部拆掉），改打 lureai 的 `POST /api/bot/reply`。分工是「lureai 是大腦、lurebot 是通道」：群組脈絡（群組名／發話設計師／輔導階段）由 lurebot 隨請求帶上，知識、政策、生成、引用守門、稽核都在 lureai；真人模擬（語氣／長短／去標點／拆則／回覆停頓）也一起搬進來（`app/humanize.py`），所以大腦直接回「拆好的多則訊息 + 建議停頓秒數」，lurebot 只負責等秒數與送出。新增 `line` 語氣、`X-Bot-Token` 服務權杖與 `lurebot` 服務帳號（用量與月預算記在它頭上）。LINE 的 reply token 只有 60 秒，所以停頓上限抓 30 秒，lurebot 端還會再夾一次剩餘效期。
+
+- **2026-09-01 header 被捲掉（版面骨架）**：使用者回報對話一多 header 就不見，並自己抓到根因——`.app-shell` 的 grid 只定了 columns，隱含的 row 是 `auto`，不受 `height:100%` 限制；20 段對話時側欄內容 1187px > 視窗 824px，把整個 grid 撐大，`<html>` 開始整頁捲動（body 有 `overflow:hidden`、html 沒有），`position:relative` 的 topbar 被捲出畫面（實測 scrollY 363、headerTop −363）。修法：`.app-shell` 補 `grid-template-rows: minmax(0,1fr)` 與 `overflow:hidden`、`.sidebar` 補 `min-height:0`、`html` 也加 `overflow:hidden`。修後 1187→824、scrollY 0、headerTop 0。教訓：我第一次只用「一段長對話」測所以沒重現——版面題要用「側欄很多筆」而不是「訊息很多則」來測。已加 `test_app_shell_row_cannot_be_stretched_by_the_sidebar` 防回歸。
+
 - **2026-09-01 補上「設計師人生題」知識（健檢報告 P1-1）**：新增 `knowledge/career_playbook.md`（career-01~32，domain=coaching），補齊報告中失敗率 60~80% 的七個缺口——開店評估與損益兩平、工時與晚下班、界線與拒絕客人、休假與產能、職涯低潮與業績挫折、店內客人歸屬與同事衝突、定價調整幅度（一次 10% 上下、不要一次漲 200）、訂金金額與話術、進修投資回本、產品銷售的具體開口句。同步補 32 組問法種子。索引 209→241 塊、問法 1.2 萬→1.42 萬；覆蓋率 89.3%（原 88%）、100% 過門檻；報告裡 16 題實測全部命中正確知識塊。
 
 - **2026-09-01 健檢報告 P0 三項修復**（使用者做了 20 段 × 5 輪的實測報告，失敗率 31%）：

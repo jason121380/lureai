@@ -52,6 +52,12 @@
 - 條列間距 6px、區塊間距 10px；項目符號用次要色，避免搶走文字。
 - 使用者訊息維持 `white-space: pre-wrap`，只有 AI 回答切換成 `normal`。
 
+## 版面骨架（不要改回 auto）
+
+- `.app-shell` 必須同時寫 `grid-template-rows: minmax(0, 1fr)` 與 `height: 100%`。留成隱含的 `auto` row 時，側欄對話一多就會把 grid 撐超過視窗，`<html>` 開始整頁捲動，`position: relative` 的 `.topbar` 會直接被捲出畫面。
+- `.sidebar` 要有 `min-height: 0`，`.conversation-list` 才接得到捲動。
+- `html` 與 `body` 都要 `overflow: hidden`：只設 body 仍會整頁捲。
+
 ## 手機版選單
 
 - 側欄在手機版開成「左側 80% 寬」的純白抽屜（`--surface`＋右側 `--line` 細邊），不壓暗背景、不加陰影：任何壓暗或陰影都會在狀態列下緣形成交界。
