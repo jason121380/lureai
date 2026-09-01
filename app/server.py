@@ -615,8 +615,9 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 # 敏感題與低信心一律不自動回，交還真人；lurebot 收到就安靜。
                 self._json(HTTPStatus.OK, response)
                 return
-            if result.get("answer_mode") != "llm":
-                # 降級的抽取式回答是知識原文，不能當成真人訊息送進群組。
+            if result.get("answer_mode") not in ("llm", "boundary"):
+                # 模型沒生成成功時的降級回覆不是真人講得出來的話，不送進群組；
+                # 邊界題（問身分、離題、不當請求）的固定回答本來就是寫給 LINE 的，照送。
                 response["status"] = "unavailable"
                 response["reason"] = result.get("model_status") or "model_unavailable"
                 self._json(HTTPStatus.OK, response)

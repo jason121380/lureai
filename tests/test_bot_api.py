@@ -201,6 +201,18 @@ class BotApiTests(unittest.TestCase):
         self.assertNotEqual(body["status"], "answered")
         self.assertEqual(body["messages"], [])
 
+    def test_boundary_reply_is_sent_as_is(self):
+        self.context.service.answerer = StubAnswerer("不該用到的模型回覆 [1]")
+
+        status, body = self.request("POST", "/api/bot/reply", {
+            "message": "你是AI嗎？", "conversation_id": "C123",
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "answered")
+        self.assertTrue(body["messages"])
+        self.assertNotIn("不該用到的模型回覆", " ".join(body["messages"]))
+
     def test_extractive_fallback_never_reaches_line(self):
         self.context.service.answerer = StubAnswerer("知識庫原文傾印", mode="extractive")
 

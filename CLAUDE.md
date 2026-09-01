@@ -49,7 +49,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **改知識就要重編索引**：`knowledge/*.md` 是唯一的知識來源，改完一定要跑 `scripts/build_knowledge_index.py`，否則測試會擋（`test_written_index_matches_the_playbooks`）。
 - **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **追問不能斷**：建議問題一律經 `FollowupPlanner` 驗證（政策不擋＋撈得到夠格知識），`tests/test_followup_chain.py` 會實跑 50 輪連續追問，任何一輪轉人工就算失敗。
-- **lurebot 大腦外接**：LINE 端（lurebot）自己沒有知識庫，一律打 `/api/bot/reply` 取回覆。這條路走 `X-Bot-Token`（env `BOT_API_TOKEN`，沒設定就整組關閉）與 `lurebot` 服務帳號記帳，檢索／政策／引用守門／稽核全部與 `/api/chat` 共用同一條 `service.chat`。三個硬規則：政策擋下（敏感題、低於 0.72）一律回 `escalated` 且 `messages` 為空，讓真人接手；降級的抽取式回答回 `unavailable`，知識原文絕不進 LINE；`[n]` 引用只在送出前的出口剝除，模型端照樣要附。
+- **lurebot 大腦外接**：LINE 端（lurebot）自己沒有知識庫，一律打 `/api/bot/reply` 取回覆。這條路走 `X-Bot-Token`（env `BOT_API_TOKEN`，沒設定就整組關閉）與 `lurebot` 服務帳號記帳，檢索／政策／引用守門／稽核全部與 `/api/chat` 共用同一條 `service.chat`。三個硬規則：政策擋下（敏感題、低於 0.72）一律回 `escalated` 且 `messages` 為空，讓真人接手；模型降級的回覆回 `unavailable`，不進 LINE（邊界題的固定回答例外，它本來就是寫給 LINE 的）；`[n]` 引用只在送出前的出口剝除，模型端照樣要附。
 - **語氣設定**：chat API 的 `tone`（`expert` 預設／`service`／`line`）只切換輸出格式指令（`app/answer.py` `TONE_INSTRUCTIONS`）與前端渲染（客服模式逐行泡泡）；未知值一律當 expert，引用守門與追問規劃不受影響。
 - **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks` 與 `retry_with_citations`。
 - **開場題庫**：`run.py` 的歡迎題庫每題都必須答得出來，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳隨機 12 題、前端每次抽 3 題。
