@@ -86,19 +86,20 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn(".message-text.rich { white-space: normal; }", css)
         self.assertIn(".message-text.rich ul", css)
 
-    def test_mobile_sidebar_opens_full_screen_in_white(self):
+    def test_mobile_sidebar_opens_as_a_white_80_percent_drawer(self):
         css = CSS.read_text(encoding="utf-8")
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 全螢幕純白選單：沒有壓暗背景與陰影，頂端不會出現交界。
-        mobile_rule = css.split("手機版選單開成全螢幕純白", 1)[1].split("}", 1)[0]
+        # 左側 80% 純白抽屜：沒有壓暗背景與陰影，頂端不會出現交界。
+        mobile_rule = css.split("手機版選單開成左側 80% 純白抽屜", 1)[1].split("}", 1)[0]
         self.assertIn("inset: 0;", mobile_rule)
-        self.assertIn("width: 100%;", mobile_rule)
+        self.assertIn("width: 80%;", mobile_rule)
         self.assertIn("background: var(--surface);", mobile_rule)
         self.assertNotIn("box-shadow", mobile_rule)
-        # 開選單不再叫出 overlay（來源抽屜仍使用）。
-        opener = script.split("function openSidebar()", 1)[1].split("}", 1)[0]
-        self.assertNotIn('el("drawer-overlay").hidden = false', opener)
+        # 右邊露出的 20% 用透明層接住點擊來關閉（不壓暗畫面）。
+        self.assertIn(".drawer-overlay.clear { background: transparent; }", css)
+        opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
+        self.assertIn('classList.add("clear")', opener)
 
     def test_bootstrap_never_spins_for_ever(self):
         script = CHAT_JS.read_text(encoding="utf-8")

@@ -595,6 +595,7 @@
     });
     el("source-drawer").classList.add("open");
     el("source-drawer").setAttribute("aria-hidden", "false");
+    el("drawer-overlay").classList.remove("clear");
     el("drawer-overlay").hidden = false;
     requestAnimationFrame(() => {
       if (selectedIndex === 0) el("source-drawer").scrollTop = 0;
@@ -611,12 +612,17 @@
   function openSidebar() {
     el("sidebar").classList.remove("desktop-hidden");
     el("sidebar").classList.add("open");
-    // 手機版選單是全螢幕，不需要壓暗背後的頁面（壓暗會在狀態列下緣
-    // 出現一條明顯交界）；來源抽屜仍然使用 overlay。
+    // 手機版選單佔左側 80%：右邊露出的區域用「透明」層接住點擊來關閉，
+    // 不壓暗畫面（壓暗會在狀態列下緣出現一條明顯交界）。
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      el("drawer-overlay").classList.add("clear");
+      el("drawer-overlay").hidden = false;
+    }
   }
 
   function closeSidebar() {
     el("sidebar").classList.remove("open");
+    el("drawer-overlay").classList.remove("clear");
     if (!el("source-drawer").classList.contains("open")) el("drawer-overlay").hidden = true;
   }
 
