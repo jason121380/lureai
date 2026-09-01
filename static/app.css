@@ -389,9 +389,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .knowledge-text li { margin: 3px 0; }
 .knowledge-text li::marker { color: var(--muted); }
 .knowledge-text .knowledge-more { color: var(--muted); }
-/* AI 模型校調：一條規則一張卡，textarea 直接改，右上角還原預設。 */
+/* AI 模型校調：左側分組選單、右側該組的規則。51 條排成一長串會看不完。 */
+.tuning-layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 26px; align-items: start; }
+.tuning-menu { position: sticky; top: 16px; display: grid; gap: 2px; }
+.tuning-menu button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 12px; color: var(--ink-soft); background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-align: left; font-size: 13px; }
+.tuning-menu button:hover { background: var(--hover); }
+.tuning-menu button.active { color: var(--ink); background: var(--bubble); font-weight: 600; }
+.tuning-menu em { flex: 0 0 auto; color: var(--muted); font-style: normal; font-size: 11px; }
+.tuning-menu button.active em { color: var(--ink-soft); }
 .tuning-groups { display: grid; gap: 8px; }
-.tuning-group .pipeline-heading { margin-top: 26px; }
+.tuning-groups .pipeline-heading { margin-top: 0; }
 .tuning-rules { display: grid; gap: 10px; }
 .tuning-rule { display: grid; gap: 12px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .tuning-rule.is-custom { border-color: var(--ink); }
@@ -490,6 +497,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .health-item-meta { grid-column: 2; flex-direction: column; gap: 7px; }
   .health-item-meta > div { justify-content: flex-start; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tuning-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  /* 手機版選單改成可橫向捲的一排。 */
+  .tuning-menu { position: static; grid-auto-flow: column; grid-auto-columns: max-content; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .tuning-menu button { border: 1px solid var(--line-strong); border-radius: var(--radius-pill); }
+  .tuning-menu button.active { border-color: var(--ink); }
   .tuning-rule-head { flex-direction: column; }
   .preview-panel { padding: 12px; }
   .preview-head { flex-wrap: wrap; }

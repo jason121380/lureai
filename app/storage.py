@@ -113,6 +113,27 @@ class KnowledgeStore:
                 text TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS conversations (
+                conversation_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                tone TEXT NOT NULL DEFAULT '',
+                messages_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_conversations_user
+                ON conversations(user_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS user_prefs (
+                user_id INTEGER NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, key)
+            );
             """
         )
         self._ensure_column("chunks", "origin", "TEXT NOT NULL DEFAULT 'file'")
@@ -186,6 +207,84 @@ class KnowledgeStore:
     def clear_model_rules(self) -> None:
         with self._lock, self.connection:
             self.connection.execute("DELETE FROM model_rules")
+
+    # ---- 對話紀錄：存伺服器，換裝置也看得到（使用者決定要存資料庫）----
+
+    def list_conversations(self, user_id: int, limit: int = 100) -> list[dict]:
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT conversation_id, title, tone, messages_json, created_at, updated_at "
+                "FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        conversations = []
+        for row in rows:
+            try:
+                messages = json.loads(row["messages_json"])
+            except (TypeError, ValueError):
+                messages = []
+            conversations.append({
+                "id": row["conversation_id"],
+                "title": row["title"],
+                "tone": row["tone"],
+                "messages": messages if isinstance(messages, list) else [],
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+            })
+        return conversations
+
+    def save_conversation(
+        self, user_id: int, conversation_id: str, title: str, tone: str,
+        messages: list, created_at: str, updated_at: str,
+    ) -> None:
+        payload = json.dumps(messages, ensure_ascii=False)
+        with self._lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO conversations"
+                "(conversation_id, user_id, title, tone, messages_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(conversation_id) DO UPDATE SET "
+                "title = excluded.title, tone = excluded.tone, "
+                "messages_json = excluded.messages_json, updated_at = excluded.updated_at "
+                # 別人的對話不會被蓋掉：user_id 對不上就不動。
+                "WHERE conversations.user_id = excluded.user_id",
+                (conversation_id, user_id, title, tone, payload, created_at, updated_at),
+            )
+
+    def delete_conversation(self, user_id: int, conversation_id: str) -> None:
+        with self._lock, self.connection:
+            self.connection.execute(
+                "DELETE FROM conversations WHERE conversation_id = ? AND user_id = ?",
+                (conversation_id, user_id),
+            )
+
+    def prune_conversations(self, user_id: int, keep: int = 100) -> None:
+        """一個帳號只留最近 N 段，避免無上限長大。"""
+        with self._lock, self.connection:
+            self.connection.execute(
+                "DELETE FROM conversations WHERE user_id = ? AND conversation_id NOT IN ("
+                "SELECT conversation_id FROM conversations WHERE user_id = ? "
+                "ORDER BY updated_at DESC LIMIT ?)",
+                (user_id, user_id, keep),
+            )
+
+    # ---- 個人偏好（語氣等）：跟著帳號走，換裝置不用重設 ----
+
+    def user_prefs(self, user_id: int) -> dict[str, str]:
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT key, value FROM user_prefs WHERE user_id = ?", (user_id,)
+            ).fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def set_user_pref(self, user_id: int, key: str, value: str, updated_at: str) -> None:
+        with self._lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO user_prefs(user_id, key, value, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(user_id, key) DO UPDATE SET "
+                "value = excluded.value, updated_at = excluded.updated_at",
+                (user_id, key, value, updated_at),
+            )
 
     def index_health(self) -> dict:
         with self._lock:

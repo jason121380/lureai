@@ -70,6 +70,10 @@ class ServerTestCase(unittest.TestCase):
         self.context.close()
         self.temp.cleanup()
 
+    def fresh_client(self):
+        """換一組 cookie＝模擬另一台裝置登入同一個帳號。"""
+        return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+
     def request(self, method, path, payload=None, token=None):
         data = None if payload is None else json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"}

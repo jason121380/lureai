@@ -181,18 +181,38 @@
     </article>`;
   }
 
+  let tuningGroups = [];
+  let activeTuningGroup = "";
+
+  function renderTuningGroup() {
+    const group = tuningGroups.find((item) => item.id === activeTuningGroup) || tuningGroups[0];
+    if (!group) return;
+    activeTuningGroup = group.id;
+    document.querySelectorAll(".tuning-menu button").forEach((button) => {
+      button.classList.toggle("active", button.dataset.group === group.id);
+    });
+    el("tuning-groups").innerHTML = `
+      <div class="pipeline-heading"><h3>${escapeHtml(group.label)}</h3>${group.hint ? `<p>${escapeHtml(group.hint)}</p>` : ""}</div>
+      <div class="tuning-rules">${group.rules.map(tuningRuleCard).join("")}</div>`;
+    window.lucide?.createIcons();
+  }
+
   async function loadTuning() {
     try {
       const body = await api("/api/admin/tuning");
       el("tuning-scope").textContent = body.customized
         ? `AI 回答時遵守的所有規則都在這裡；目前有 ${body.customized} 條被你改過`
         : "AI 回答時遵守的所有規則都在這裡；改完存檔，下一則回答就照新的規則走";
-      el("tuning-groups").innerHTML = body.groups.map((group) => `
-        <section class="tuning-group">
-          <div class="pipeline-heading"><h3>${escapeHtml(group.label)}</h3>${group.hint ? `<p>${escapeHtml(group.hint)}</p>` : ""}</div>
-          <div class="tuning-rules">${group.rules.map(tuningRuleCard).join("")}</div>
-        </section>`).join("");
-      window.lucide?.createIcons();
+      tuningGroups = body.groups || [];
+      // 左側選單：51 條規則排成一長串會看不完，改成一次只看一組。
+      el("tuning-menu").innerHTML = tuningGroups.map((group) => {
+        const changed = group.rules.filter((rule) => rule.customized).length;
+        return `<button type="button" data-group="${escapeHtml(group.id)}">
+          <span>${escapeHtml(group.label)}</span>
+          <em>${changed ? `${changed} 改過` : group.rules.length}</em>
+        </button>`;
+      }).join("");
+      renderTuningGroup();
       tuningLoaded = true;
     } catch (error) { toast(error.message, true); }
   }
@@ -646,6 +666,12 @@
     if (save) { saveRule(save.dataset.save); return; }
     const reset = event.target.closest("[data-reset]");
     if (reset) resetRule(reset.dataset.reset);
+  });
+  el("tuning-menu").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-group]");
+    if (!button) return;
+    activeTuningGroup = button.dataset.group;
+    renderTuningGroup();
   });
   el("tuning-preview").addEventListener("click", () => showPreview("expert"));
   el("preview-close").addEventListener("click", () => { el("tuning-preview-panel").hidden = true; });
