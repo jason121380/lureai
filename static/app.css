@@ -495,9 +495,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .knowledge-editor input, .knowledge-editor select, .knowledge-editor textarea { padding: 10px 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; font-size: 14px; }
 .knowledge-editor textarea { resize: vertical; line-height: 1.7; }
 .knowledge-editor input:focus, .knowledge-editor select:focus, .knowledge-editor textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-.switch-row { display: grid; gap: 10px; }
-.switch-item { display: flex !important; grid-template-columns: none; align-items: center; gap: 10px; color: var(--ink); font-size: 13px; cursor: pointer; }
-.switch-item input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--ink); cursor: pointer; }
 .editor-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .editor-hint { margin-right: auto; color: var(--muted); font-size: 11px; }
 
