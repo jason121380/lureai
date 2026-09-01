@@ -98,13 +98,16 @@ class HumanizeTests(unittest.TestCase):
             self.assertLessEqual(len(part.split("\n")), 2, part)
 
     def test_message_gaps_make_the_replies_arrive_one_by_one(self):
-        """三則不能同時跳出來——每一則之間要再等一小段。"""
+        """三則不能同時跳出來——每一則之間至少 3 秒（使用者指定）。
+
+        低於 3 秒看起來還是像機器一次倒三則，收訊的人來不及讀完上一則。
+        """
         from app.humanize import message_gaps
 
         gaps = message_gaps(3)
 
         self.assertEqual(len(gaps), 2)
-        self.assertTrue(all(2 <= gap <= 4 for gap in gaps), gaps)
+        self.assertTrue(all(3 <= gap <= 5 for gap in gaps), gaps)
 
     def test_a_single_message_needs_no_gap(self):
         from app.humanize import message_gaps
