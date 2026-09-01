@@ -188,6 +188,11 @@ def admin_token_for_host(host: str) -> str:
     return secrets.token_urlsafe(32)
 
 
+def bot_token() -> str:
+    """lurebot 呼叫大腦用的服務權杖。沒設定就等於關掉 /api/bot/*。"""
+    return os.getenv("BOT_API_TOKEN", "").strip()
+
+
 def reindex(root: Path = PROJECT_ROOT, profile: str = "designer_coach") -> dict:
     profile_config = load_profile(profile)
     paths = default_paths(root, profile=profile)
@@ -248,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         knowledge_path=paths["knowledge"],
         static_dir=PROJECT_ROOT / "static",
         admin_token=admin_token,
+        bot_token=bot_token(),
         policy_path=PROJECT_ROOT / "config" / profile["policy_file"],
         minimum_score=float(settings["retrieval"]["minimum_score"]),
         top_k=int(settings["retrieval"]["top_k"]),
@@ -288,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         f"[boot] profile={args.profile} chunks={context.store.count_chunks()} "
         f"knowledge={paths['knowledge'].name} db={paths['database']} "
         f"model={'on' if context.service.answerer.model_enabled else 'off'} "
+        f"bot_api={'on' if context.bot_token else 'off'} "
         f"persistence={'postgres' if replica.enabled else 'sqlite-only'}"
         f"{' restored' if restored else ''}",
         flush=True,

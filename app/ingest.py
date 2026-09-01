@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .storage import KnowledgeStore
@@ -97,4 +98,6 @@ def ingest_jsonl(
     store.replace_chunks(accepted)
     store.set_metadata("knowledge_sha256", hashlib.sha256(raw).hexdigest())
     store.set_metadata("knowledge_access_level", expected_access_level)
+    # 後台與 lurebot 的大腦頁要顯示「上次建置時間」。
+    store.set_metadata("knowledge_indexed_at", datetime.now(timezone.utc).isoformat())
     return IngestReport(imported=len(accepted), rejected=rejected, errors=errors)

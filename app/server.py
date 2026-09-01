@@ -5,6 +5,7 @@ import itertools
 import json
 import mimetypes
 import os
+import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,6 +25,18 @@ from .followups import welcome_questions
 # 開場題庫一次全部送給前端，讓每次抽題都從整個池子隨機。
 WELCOME_PROMPT_POOL = 100
 from .domains import DOMAIN_LABELS, classify, is_domain
+from .humanize import (
+    DELAYS as BOT_DELAYS,
+    DEFAULT_STYLE as BOT_DEFAULT_STYLE,
+    LENGTHS as BOT_LENGTHS,
+    STYLE_KEY as BOT_STYLE_KEY,
+    TONES as BOT_TONES,
+    normalize_style,
+    postprocess,
+    reply_delay,
+    strip_citations,
+    style_instruction,
+)
 from .health import build_health_report
 from .ingest import ingest_jsonl
 from .policy import PolicyEngine
@@ -46,6 +59,10 @@ CONTENT_SECURITY_POLICY = (
     "frame-ancestors 'none'"
 )
 LONG_CACHE_SUFFIXES = {".png", ".svg", ".ico", ".woff", ".woff2", ".webmanifest"}
+
+# lurebot 走機器對機器的入口，用這個服務帳號記帳與稽核（不給人登入）。
+BOT_SERVICE_USERNAME = "lurebot"
+MAX_BOT_HISTORY = 8
 
 CUSTOM_SOURCE_FILE = "knowledge/admin_authored.md"
 MAX_KNOWLEDGE_TEXT = 8000
@@ -128,6 +145,8 @@ class AppContext:
     auth: AuthManager
     pricing: UsagePricing
     login_limiter: LoginRateLimiter
+    bot_token: str = ""
+    bot_user_id: int | None = None
     chat_limiter: RequestRateLimiter = field(default_factory=RequestRateLimiter)
     profile: str = "customer_service"
     access_level: str = "customer_service"
@@ -148,6 +167,7 @@ class AppContext:
         knowledge_path: str | Path,
         static_dir: str | Path,
         admin_token: str,
+        bot_token: str = "",
         policy_path: str | Path | None = None,
         minimum_score: float = 0.72,
         top_k: int = 6,
@@ -189,6 +209,12 @@ class AppContext:
                 bootstrap_username, bootstrap_password,
                 role=os.getenv("USER_ROLE", "").strip() or None,
             )
+        bot_user_id = None
+        if bot_token:
+            # 服務帳號的密碼沒人需要知道；有了 user_id，用量、月預算與稽核才記得到帳。
+            bot_user_id = auth.ensure_bootstrap_user(
+                BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
+            )["id"]
         service = CustomerService(
             store=store,
             retriever=retriever,
@@ -208,6 +234,8 @@ class AppContext:
             knowledge_path=knowledge,
             static_dir=Path(static_dir),
             admin_token=admin_token,
+            bot_token=bot_token,
+            bot_user_id=bot_user_id,
             auth=auth,
             pricing=pricing,
             login_limiter=login_limiter,
@@ -280,6 +308,34 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return True
             self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized", "message": "管理權杖無效"})
             return False
+
+        def _is_bot(self) -> bool:
+            supplied = self.headers.get("X-Bot-Token", "")
+            return bool(
+                supplied
+                and context.bot_token
+                and hmac.compare_digest(supplied, context.bot_token)
+            )
+
+        def _require_bot(self) -> bool:
+            if self._is_bot():
+                return True
+            self._json(
+                HTTPStatus.UNAUTHORIZED,
+                {"error": "unauthorized", "message": "機器人權杖無效"},
+            )
+            return False
+
+        def _bot_style(self, override=None) -> dict:
+            raw = context.store.get_metadata(BOT_STYLE_KEY)
+            stored = {}
+            if raw:
+                try:
+                    stored = json.loads(raw)
+                except json.JSONDecodeError:
+                    stored = {}
+            style = normalize_style(stored)
+            return normalize_style(override, base=style) if override is not None else style
 
         def _client_ip(self) -> str:
             peer = self.client_address[0]
@@ -361,6 +417,36 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         limit=WELCOME_PROMPT_POOL, fallback=context.welcome_prompts
                     ),
                 })
+                return
+            if parsed.path.startswith("/api/bot/"):
+                if not self._require_bot():
+                    return
+                if parsed.path == "/api/bot/health":
+                    usage_summary = self._usage_summary(context.bot_user_id) if context.bot_user_id else {}
+                    self._json(HTTPStatus.OK, {
+                        "status": "ok",
+                        "chunks": context.store.count_chunks(),
+                        "model_enabled": context.service.answerer.model_enabled,
+                        "model": context.service.answerer.model_name,
+                        "profile": context.profile,
+                        "app_name": context.app_name,
+                        "indexed_at": context.store.get_metadata("knowledge_indexed_at") or "",
+                        "usage": usage_summary,
+                        "style": self._bot_style(),
+                    })
+                    return
+                if parsed.path == "/api/bot/style":
+                    self._json(HTTPStatus.OK, {
+                        "style": self._bot_style(),
+                        "options": {
+                            "delay": sorted(BOT_DELAYS),
+                            "length": sorted(BOT_LENGTHS),
+                            "tone": sorted(BOT_TONES),
+                        },
+                        "defaults": BOT_DEFAULT_STYLE,
+                    })
+                    return
+                self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             if parsed.path == "/api/auth/me":
                 user = self._require_user()
@@ -484,6 +570,72 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             host = self.headers.get("Host", "").strip().lower()
             return not origin_host or not host or origin_host == host
 
+        def _bot_reply(self, payload: dict) -> None:
+            """lurebot 的唯一入口：檢索、政策、生成、引用守門、稽核全部照舊，
+            只有輸出換成「可以直接送進 LINE 的幾則短訊息」。"""
+            conversation_id = str(payload.get("conversation_id", "")).strip()[:120]
+            if not context.chat_limiter.allow(f"bot:{conversation_id or 'unknown'}"):
+                self._json(
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                    {"error": "rate_limited", "message": "訊息傳送太頻繁，請稍候再試"},
+                    {"Retry-After": "30"},
+                )
+                return
+            style = self._bot_style(payload.get("style"))
+            history = payload.get("history")
+            if isinstance(history, list):
+                history = history[-MAX_BOT_HISTORY:]
+            usage_summary = self._usage_summary(context.bot_user_id) if context.bot_user_id else {}
+            within_budget = (
+                not usage_summary
+                or usage_summary["budget_twd"] <= 0
+                or usage_summary["spend_twd"] < usage_summary["budget_twd"]
+            )
+            result = context.service.chat(
+                payload.get("message", ""),
+                conversation_id or None,
+                history,
+                user_id=context.bot_user_id,
+                allow_model=within_budget,
+                tone="line",
+                extra_instruction=style_instruction(style, payload.get("context")),
+                want_followups=False,
+            )
+            response = {
+                "trace_id": result["trace_id"],
+                "conversation_id": result.get("conversation_id"),
+                "status": result["status"],
+                "reason": result["reason"],
+                "messages": [],
+                "delay_seconds": 0.0,
+                "answer": "",
+                "citations": result.get("citations", []),
+                "answer_mode": result.get("answer_mode", ""),
+                "model_status": result.get("model_status", ""),
+                "style": style,
+            }
+            if result["status"] != "answered":
+                # 敏感題與低信心一律不自動回，交還真人；lurebot 收到就安靜。
+                self._json(HTTPStatus.OK, response)
+                return
+            if result.get("answer_mode") not in ("llm", "boundary"):
+                # 模型沒生成成功時的降級回覆不是真人講得出來的話，不送進群組；
+                # 邊界題（問身分、離題、不當請求）的固定回答本來就是寫給 LINE 的，照送。
+                response["status"] = "unavailable"
+                response["reason"] = result.get("model_status") or "model_unavailable"
+                self._json(HTTPStatus.OK, response)
+                return
+            messages = postprocess(result["answer"], style)
+            if not messages:
+                response["status"] = "unavailable"
+                response["reason"] = "empty_answer"
+                self._json(HTTPStatus.OK, response)
+                return
+            response["messages"] = messages
+            response["answer"] = strip_citations(result["answer"]).strip()
+            response["delay_seconds"] = reply_delay(style)
+            self._json(HTTPStatus.OK, response)
+
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             if not self._same_origin():
@@ -491,6 +643,21 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             try:
                 payload = self._read_json()
+                if parsed.path.startswith("/api/bot/"):
+                    if not self._require_bot():
+                        return
+                    if parsed.path == "/api/bot/style":
+                        style = normalize_style(payload.get("style"), base=self._bot_style())
+                        context.store.set_metadata(
+                            BOT_STYLE_KEY, json.dumps(style, ensure_ascii=False)
+                        )
+                        self._json(HTTPStatus.OK, {"style": style})
+                        return
+                    if parsed.path == "/api/bot/reply":
+                        self._bot_reply(payload)
+                        return
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                    return
                 if parsed.path == "/api/auth/login":
                     username = str(payload.get("username", "")).strip().casefold()
                     login_key = f"{self._client_ip()}|{username}"

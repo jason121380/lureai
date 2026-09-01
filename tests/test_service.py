@@ -28,10 +28,15 @@ class RecordingAnswerer:
     def __init__(self):
         self.history = None
 
-    def answer(self, _question, _hits, history=None, allow_model=True, tone="expert"):
+    def answer(
+        self, _question, _hits, history=None, allow_model=True, tone="expert",
+        extra_instruction="", include_followups=True,
+    ):
         self.history = history
         self.allow_model = allow_model
         self.tone = tone
+        self.extra_instruction = extra_instruction
+        self.include_followups = include_followups
         return "先檢查回覆速度。[1]", "llm", "used", {
             "input_tokens": 120, "output_tokens": 30,
         }
