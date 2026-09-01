@@ -153,6 +153,35 @@ def _database_check(context) -> tuple[str, str, dict]:
     }
 
 
+def _persistence_check(context) -> tuple[str, str, dict]:
+    """Postgres 快照持久化：沒接上的話重新部署就會掉帳號與用量。"""
+    replica = getattr(context, "replica", None)
+    configured = bool(getattr(replica, "configured", False))
+    enabled = bool(getattr(replica, "enabled", False))
+    details = {
+        "storage": "postgres" if enabled else "sqlite-only",
+        "configured": configured,
+        "driver": bool(getattr(replica, "driver", None)),
+    }
+    if not configured:
+        return "warning", "未設定 Postgres，重新部署後帳號與用量會歸零", details
+    if not enabled:
+        return "error", "已設定 Postgres 連線但缺少 psycopg 套件", details
+    details["interval_seconds"] = int(getattr(replica, "interval", 0))
+    details["restored_on_boot"] = bool(getattr(context, "restored_from_replica", False))
+    last_backup = getattr(replica, "last_backup_at", None)
+    if last_backup:
+        details["last_backup_at"] = str(last_backup)
+    try:
+        # 真的連一次並寫入目前狀態，才知道連線與權限都沒問題。
+        replica.backup(context.store)
+    except Exception as exc:  # noqa: BLE001 - 連不上要顯示原因而不是讓整份報告失敗
+        details["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        return "error", "Postgres 連線或寫入失敗", details
+    details["last_backup_at"] = str(getattr(replica, "last_backup_at", "") or details.get("last_backup_at", ""))
+    return "ok", "Postgres 快照可寫入，重新部署會自動還原", details
+
+
 def _auth_check(context) -> tuple[str, str, dict]:
     manager = getattr(context, "auth", None)
     operations = ("login", "authenticate", "logout", "create_or_reset_user", "list_users")
@@ -272,6 +301,7 @@ def build_health_report(context) -> dict:
         _timed_check("api", "API", lambda: _api_check(context)),
         _timed_check("frontend", "Frontend", lambda: _frontend_check(context)),
         _timed_check("database", "Database", lambda: _database_check(context)),
+        _timed_check("persistence", "Postgres 持久化", lambda: _persistence_check(context)),
         _timed_check("auth", "Auth", lambda: _auth_check(context)),
         _timed_check("rag", "RAG", lambda: _rag_check(context)),
         _timed_check("knowledge", "Knowledge", lambda: _knowledge_check(context)),

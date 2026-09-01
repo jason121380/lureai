@@ -109,7 +109,7 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" \
   http://127.0.0.1:8765/api/admin/health
 ```
 
-回傳 Server、內部 API、Frontend、SQLite Database、Auth、RAG、Knowledge 與 LLM 八項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
+回傳 Server、內部 API、Frontend、SQLite Database、Postgres 持久化、Auth、RAG、Knowledge 與 LLM 九項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
 
 用量成本以 Responses API 回傳的 input、cached input、cache write 與 output tokens 計算。各 token 類型費率、台幣換算率與月預算都能由 `.env` 對應變數調整；模型費率或匯率變動時只需更新環境變數。
 

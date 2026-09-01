@@ -202,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
                 except ValueError:
                     pass
         replica.start(context.store)
+    # 後台「系統健康」要看得到持久化狀態，不用翻 log。
+    context.replica = replica
+    context.restored_from_replica = restored
 
     # 開機資訊要留在 Log 裡：卡在哪一步、索引有沒有進去，才查得出來。
     print(

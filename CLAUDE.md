@@ -31,7 +31,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/policy.py` | 敏感話題攔截（只擋人才能決定的事）、0.72 信心門檻 |
 | `app/followups.py` | 建議問題規劃：每個追問都先驗證答得出來，不足時從相鄰知識補 |
 | `app/storage.py` | SQLite schema 與所有查詢（一律在 `_lock` 內）|
-| `app/health.py` | 管理端 8 項健康檢查 |
+| `app/health.py` | 管理端 9 項健康檢查（含 Postgres 持久化）|
 | `app/replica.py` | Postgres 快照持久化（不掛 Volume）：帳號／session／稽核／評分／自訂知識定期備份、開機還原 |
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
