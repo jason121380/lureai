@@ -38,6 +38,11 @@ class FakeConn:
             return FakeResult()
         if sql.startswith("SELECT data"):
             return FakeResult((self.storage["data"],) if "data" in self.storage else None)
+        if sql.startswith("SELECT updated_at"):
+            # 健康檢查的輕量探測：只讀時間與大小，不寫。
+            if "data" not in self.storage:
+                return FakeResult(None)
+            return FakeResult((self.storage.get("updated_at", ""), len(self.storage["data"])))
         if sql.startswith("INSERT INTO lureai_snapshot"):
             self.storage["data"] = params[0]
             self.storage["updated_at"] = params[1]
@@ -135,12 +140,74 @@ class ReplicaTests(unittest.TestCase):
                 replica=PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999),
                 restored_from_replica=True,
             )
+            # 還沒有任何快照時是 warning，不是 ok——連得上但東西還沒落地。
             status, _message, details = _persistence_check(connected)
-            self.assertEqual(status, "ok")
+            self.assertEqual(status, "warning")
             self.assertEqual(details["storage"], "postgres")
             self.assertTrue(details["restored_on_boot"])
-            # 檢查時真的寫了一次，最後備份時間要有值。
-            self.assertTrue(details["last_backup_at"])
+            self.assertFalse(details["snapshot"])
+
+            # **健康檢查不可以自己備份**：備份會在 store 的鎖裡把所有 durable 表
+            # 讀出來，後台的知識庫分頁會被它卡住（畫面停在「載入中」）。
+            connected.replica.backup(store)
+            status, _message, details = _persistence_check(connected)
+            self.assertEqual(status, "ok")
+            self.assertTrue(details["snapshot"])
+            self.assertTrue(details["snapshot_updated_at"])
+            self.assertGreater(details["snapshot_bytes"], 0)
+        finally:
+            store.close()
+
+    def test_health_check_does_not_run_a_backup(self):
+        """健康檢查只探測，不備份——備份會佔住 store 的鎖。"""
+        from types import SimpleNamespace
+
+        from app.health import _persistence_check
+
+        store = make_store(self.root, "no-backup.db")
+        try:
+            replica = PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999)
+            replica.backup(store)
+            before = replica.last_backup_at
+            calls = []
+            original = replica.export_snapshot
+            replica.export_snapshot = lambda target: (calls.append(target), original(target))[1]
+
+            _persistence_check(SimpleNamespace(
+                store=store, replica=replica, restored_from_replica=True))
+
+            self.assertEqual(calls, [], "健康檢查不應該讀出整份快照")
+            self.assertEqual(replica.last_backup_at, before)
+        finally:
+            store.close()
+
+    def test_health_check_surfaces_a_failing_background_backup(self):
+        from types import SimpleNamespace
+
+        from app.health import _persistence_check
+
+        store = make_store(self.root, "backup-error.db")
+        try:
+            replica = PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999)
+            replica.backup(store)
+            replica.last_error = "OperationalError: connection refused"
+
+            status, message, details = _persistence_check(SimpleNamespace(
+                store=store, replica=replica, restored_from_replica=True))
+
+            self.assertEqual(status, "error")
+            self.assertIn("背景備份", message)
+            self.assertIn("connection refused", details["error"])
+        finally:
+            store.close()
+
+    def test_health_check_reports_a_broken_connection(self):
+        from types import SimpleNamespace
+
+        from app.health import _persistence_check
+
+        store = make_store(self.root, "broken.db")
+        try:
 
             class BrokenDriver:
                 def connect(self, _dsn, autocommit=True):

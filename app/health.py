@@ -184,13 +184,19 @@ def _persistence_check(context) -> tuple[str, str, dict]:
     if last_backup:
         details["last_backup_at"] = str(last_backup)
     try:
-        # 真的連一次並寫入目前狀態，才知道連線與權限都沒問題。
-        replica.backup(context.store)
+        # 只探測連線與現有快照，**不要在這裡備份**：備份會在 store 的鎖裡把所有
+        # durable 表讀出來，後台一進知識庫分頁就會被它卡住（畫面停在「載入中」）。
+        details.update(replica.probe())
     except Exception as exc:  # noqa: BLE001 - 連不上要顯示原因而不是讓整份報告失敗
         details["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
-        return "error", "Postgres 連線或寫入失敗", details
-    details["last_backup_at"] = str(getattr(replica, "last_backup_at", "") or details.get("last_backup_at", ""))
-    return "ok", "Postgres 快照可寫入，重新部署會自動還原", details
+        return "error", "Postgres 連線失敗", details
+    backup_error = getattr(replica, "last_error", None)
+    if backup_error:
+        details["error"] = str(backup_error)
+        return "error", "背景備份失敗，重新部署可能會掉資料", details
+    if not details.get("snapshot"):
+        return "warning", "連得上 Postgres，但還沒寫入第一份快照", details
+    return "ok", "Postgres 快照正常，重新部署會自動還原", details
 
 
 def _auth_check(context) -> tuple[str, str, dict]:

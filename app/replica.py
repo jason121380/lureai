@@ -66,6 +66,9 @@ class PostgresReplica:
             self.interval = DEFAULT_INTERVAL_SECONDS
         self.interval = max(15, self.interval)
         self.last_backup_at: str | None = None
+        # 背景備份最後一次失敗的原因。健康檢查看這個就好，不必自己再備份一次
+        # （備份要把所有 durable 表讀出來，會佔住 store 的鎖）。
+        self.last_error: str | None = None
         self._last_digest: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -169,7 +172,27 @@ class PostgresReplica:
             )
         self._last_digest = digest
         self.last_backup_at = now
+        self.last_error = None
         return True
+
+    def probe(self) -> dict:
+        """只確認「連得上、讀得到快照」，不做備份。
+
+        健康檢查原本每次都呼叫 `backup()`，而 `export_snapshot` 會在
+        `store._lock` 裡把所有 durable 表（含全部對話紀錄）讀出來——後台一進
+        知識庫分頁就 health 與 chunks 同時打，chunks 只能等鎖，畫面卡在
+        「載入中」。備份本來就有背景執行緒每 `interval` 跑一次，健康檢查
+        只要回報它的結果就夠了。
+        """
+        with self._connect() as conn:
+            self._ensure_table(conn)
+            row = conn.execute(
+                f"SELECT updated_at, octet_length(data) AS size FROM {SNAPSHOT_TABLE} WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return {"snapshot": False}
+        updated_at, size = (row[0], row[1]) if not isinstance(row, dict) else (row["updated_at"], row["size"])
+        return {"snapshot": True, "snapshot_updated_at": str(updated_at), "snapshot_bytes": int(size or 0)}
 
     def start(self, store) -> None:
         if not self.enabled or self._thread is not None:
@@ -180,6 +203,7 @@ class PostgresReplica:
                 try:
                     self.backup(store)
                 except Exception as exc:  # noqa: BLE001 - 備份失敗不能弄掛服務
+                    self.last_error = f"{type(exc).__name__}: {str(exc)[:160]}"
                     _log(f"backup failed: {type(exc).__name__}: {str(exc)[:200]}")
 
         self._thread = threading.Thread(target=loop, daemon=True, name="pg-replica")

@@ -589,3 +589,91 @@ class ConnectionTests(ServerTestCase):
         # read() 讀到 EOF 才會回來；沒收尾的話這裡會卡到 timeout。
         self.assertTrue(response.read())
         connection.close()
+
+
+class KnowledgeUploadTests(ServerTestCase):
+    """後台「新增知識」改成拖檔上傳，這條是分析用的端點。"""
+
+    DOC = (
+        "# 客訴當下的處理原則\n\n"
+        "客人反映顏色不對時，先確認是光線問題還是真的沒到位。不要當場說「其實這樣很好看」，"
+        "那會讓客人覺得你在唬他。先承認他看到的事實，再給技術面的說明。\n\n"
+        "## 什麼時候可以安排修補\n\n"
+        "頭髮的狀況允許再上一次色才排修補。一週內連續兩次漂染會讓髮尾斷裂，寧可等一週，"
+        "也不要當場硬做。等待期間給客人一支溫和的洗髮精。\n"
+    )
+
+    def test_a_document_is_analysed_into_chunks(self):
+        status, body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "客訴手冊.md", "text": self.DOC}, token="secret-token",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "rules")  # 測試環境沒有模型
+        self.assertTrue(body["items"])
+        for item in body["items"]:
+            self.assertTrue(item["section_title"])
+            self.assertTrue(item["text"])
+
+    def test_an_empty_file_is_rejected_with_a_readable_message(self):
+        status, body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "空的.txt", "text": "   "}, token="secret-token",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("讀不到文字", body["message"])
+
+    def test_an_oversized_file_is_rejected_before_the_model_runs(self):
+        status, body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "很大.txt", "text": "字" * 60001}, token="secret-token",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("6", body["message"])
+
+    def test_analysis_needs_an_admin(self):
+        status, _body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "a.md", "text": self.DOC},
+        )
+
+        self.assertEqual(status, 401)
+
+    def test_the_analysed_chunks_can_be_saved_as_they_are(self):
+        """分析出來的東西要能直接存進去——欄位對不上就白做了。"""
+        _status, body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "客訴手冊.md", "text": self.DOC}, token="secret-token",
+        )
+
+        for item in body["items"]:
+            status, saved = self.request("POST", "/api/admin/knowledge", item, token="secret-token")
+            self.assertEqual(status, 200, saved)
+            self.assertTrue(saved["chunk"]["chunk_id"].startswith("admin:"))
+
+    def test_a_big_document_gets_through_the_request_size_limit(self):
+        """一般端點的 64KB 上限約等於兩萬個中文字，文件一定會超過。
+
+        這條只有 admin 打得到，所以單獨放寬；其他路徑不能跟著變寬。
+        """
+        big = "# 標題\n\n" + ("完整句子的一段內容。" * 200 + "\n\n") * 12
+
+        status, body = self.request(
+            "POST", "/api/admin/knowledge/analyze",
+            {"name": "很長的教材.md", "text": big}, token="secret-token",
+        )
+
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["items"])
+
+    def test_other_endpoints_keep_the_small_limit(self):
+        status, body = self.request(
+            "POST", "/api/admin/knowledge",
+            {"section_title": "測試", "text": "字" * 60000}, token="secret-token",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn("大小", body["message"])
