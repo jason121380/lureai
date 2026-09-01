@@ -967,6 +967,27 @@
   el("source-close").addEventListener("click", closeSources);
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);
+  // 手機版手勢：從螢幕左緣往右滑展開選單（PWA 裡沒有瀏覽器的返回手勢）。
+  let edgeSwipe = null;
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    if (touch.clientX > 24) return;
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
+    if (el("sidebar").classList.contains("open")) return;
+    edgeSwipe = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  document.addEventListener("touchmove", (event) => {
+    if (!edgeSwipe) return;
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - edgeSwipe.x;
+    const deltaY = Math.abs(touch.clientY - edgeSwipe.y);
+    if (deltaX > 50 && deltaY < 40) {
+      openSidebar();
+      edgeSwipe = null;
+    }
+  }, { passive: true });
+  document.addEventListener("touchend", () => { edgeSwipe = null; }, { passive: true });
   el("sidebar-close").addEventListener("click", closeSidebar);
   el("login-form").addEventListener("submit", login);
   el("logout-button").addEventListener("click", logout);

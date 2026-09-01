@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.ingest import ingest_jsonl
 from app.policy import SENSITIVE_TOPICS
+from app.replica import PostgresReplica
 from app.server import AppContext, create_server
 from app.storage import KnowledgeStore
 
@@ -181,11 +182,34 @@ def main(argv: list[str] | None = None) -> int:
         blocked_topics=profile["blocked_topics"],
         fallback_message=profile["fallback_message"],
     )
+    # Postgres 持久化（不掛 Volume）：開機還原上一份快照，之後定期備份。
+    replica = PostgresReplica.from_env()
+    restored = False
+    if replica.configured and not replica.enabled:
+        print("[boot] 偵測到 Postgres 連線設定，但缺少 psycopg 套件，持久化停用", file=sys.stderr, flush=True)
+    if replica.enabled:
+        try:
+            restored = replica.restore(context.store)
+        except Exception as exc:  # noqa: BLE001 - 還原失敗要照常開站，只是資料是新的
+            print(f"[pg] restore failed: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr, flush=True)
+        if restored:
+            # 快照會整批取代帳號表；環境變數指定的第一個帳號若不在快照裡要補回來。
+            username = os.getenv("USER_USERNAME", "").strip()
+            password = os.getenv("USER_PASSWORD", "")
+            if username and password:
+                try:
+                    context.auth.ensure_bootstrap_user(username, password, os.getenv("USER_ROLE"))
+                except ValueError:
+                    pass
+        replica.start(context.store)
+
     # 開機資訊要留在 Log 裡：卡在哪一步、索引有沒有進去，才查得出來。
     print(
         f"[boot] profile={args.profile} chunks={context.store.count_chunks()} "
         f"knowledge={paths['knowledge'].name} db={paths['database']} "
-        f"model={'on' if context.service.answerer.model_enabled else 'off'}",
+        f"model={'on' if context.service.answerer.model_enabled else 'off'} "
+        f"persistence={'postgres' if replica.enabled else 'sqlite-only'}"
+        f"{' restored' if restored else ''}",
         flush=True,
     )
     server = create_server(args.host, args.port, context)
@@ -199,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n正在停止服務")
     finally:
         server.server_close()
+        replica.stop(context.store)
         context.close()
     return 0
 
