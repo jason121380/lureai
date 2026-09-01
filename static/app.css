@@ -450,9 +450,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   input, select, textarea { font-size: 18px; }
   .icon-button { width: 40px; height: 40px; }
   .app-shell { display: block; }
-  /* 手機版選單開成左側 65% 純白抽屜：沒有壓暗的背景、沒有陰影，
+  /* 手機版選單開成左側 60% 純白抽屜：沒有壓暗的背景、沒有陰影，
      上方就不會出現跟狀態列的交界；右邊露出的那截用透明層接住點擊來關閉。 */
-  .sidebar, .sidebar.desktop-hidden { position: fixed; inset: 0; z-index: 60; width: 65%; margin-left: 0; padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--surface); border-right: 1px solid var(--line); transform: translateX(-104%); transition: transform 180ms ease; }
+  .sidebar, .sidebar.desktop-hidden { position: fixed; inset: 0; z-index: 60; width: 60%; margin-left: 0; padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--surface); border-right: 1px solid var(--line); transform: translateX(-104%); transition: transform 180ms ease; }
   .sidebar.open { transform: translateX(0); }
   .sidebar-close, .menu-button, .sidebar.desktop-hidden + .chat-main .menu-button { display: inline-grid; }
   .sidebar-panel { display: none; }

@@ -100,14 +100,14 @@ class StaticUiTests(unittest.TestCase):
         # html 也要關掉整頁捲動（body 有、html 沒有時仍會整頁捲）。
         self.assertIn("html, body { height: 100%; margin: 0; overflow: hidden; }", css)
 
-    def test_mobile_sidebar_opens_as_a_white_65_percent_drawer(self):
+    def test_mobile_sidebar_opens_as_a_white_60_percent_drawer(self):
         css = CSS.read_text(encoding="utf-8")
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 左側 65% 純白抽屜：沒有壓暗背景與陰影，頂端不會出現交界。
-        mobile_rule = css.split("手機版選單開成左側 65% 純白抽屜", 1)[1].split("}", 1)[0]
+        # 左側 60% 純白抽屜：沒有壓暗背景與陰影，頂端不會出現交界。
+        mobile_rule = css.split("手機版選單開成左側 60% 純白抽屜", 1)[1].split("}", 1)[0]
         self.assertIn("inset: 0;", mobile_rule)
-        self.assertIn("width: 65%;", mobile_rule)
+        self.assertIn("width: 60%;", mobile_rule)
         self.assertIn("background: var(--surface);", mobile_rule)
         self.assertNotIn("box-shadow", mobile_rule)
         # 右邊露出的那截用透明層接住點擊來關閉（不壓暗畫面）。
@@ -179,7 +179,8 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn("function revealServiceMessage", script)
         self.assertIn("pendingReveal", script)
-        self.assertIn("1500 + Math.random() * 1000", script)
+        # 一則跟下一則之間至少 3 秒（使用者指定），太快就只是一次倒完。
+        self.assertIn("3000 + Math.random() * 1500", script)
 
     def test_account_popup_hosts_tone_and_usage_tabs(self):
         html = INDEX.read_text(encoding="utf-8")

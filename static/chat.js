@@ -489,7 +489,9 @@
         lines[index].hidden = false;
         index += 1;
         messages.scrollTop = messages.scrollHeight;
-        setTimeout(step, 1500 + Math.random() * 1000);
+        // 一則跟下一則之間至少 3 秒——真人打字沒那麼快，
+        // 太快跳出來就只是一次倒完，讀的人來不及看完上一則。
+        setTimeout(step, 3000 + Math.random() * 1500);
         return;
       }
       typing.remove();
