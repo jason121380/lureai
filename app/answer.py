@@ -287,7 +287,7 @@ class AnswerEngine:
                 ):
                     # 診斷完給不出東西是實測扣分最重的一項：只寫「我陪你拆」、
                     # 承諾了成品卻沒給、問到立場卻不表態——帶著具體理由重打一次。
-                    found = quality.problems(question, generated)
+                    found = quality.problems(question, generated, tone=tone)
                     if found:
                         log_model_failure(
                             "quality", detail=f"{len(found)} issue(s); retrying | {found[0][:60]}"
@@ -419,7 +419,7 @@ class AnswerEngine:
             return "", usage
         if self.requires_citations(tone) and not re.search(r"\[\d+\]", generated):
             return "", usage
-        if quality.problems(question, generated):
+        if quality.problems(question, generated, tone=tone):
             log_model_failure("quality-retry", detail="still not concrete enough")
             return "", usage
         return generated, usage

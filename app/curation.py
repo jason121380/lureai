@@ -9,6 +9,10 @@ import re
 
 
 MASK_PATTERN = re.compile(r"\[[^\]]{1,10}\]")
+# 引用區塊（`> ...`）是可以直接複製去傳的逐字話術，**本來就該短**（規則是一行
+# 12 字）。這些檢查是為了抓 OCR 碎片寫的，拿短句當「零碎」會把寫得最好的
+# 話術範本全部誤判成待整理。判斷散文比例時先把逐字稿拿掉，只看說明的部分。
+QUOTE_LINE = re.compile(r"^\s*>.*$", re.MULTILINE)
 BANNER_PATTERN = re.compile(r"【[^】]*】")
 MEANINGLESS_TITLE = re.compile(r"^[\s\d\W_]*$|^(?:投影片|工作表|投)[\s\d\W]*$")
 
@@ -34,7 +38,7 @@ def mask_ratio(text: str) -> float:
 
 def prose_ratio(text: str) -> float:
     """Share of the text that sits inside reasonably long sentences."""
-    body = MASK_PATTERN.sub("", _body(text))
+    body = MASK_PATTERN.sub("", QUOTE_LINE.sub("", _body(text)))
     if not body:
         return 0.0
     sentences = re.split(r"[。！？!?\n]", body)

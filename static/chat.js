@@ -8,8 +8,11 @@
   // 客服模式一次最多幾顆泡泡；超過的中間會被併起來（併起來會變長訊息，
   // 所以長度控制主要靠 tuning 的 12 字規則，這裡只是安全網）。
   const SERVICE_MAX_BUBBLES = 3;
-  // 一則最多幾行；模型忘了空行時前端自己重排，不要讓 8 行擠成一顆泡泡。
+  // 一則最多幾行；模型忘了空行時前端自己重排，不要讓 8 行擠成一坨。
   const SERVICE_MAX_LINES = 2;
+  // 一行最多幾個字。只數行數是擋不住的：模型常常回一整行 120 字、一個換行
+  // 都沒有，行數檢查看到「1 行」就放行，畫面上就是一大坨。
+  const SERVICE_MAX_CHARS = 12;
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
@@ -609,6 +612,44 @@
 
   // 一則訊息裡面可以有好幾行（像「我想要吃 / 海鮮 / 玉米 / 薯條」）：
   // **空一行才代表換一則**，單純換行只是同一則裡的下一行。
+  // 把過長的一行斷成每行 12 字以內。標點已經拿掉，空白就是唯一的斷句記號，
+  // 所以照空白切再把短的併回去，不會切在詞的中間；單一段超過兩倍才硬切。
+  // 字數只算內容不算空白——把空白算進去的話，「這週抓 20 則」這種正常句子
+  // 會被拆成兩行。
+  // 兩個字以內的一段不會是獨立的句子，它是後面那段的一部分（「抓 20 則來看」
+  // 被空白切成「抓」「20」「則來看」）。不先黏回去，斷行會落在數字跟量詞中間。
+  function glueFragments(segments) {
+    const glued = [];
+    let pending = "";
+    segments.forEach((segment) => {
+      pending = pending ? `${pending} ${segment}` : segment;
+      if (segment.length >= 3) { glued.push(pending); pending = ""; }
+    });
+    if (pending) {
+      if (glued.length) glued[glued.length - 1] += ` ${pending}`;
+      else glued.push(pending);
+    }
+    return glued;
+  }
+
+  function wrapLine(line, cap = SERVICE_MAX_CHARS) {
+    const lines = [];
+    let current = "";
+    glueFragments(String(line || "").split(" ").filter(Boolean)).forEach((piece) => {
+      let segment = piece;
+      while (segment.length > cap * 2) {
+        if (current) { lines.push(current); current = ""; }
+        lines.push(segment.slice(0, cap));
+        segment = segment.slice(cap);
+      }
+      if (!current) current = segment;
+      else if (current.replace(/ /g, "").length + segment.replace(/ /g, "").length <= cap) current = `${current} ${segment}`;
+      else { lines.push(current); current = segment; }
+    });
+    if (current) lines.push(current);
+    return lines;
+  }
+
   function serviceSentences(content) {
     const bubbles = String(content || "")
       .split(/\n[ \t]*\n+/)
@@ -620,7 +661,8 @@
     // 先把過長的一則重排成每則最多 2 行——模型常常忘了空行，整段就變成一坨。
     const reflowed = [];
     bubbles.forEach((bubble) => {
-      const lines = bubble.split("\n");
+      // 先斷行再數行數，順序反了就擋不住「一行 120 字」。
+      const lines = bubble.split("\n").flatMap((line) => wrapLine(line));
       for (let index = 0; index < lines.length; index += SERVICE_MAX_LINES) {
         reflowed.push(lines.slice(index, index + SERVICE_MAX_LINES).join("\n"));
       }

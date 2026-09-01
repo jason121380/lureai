@@ -84,8 +84,31 @@ def has_substance(answer: str) -> bool:
     )
 
 
-def problems(question: str, answer: str) -> list[str]:
-    """回傳這一則回覆的問題清單；空清單＝可以送出去。"""
+# 一則訊息裡連寫這麼多字又完全沒換行，畫面上就是一坨。前端與 LINE 出口都會
+# 自己斷行（`humanize.wrap_line`），但那只是把一坨排整齊，救不了「話太多」。
+WALL_CHARS = 40
+
+
+def wall_of_text(answer: str) -> bool:
+    """有沒有哪一則是「連寫一長串又一個換行都沒有」。
+
+    只針對聊天語氣。已經自己分行的不算——那是排版好的內容，不是一坨。
+    """
+    for block in re.split(r"\n[ \t]*\n+", str(answer or "")):
+        block = block.strip()
+        if "\n" in block:
+            continue
+        if len(re.sub(r"\s", "", block)) > WALL_CHARS:
+            return True
+    return False
+
+
+def problems(question: str, answer: str, tone: str = "") -> list[str]:
+    """回傳這一則回覆的問題清單；空清單＝可以送出去。
+
+    `tone` 是聊天語氣（service／line）時會多檢查長度：那兩種是通訊軟體的
+    短句，專家模式本來就該講完講透，不套這條。
+    """
     text = str(answer or "").strip()
     if not text:
         return []
@@ -122,6 +145,13 @@ def problems(question: str, answer: str) -> list[str]:
         found.append(
             "他直接問你的判斷，這則沒有表態。"
             "第一句就講「我的傾向是…」，再用他給過的數字說明理由。"
+        )
+
+    # 聊天語氣才檢查長度：一則連寫 40 字以上又不換行，收到的人只會滑過去。
+    if str(tone or "") in ("service", "line") and wall_of_text(text):
+        found.append(
+            "有一則連寫了一長串又沒有換行。規則是每行 12 字、一則最多 2 行、"
+            "最多 3 則——講不完就只講最關鍵的那一件，其餘等他問再說。"
         )
 
     # TASK 4b：把人推給不存在的對象。
