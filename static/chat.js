@@ -133,6 +133,9 @@
   // ---- 對話紀錄同步到伺服器（換裝置也看得到；localStorage 只當離線快取）----
   let syncTimer = null;
   let syncedOnce = false;
+  // 本機有還沒送出去的修改嗎？沒有就不要在關閉分頁時推——推上去會用這台的舊版本
+  // 蓋掉別台剛存的新版本。
+  let pendingPush = false;
 
   async function pullConversations() {
     try {
@@ -152,11 +155,13 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversations }),
       });
+      pendingPush = false;
     } catch (_) { /* 下一次編輯會再送一次 */ }
   }
 
   function scheduleSync() {
     if (!syncedOnce) return;
+    pendingPush = true;
     clearTimeout(syncTimer);
     // 打字中不要每個字都送；停下來再存。
     syncTimer = setTimeout(() => {
@@ -991,32 +996,59 @@
     persist();
   }
 
+  // 這台裝置上一次跟伺服器對齊的時間（per 帳號）。用來分辨「還沒搬上去的舊紀錄」
+  // 和「在別的裝置被刪掉的紀錄」——兩者都是「伺服器沒有、本機有」。
+  function syncMarkerKey() {
+    return `${STORAGE_PREFIX}-synced-${state.user?.id || "anonymous"}`;
+  }
+
+  function lastSyncAt() {
+    try { return localStorage.getItem(syncMarkerKey()) || ""; } catch (_) { return ""; }
+  }
+
+  function markSynced() {
+    try { localStorage.setItem(syncMarkerKey(), new Date().toISOString()); } catch (_) { /* 無痕模式 */ }
+  }
+
   async function syncWithServer() {
-    const local = state.conversations.filter((item) => (item.messages || []).length);
     const remote = await pullConversations();
     if (!remote) { syncedOnce = true; return; }
     const server = Array.isArray(remote.conversations) ? remote.conversations : [];
-    if (server.length) mergeConversations(server);
+    const local = state.conversations.filter((item) => (item.messages || []).length);
+    const localOnly = local.filter((item) => !server.some((entry) => entry.id === item.id));
+    const previous = lastSyncAt();
+    // 第一次同步：本機那些只存在瀏覽器裡的舊紀錄要搬上去。
+    // 之後再同步：伺服器沒有就代表在別的裝置刪掉了，**不能再推回去**（推回去會讓
+    // 刪掉的對話復活），只有這次同步之後才新建的才推。
+    const toPush = previous
+      ? localOnly.filter((item) => String(item.updatedAt || item.createdAt || "") > previous)
+      : localOnly;
+    const dropped = new Set(
+      localOnly.filter((item) => !toPush.includes(item)).map((item) => item.id)
+    );
+    if (dropped.size) {
+      state.conversations = state.conversations.filter((item) => !dropped.has(item.id));
+    }
+    if (server.length || dropped.size) mergeConversations(server);
     syncedOnce = true;
-    // 舊使用者的紀錄本來只在瀏覽器裡，第一次登入時搬上去。
-    const missing = local.filter((item) => !server.some((entry) => entry.id === item.id));
-    if (missing.length) await pushConversations(missing);
+    markSynced();
+    if (toPush.length) await pushConversations(toPush);
     if (remote.prefs?.tone && remote.prefs.tone !== state.tone) setTone(remote.prefs.tone);
   }
 
   // 分頁回到前景時再拉一次。只在登入那一刻同步的話，PWA 開著不關就會一直看到舊的，
   // 另一台裝置新增的對話永遠等不到。
   async function refreshFromServer() {
+    // 回覆進行中不要動畫面。
     if (!syncedOnce || !state.user || state.controller) return;
-    const remote = await pullConversations();
-    const server = Array.isArray(remote?.conversations) ? remote.conversations : [];
-    if (server.length) mergeConversations(server);
+    await syncWithServer();
   }
 
   // 關掉分頁前把還沒送出的那一次補送出去：debounce 還沒到就切走的話，
   // 最後幾則訊息會只留在這台裝置上。keepalive 讓請求在分頁關掉後仍然送得出去。
   function flushSync() {
-    if (!syncedOnce) return;
+    // 沒有本機改動就什麼都不要送：重新整理時盲推會把別台的新版本蓋掉。
+    if (!syncedOnce || !pendingPush) return;
     clearTimeout(syncTimer);
     const conversation = activeConversation();
     if (!conversation || !(conversation.messages || []).length) return;
@@ -1027,6 +1059,7 @@
         body: JSON.stringify({ conversations: [conversation] }),
         keepalive: true,
       });
+      pendingPush = false;
     } catch (_) { /* 送不出去就等下次開啟時再同步 */ }
   }
 
