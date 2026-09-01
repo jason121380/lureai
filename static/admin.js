@@ -7,7 +7,7 @@
     return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
   }
 
-  const SECTIONS = ["overview", "knowledge", "quality", "linebot", "users", "health"];
+  const SECTIONS = ["overview", "knowledge", "quality", "users", "health"];
 
   function showSection(id) {
     const target = SECTIONS.includes(id) ? id : "overview";
@@ -41,9 +41,6 @@
   // Each select stays in the DOM as the source of truth; this renders it.
   function enhanceSelect(select) {
     if (!select || select.dataset.enhanced) return;
-    // 選項是等 API 回來才填的，空的時候先不接手：一旦接手就會記住當下的
-    // 空清單，之後填進去的選項不會出現在畫面上。
-    if (select.dataset.dynamic && !select.options.length) return;
     select.dataset.enhanced = "true";
     const options = Array.from(select.options).map((option) => ({ value: option.value, label: option.textContent }));
     const wrapper = document.createElement("div");
@@ -522,63 +519,6 @@
     }
   }
 
-  // LINE 回覆設定：lurebot 在群組自動回覆時的真人模擬參數，存在這裡。
-  function fillOptions(select, labels, value) {
-    select.innerHTML = "";
-    Object.entries(labels).forEach(([key, label]) => {
-      const option = document.createElement("option");
-      option.value = key;
-      option.textContent = label;
-      select.append(option);
-    });
-    select.value = value;
-  }
-
-  async function loadBotStyle() {
-    try {
-      const body = await api("/api/admin/bot-style");
-      const style = body.style || {};
-      fillOptions(el("linebot-delay"), body.options.delay, style.delay);
-      fillOptions(el("linebot-length"), body.options.length, style.length);
-      fillOptions(el("linebot-tone"), body.options.tone, style.tone);
-      el("linebot-no-punct").checked = Boolean(style.no_punct);
-      el("linebot-split").checked = Boolean(style.split_long);
-      el("linebot-extra").value = style.extra_prompt || "";
-      el("linebot-hint").textContent = body.bot_api_enabled
-        ? "改完按儲存，下一則 LINE 訊息就會照新設定回"
-        : "尚未設定 BOT_API_TOKEN，lurebot 還連不上，設定會先存著";
-      enhanceSelects();
-      window.lucide?.createIcons();
-    } catch (error) {
-      el("linebot-hint").textContent = error.message;
-    }
-  }
-
-  async function saveBotStyle(event) {
-    event.preventDefault();
-    const button = el("linebot-form").querySelector("button[type=submit]");
-    button.disabled = true;
-    try {
-      await api("/api/admin/bot-style", {
-        method: "POST",
-        body: JSON.stringify({ style: {
-          delay: el("linebot-delay").value,
-          length: el("linebot-length").value,
-          tone: el("linebot-tone").value,
-          no_punct: el("linebot-no-punct").checked,
-          split_long: el("linebot-split").checked,
-          extra_prompt: el("linebot-extra").value,
-        } }),
-      });
-      toast("LINE 回覆設定已儲存");
-      await loadBotStyle();
-    } catch (error) {
-      toast(error.message, true);
-    } finally {
-      button.disabled = false;
-    }
-  }
-
   async function reindex() {
     const button = el("reindex-button");
     button.disabled = true;
@@ -598,7 +538,7 @@
       if (body.user?.role !== "admin") return false;
       if (!(await loadStats())) return false;
       showAdmin();
-      await Promise.all([loadKnowledge(), loadQuality(), loadHealth(), loadUsers(), loadBotStyle()]);
+      await Promise.all([loadKnowledge(), loadQuality(), loadHealth(), loadUsers()]);
       return true;
     } catch (_) {
       return false;
@@ -626,7 +566,6 @@
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   el("user-form").addEventListener("submit", saveUser);
-  el("linebot-form").addEventListener("submit", saveBotStyle);
   window.addEventListener("hashchange", () => {
     if (!el("admin-shell").hidden) showSection(location.hash.replace("#", ""));
   });

@@ -26,19 +26,10 @@ from .followups import welcome_questions
 WELCOME_PROMPT_POOL = 100
 from .domains import DOMAIN_LABELS, classify, is_domain
 from .humanize import (
-    DELAYS as BOT_DELAYS,
-    DELAY_LABELS as BOT_DELAY_LABELS,
-    DEFAULT_STYLE as BOT_DEFAULT_STYLE,
-    LENGTHS as BOT_LENGTHS,
-    LENGTH_LABELS as BOT_LENGTH_LABELS,
-    TONE_LABELS as BOT_TONE_LABELS,
-    STYLE_KEY as BOT_STYLE_KEY,
-    TONES as BOT_TONES,
-    normalize_style,
+    context_instruction,
     postprocess,
     reply_delay,
     strip_citations,
-    style_instruction,
 )
 from .health import build_health_report
 from .ingest import ingest_jsonl
@@ -329,17 +320,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             )
             return False
 
-        def _bot_style(self, override=None) -> dict:
-            raw = context.store.get_metadata(BOT_STYLE_KEY)
-            stored = {}
-            if raw:
-                try:
-                    stored = json.loads(raw)
-                except json.JSONDecodeError:
-                    stored = {}
-            style = normalize_style(stored)
-            return normalize_style(override, base=style) if override is not None else style
-
         def _client_ip(self) -> str:
             peer = self.client_address[0]
             try:
@@ -435,18 +415,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "app_name": context.app_name,
                         "indexed_at": context.store.get_metadata("knowledge_indexed_at") or "",
                         "usage": usage_summary,
-                        "style": self._bot_style(),
-                    })
-                    return
-                if parsed.path == "/api/bot/style":
-                    self._json(HTTPStatus.OK, {
-                        "style": self._bot_style(),
-                        "options": {
-                            "delay": sorted(BOT_DELAYS),
-                            "length": sorted(BOT_LENGTHS),
-                            "tone": sorted(BOT_TONES),
-                        },
-                        "defaults": BOT_DEFAULT_STYLE,
                     })
                     return
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
@@ -460,18 +428,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 user = self._require_user()
                 if user:
                     self._json(HTTPStatus.OK, self._usage_summary(user["id"]))
-                return
-            if parsed.path == "/api/admin/bot-style":
-                if self._require_admin():
-                    self._json(HTTPStatus.OK, {
-                        "style": self._bot_style(),
-                        "options": {
-                            "delay": BOT_DELAY_LABELS,
-                            "length": BOT_LENGTH_LABELS,
-                            "tone": BOT_TONE_LABELS,
-                        },
-                        "bot_api_enabled": bool(context.bot_token),
-                    })
                 return
             if parsed.path == "/api/admin/users":
                 if self._require_admin():
@@ -596,7 +552,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     {"Retry-After": "30"},
                 )
                 return
-            style = self._bot_style(payload.get("style"))
             history = payload.get("history")
             if isinstance(history, list):
                 history = history[-MAX_BOT_HISTORY:]
@@ -613,7 +568,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 user_id=context.bot_user_id,
                 allow_model=within_budget,
                 tone="line",
-                extra_instruction=style_instruction(style, payload.get("context")),
+                extra_instruction=context_instruction(payload.get("context")),
                 want_followups=False,
             )
             response = {
@@ -627,7 +582,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 "citations": result.get("citations", []),
                 "answer_mode": result.get("answer_mode", ""),
                 "model_status": result.get("model_status", ""),
-                "style": style,
             }
             if result["status"] != "answered":
                 # 敏感題與低信心一律不自動回，交還真人；lurebot 收到就安靜。
@@ -640,7 +594,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 response["reason"] = result.get("model_status") or "model_unavailable"
                 self._json(HTTPStatus.OK, response)
                 return
-            messages = postprocess(result["answer"], style)
+            messages = postprocess(result["answer"])
             if not messages:
                 response["status"] = "unavailable"
                 response["reason"] = "empty_answer"
@@ -648,7 +602,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             response["messages"] = messages
             response["answer"] = strip_citations(result["answer"]).strip()
-            response["delay_seconds"] = reply_delay(style)
+            response["delay_seconds"] = reply_delay()
             self._json(HTTPStatus.OK, response)
 
         def do_POST(self) -> None:
@@ -811,15 +765,6 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         allow_model=within_budget,
                     )
                     self._json(HTTPStatus.OK, result)
-                    return
-                if parsed.path == "/api/admin/bot-style":
-                    if not self._require_admin():
-                        return
-                    style = normalize_style(payload.get("style"), base=self._bot_style())
-                    context.store.set_metadata(
-                        BOT_STYLE_KEY, json.dumps(style, ensure_ascii=False)
-                    )
-                    self._json(HTTPStatus.OK, {"style": style})
                     return
                 if parsed.path == "/api/admin/users":
                     if not self._require_admin():
