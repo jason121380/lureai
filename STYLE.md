@@ -50,6 +50,16 @@
 - `.chat-main` 要有自己的底色，不然推開後會透出下面的選單。
 - z-index 選單 10 < 主畫面 20 < 遮罩 30，遮罩 `left: 75%` 只蓋被推開的那一截，選單本身還要點得到。
 
+## 後台彈窗
+
+比照帳號彈窗：`position: fixed` 全屏容器 `place-items: center`，底下鋪一層 `rgba(0,0,0,.3)` 的 `<button>` 當背景（點了就關）。內容會長的彈窗要三件事一起做，少一件就會出現「捲不到按鈕」：
+
+- 卡片 `max-height: min(84vh, 900px)` ＋ `overflow: hidden`
+- 捲動交給內層容器（`overflow-y: auto`），標題列留在外面不跟著捲
+- 按鈕列 `position: sticky; bottom` 黏在底部
+
+關法要有三種：關閉鈕、點背景、Esc。手機（≤760px）做成整頁 sheet，標題列補 `env(safe-area-inset-top)`、按鈕列補 `env(safe-area-inset-bottom)`。
+
 ## 禁止事項
 
 - 不出現連線狀態指示、應用名稱副標等裝飾性雜訊。

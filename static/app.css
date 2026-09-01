@@ -324,8 +324,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .section-heading p { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
 .heading-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 
-/* 上傳分析：拖檔進來 → 進度條 → 一塊一塊確認 → 一次存檔。 */
-.upload-panel { display: grid; gap: 16px; margin-bottom: 24px; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+/* 上傳分析彈窗：拖檔進來 → 進度條 → 一塊一塊確認 → 一次存檔。
+   卡片高度用 min() 夾住，內容再多也不會把彈窗撐出畫面；捲動交給
+   .upload-scroll，標題列與按鈕列才會固定在上下不跟著捲走。 */
+.upload-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; }
+.upload-panel { position: relative; z-index: 1; width: min(760px, 100%); max-height: min(84vh, 900px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14); }
+.upload-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 14px; border-bottom: 1px solid var(--line); }
+.upload-head h3 { margin: 0; font-size: 18px; font-weight: 650; }
+.upload-head p { margin: 6px 0 0; }
+.upload-scroll { display: grid; gap: 16px; align-content: start; padding: 20px; overflow-y: auto; }
 .upload-drop { display: grid; justify-items: center; gap: 8px; padding: 34px 20px; color: var(--ink-soft); background: var(--sidebar); border: 2px dashed var(--line-strong); border-radius: var(--radius-sm); text-align: center; cursor: pointer; transition: border-color 140ms ease, background 140ms ease; }
 .upload-drop:hover, .upload-drop:focus-visible { border-color: var(--ink); }
 /* 拖到上面時要看得出來放開會生效，不然使用者不知道能不能放。 */
@@ -346,6 +353,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .upload-card-meta input, .upload-card-meta select { height: 36px; padding: 0 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; font: inherit; font-size: 14px; }
 .upload-card textarea { width: 100%; min-height: 120px; padding: 12px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; resize: vertical; font: inherit; font-size: 15px; line-height: 1.8; }
 .upload-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
+/* 候選很多時會捲很長，按鈕列黏在底部才不用捲到最下面才能存。 */
+.upload-scroll .editor-actions { position: sticky; bottom: -20px; margin: 0 -20px -20px; padding: 14px 20px; background: var(--surface); border-top: 1px solid var(--line); }
+@media (max-width: 760px) {
+  /* 手機上做成整頁的 sheet；標題與按鈕列要避開瀏海與底部手勢條。 */
+  .upload-modal { padding: 0; }
+  .upload-panel { width: 100%; max-height: 100%; height: 100%; border: 0; border-radius: 0; }
+  .upload-head { padding-top: max(20px, env(safe-area-inset-top)); }
+  .upload-scroll .editor-actions { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+}
 .command-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 18px; color: #fff; background: var(--ink); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-weight: 600; font-size: 15px; }
 .command-button:hover { background: #3d3d3d; }
 .command-button svg { width: 16px; height: 16px; }

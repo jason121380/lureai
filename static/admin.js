@@ -518,7 +518,7 @@
   let uploadDrafts = [];
 
   function closeUpload() {
-    el("upload-panel").hidden = true;
+    el("upload-modal").hidden = true;
     el("upload-results").innerHTML = "";
     el("upload-actions").hidden = true;
     el("upload-progress").hidden = true;
@@ -529,7 +529,7 @@
   function openUpload() {
     closeEditor();
     closeUpload();
-    el("upload-panel").hidden = false;
+    el("upload-modal").hidden = false;
     el("upload-drop").focus();
   }
 
@@ -808,6 +808,11 @@
   el("new-knowledge-manual").addEventListener("click", () => { closeUpload(); openEditor(null); });
   el("editor-cancel").addEventListener("click", closeEditor);
   el("upload-cancel").addEventListener("click", closeUpload);
+  el("upload-close").addEventListener("click", closeUpload);
+  el("upload-backdrop").addEventListener("click", closeUpload);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el("upload-modal").hidden) closeUpload();
+  });
   el("upload-save").addEventListener("click", saveDrafts);
   el("upload-input").addEventListener("change", (event) => analyseFiles(event.target.files));
   (() => {
