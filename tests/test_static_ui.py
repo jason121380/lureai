@@ -395,6 +395,10 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("applyProfile", script)
         self.assertIn("body.assistant_name", script)
         self.assertIn("body.welcome_prompts", script)
+        # 對話紀錄要跨裝置一致：回到前景再拉一次、切走前把沒送出的補送出去。
+        self.assertIn("visibilitychange", script)
+        self.assertIn("function refreshFromServer", script)
+        self.assertIn("keepalive: true", script)
         # 每次進到空白對話都要換一組建議問題。
         self.assertIn("function pickRandom", script)
         self.assertIn("pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT)", script)
