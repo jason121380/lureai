@@ -241,8 +241,8 @@
         <span><b>${escapeHtml(detailLabels[key] || key)}</b>${escapeHtml(healthDetail(value))}</span>`).join("");
       return `<article class="health-item" data-status="${escapeHtml(item.status)}">
         <span class="health-item-icon"><i data-lucide="${itemState.icon}"></i></span>
-        <div class="health-item-copy"><div><strong>${escapeHtml(item.label)}</strong><span class="health-badge">${itemState.label}</span></div><p>${escapeHtml(item.message)}</p></div>
-        <div class="health-item-meta"><span class="health-latency">${item.latency_ms} ms</span><div>${details}</div></div>
+        <div class="health-item-copy"><div><strong>${escapeHtml(item.label)}</strong><span class="health-badge">${itemState.label}</span><span class="health-latency">${item.latency_ms} ms</span></div><p>${escapeHtml(item.message)}</p></div>
+        <div class="health-item-meta"><div>${details}</div></div>
       </article>`;
     }).join("");
     window.lucide?.createIcons();
@@ -444,11 +444,13 @@
     try {
       const body = await api("/api/admin/knowledge/quality");
       el("stat-flagged").textContent = body.flagged;
+      // 0 也塗紅會讓人以為出事了，只有真的有待整理的知識才標紅。
+      el("stat-flagged-card")?.setAttribute("data-alert", String(Number(body.flagged) > 0));
       const labels = body.labels || {};
       el("quality-summary").innerHTML = `
         <div class="stat-card"><span>知識總數</span><strong>${body.total}</strong></div>
         <div class="stat-card"><span>結構完整</span><strong>${body.healthy}</strong></div>
-        <div class="stat-card alert-stat"><span>待整理</span><strong>${body.flagged}</strong></div>
+        <div class="stat-card alert-stat" data-alert="${Number(body.flagged) > 0}"><span>待整理</span><strong>${body.flagged}</strong></div>
         <div class="stat-card"><span>完整度</span><strong>${body.total ? Math.round((body.healthy / body.total) * 100) : 0}%</strong></div>`;
       const counts = Object.entries(body.counts || {}).filter(([, value]) => value > 0);
       const summary = counts.map(([key, value]) => `<span class="issue-chip">${escapeHtml(labels[key] || key)} ${value}</span>`).join("");
