@@ -35,6 +35,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/health.py` | 管理端 9 項健康檢查（含 Postgres 持久化）|
 | `app/replica.py` | Postgres 快照持久化（不掛 Volume）：帳號／session／稽核／評分／自訂知識定期備份、開機還原 |
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
+| `app/tuning.py` | AI 模型校調：把送給模型的規則整理成目錄，後台可逐條改；`compose_policy`／`compose_tone` 負責組回去 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
 | `knowledge/*.md` | 七本人工整理的知識手冊（coach／chat／ads／social／session／career／ops），編譯後共 241 塊 |
@@ -61,6 +62,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
 - **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
+- **AI 模型校調（後台唯一改規則的地方）**：所有送給模型的規則都在 `app/tuning.py` 的目錄裡——基本回答規則（`config/designer_coach_policy.md` 依 `## ` 切段）、三種語氣、固定回覆句，共 44 條。後台 `#tuning` 分頁逐條顯示與編輯，改過的存進 SQLite `model_rules`（已納入 Postgres 快照），沒改的用預設；`AnswerEngine.instructions()` 每次組指令時重讀，存檔後下一則就生效。**改規則請改後台或 `tuning.py` 的預設值，不要再直接改 `TONE_INSTRUCTIONS`**（它已改由目錄組出來）。`tests/test_tuning.py` 會確認沒有任何覆寫時組回來的字串跟原本逐字相同。
 - **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
 - 對話紀錄存 localStorage（per user id），伺服器不存聊天內容，只存稽核（問題已遮罩 PII）。
 

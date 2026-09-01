@@ -25,6 +25,7 @@
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
         <a href="#knowledge"><i data-lucide="library"></i><span>知識庫</span></a>
         <a href="#quality"><i data-lucide="sparkles"></i><span>品質檢查</span></a>
+        <a href="#tuning"><i data-lucide="sliders-horizontal"></i><span>AI 模型校調</span></a>
         <a href="#users"><i data-lucide="users"></i><span>使用者帳號</span></a>
         <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
       </nav>
@@ -102,6 +103,32 @@
         <div class="pipeline-heading"><h3>需要整理的知識</h3><p>點「編輯」可改寫成完整句子；匯入知識需在原始檔調整</p></div>
         <div id="quality-list" class="knowledge-list"><div class="empty-state">載入中</div></div>
       </section>
+
+      <section id="tuning" class="admin-section" hidden>
+        <div class="section-heading">
+          <div><h2>AI 模型校調</h2><p id="tuning-scope">AI 回答時遵守的所有規則都在這裡；改完存檔，下一則回答就照新的規則走</p></div>
+          <div class="heading-actions">
+            <button id="tuning-preview" class="command-button ghost-button" type="button"><i data-lucide="file-text"></i><span>看實際指令</span></button>
+            <button id="tuning-reset-all" class="command-button ghost-button" type="button"><i data-lucide="rotate-ccw"></i><span>全部還原</span></button>
+          </div>
+        </div>
+        <div id="tuning-groups" class="tuning-groups"><div class="empty-state">載入中</div></div>
+      </section>
+
+      <div id="tuning-preview-panel" class="preview-panel" hidden>
+        <div class="preview-card" role="dialog" aria-label="實際送給模型的指令">
+          <div class="preview-head">
+            <div><h3>實際送給模型的指令</h3><p>這就是你上面改完之後、AI 每次回答前會讀到的完整內容</p></div>
+            <div class="preview-tabs" id="preview-tabs">
+              <button type="button" class="preview-tab active" data-tone="expert">專家模式</button>
+              <button type="button" class="preview-tab" data-tone="service">客服模式</button>
+              <button type="button" class="preview-tab" data-tone="line">LINE 模式</button>
+            </div>
+            <button id="preview-close" class="icon-button" type="button" aria-label="關閉"><i data-lucide="x"></i></button>
+          </div>
+          <pre id="preview-body" class="preview-body">載入中</pre>
+        </div>
+      </div>
 
       <section id="users" class="admin-section" hidden>
         <div class="section-heading"><div><h2>使用者帳號</h2><p>建立登入帳號；輸入既有帳號可重設密碼並登出其舊 session</p></div></div>

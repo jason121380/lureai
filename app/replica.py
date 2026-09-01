@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 SNAPSHOT_TABLE = "lureai_snapshot"
 # 快照涵蓋的 SQLite 資料表；chunks 只收後台自訂（origin='custom'）的原始 payload。
-DURABLE_TABLES = ("users", "sessions", "audits", "feedback")
+DURABLE_TABLES = ("users", "sessions", "audits", "feedback", "model_rules")
 DEFAULT_INTERVAL_SECONDS = 120
 
 

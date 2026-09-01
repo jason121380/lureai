@@ -14,7 +14,9 @@ from app.server import AppContext, create_server
 from tests.test_ingest import approved_chunk
 
 
-class ApiTests(unittest.TestCase):
+class ServerTestCase(unittest.TestCase):
+    """起一台真的 HTTP server 的共用底座；其他測試檔可以直接繼承。"""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
@@ -80,6 +82,8 @@ class ApiTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())
 
+
+class ApiTests(ServerTestCase):
     def test_health_reports_indexed_chunks(self):
         status, body = self.request("GET", "/api/health")
 

@@ -5,6 +5,7 @@ lure ai 怎麼回答的完整規則書。這裡是「總覽」，實際生效的
 | 規則 | 生效位置 |
 | --- | --- |
 | 基本回答規則（稱呼、內容、引用、格式、語氣） | `config/designer_coach_policy.md`（隨每次請求送給模型） |
+| 上面全部的可編輯版本 | 後台「AI 模型校調」分頁（`app/tuning.py` 目錄 → SQLite `model_rules`）；改完可按「看實際指令」對照模型真正收到的內容 |
 | 語氣模式（專家／客服） | `app/answer.py` `TONE_INSTRUCTIONS` |
 | 追問建議 | `app/answer.py` `FOLLOWUP_INSTRUCTION` ＋ `app/followups.py` |
 | 缺引用重試 | `app/answer.py` `CITATION_RETRY_NOTE`、`retry_with_citations` |

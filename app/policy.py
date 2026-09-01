@@ -76,18 +76,38 @@ class PolicyEngine:
         blocked_topics: dict | None = None,
         fallback_message: str = FALLBACK_MESSAGE,
         sensitive_message: str = SENSITIVE_MESSAGE,
+        rules_provider=None,
     ):
         self.minimum_score = minimum_score
         self.blocked_topics = SENSITIVE_TOPICS if blocked_topics is None else blocked_topics
-        self.fallback_message = fallback_message
-        self.sensitive_message = sensitive_message
+        self._fallback_message = fallback_message
+        self._sensitive_message = sensitive_message
+        # 後台「AI 模型校調」改過的固定回覆句；沒改就用建構時給的預設。
+        self.rules_provider = rules_provider
+
+    def _override(self, rule_id: str, default: str) -> str:
+        if not self.rules_provider:
+            return default
+        try:
+            value = (self.rules_provider() or {}).get(rule_id)
+        except Exception:  # noqa: BLE001 - 讀不到就用預設，不能讓回答掛掉
+            return default
+        return value if value and value.strip() else default
+
+    @property
+    def fallback_message(self) -> str:
+        return self._override("reply-fallback", self._fallback_message)
+
+    @property
+    def sensitive_message(self) -> str:
+        return self._override("reply-sensitive", self._sensitive_message)
 
     def boundary_reply(self, question: str) -> PolicyDecision | None:
         """非輔導題直接給固定回應，不進檢索。"""
         normalized = "".join(str(question or "").lower().split())
         for reason, terms, message in BOUNDARY_REPLIES:
             if any(term in normalized for term in terms):
-                return PolicyDecision("direct", reason, message)
+                return PolicyDecision("direct", reason, self._override(f"reply-{reason}", message))
         return None
 
     def precheck(self, question: str) -> PolicyDecision:

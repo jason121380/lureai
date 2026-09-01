@@ -107,6 +107,12 @@ class KnowledgeStore:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS model_rules (
+                rule_id TEXT PRIMARY KEY,
+                text TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         self._ensure_column("chunks", "origin", "TEXT NOT NULL DEFAULT 'file'")
@@ -157,6 +163,29 @@ class KnowledgeStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    def model_rules(self) -> dict[str, str]:
+        """後台改過的規則；沒改過的不會有列，由 app/tuning.py 補預設值。"""
+        with self._lock:
+            rows = self.connection.execute("SELECT rule_id, text FROM model_rules").fetchall()
+        return {row["rule_id"]: row["text"] for row in rows}
+
+    def save_model_rule(self, rule_id: str, text: str, updated_at: str) -> None:
+        with self._lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO model_rules(rule_id, text, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(rule_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
+                (rule_id, text, updated_at),
+            )
+
+    def delete_model_rule(self, rule_id: str) -> None:
+        """還原預設就是把覆寫刪掉，讓 tuning 的預設值重新生效。"""
+        with self._lock, self.connection:
+            self.connection.execute("DELETE FROM model_rules WHERE rule_id = ?", (rule_id,))
+
+    def clear_model_rules(self) -> None:
+        with self._lock, self.connection:
+            self.connection.execute("DELETE FROM model_rules")
 
     def index_health(self) -> dict:
         with self._lock:

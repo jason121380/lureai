@@ -389,6 +389,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .knowledge-text li { margin: 3px 0; }
 .knowledge-text li::marker { color: var(--muted); }
 .knowledge-text .knowledge-more { color: var(--muted); }
+/* AI 模型校調：一條規則一張卡，textarea 直接改，右上角還原預設。 */
+.tuning-groups { display: grid; gap: 8px; }
+.tuning-group .pipeline-heading { margin-top: 26px; }
+.tuning-rules { display: grid; gap: 10px; }
+.tuning-rule { display: grid; gap: 12px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.tuning-rule.is-custom { border-color: var(--ink); }
+.tuning-rule-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.tuning-rule-head strong { margin-right: 8px; font-size: 14px; }
+.tuning-rule-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.tuning-rule textarea { width: 100%; padding: 12px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; resize: vertical; font: inherit; font-size: 13px; line-height: 1.8; }
+.tuning-rule textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.tuning-rule-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.tuning-rule-actions .command-button { min-height: 34px; padding: 0 16px; font-size: 12px; }
+
+/* 「看實際指令」：顯示組好之後真正送給模型的整段文字。 */
+.preview-panel { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: rgba(13, 13, 13, .32); }
+.preview-card { width: min(880px, 100%); max-height: min(80vh, 760px); display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+.preview-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.preview-head h3 { margin: 0; font-size: 15px; }
+.preview-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.preview-tabs { display: flex; gap: 6px; margin-left: auto; }
+.preview-tab { min-height: 32px; padding: 0 14px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: 12px; }
+.preview-tab.active { color: #fff; background: var(--ink); border-color: var(--ink); font-weight: 600; }
+.preview-body { margin: 0; padding: 20px; overflow: auto; color: var(--ink-soft); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .toast { position: fixed; right: 22px; bottom: 22px; z-index: 80; max-width: min(360px, calc(100vw - 44px)); padding: 11px 16px; color: #fff; background: var(--ink); border-radius: var(--radius-sm); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity 140ms ease, transform 140ms ease; font-size: 13px; }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--warning); }
@@ -465,6 +490,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .health-item-meta { grid-column: 2; flex-direction: column; gap: 7px; }
   .health-item-meta > div { justify-content: flex-start; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tuning-rule-head { flex-direction: column; }
+  .preview-panel { padding: 12px; }
+  .preview-head { flex-wrap: wrap; }
+  .preview-tabs { margin-left: 0; }
   .admin-search-form { align-items: stretch; }
   /* Narrow screens: search on its own row, filters underneath. */
   .compact-search input[type="search"] { flex: 1 0 100%; }

@@ -7,11 +7,12 @@
     return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
   }
 
-  const SECTIONS = ["overview", "knowledge", "quality", "users", "health"];
+  const SECTIONS = ["overview", "knowledge", "quality", "tuning", "users", "health"];
 
   function showSection(id) {
     const target = SECTIONS.includes(id) ? id : "overview";
     SECTIONS.forEach((section) => { el(section).hidden = section !== target; });
+    if (target === "tuning" && !tuningLoaded) loadTuning();
     document.querySelectorAll(".admin-nav-links a").forEach((link) => {
       link.classList.toggle("active", link.getAttribute("href") === `#${target}`);
     });
@@ -156,6 +157,84 @@
     node.className = `toast show${error ? " error" : ""}`;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { node.className = "toast"; }, 2800);
+  }
+
+  // ---- AI 模型校調：把送給模型的規則一條一條列出來、改得動 ----
+  let tuningLoaded = false;
+
+  function tuningRuleCard(rule) {
+    const rows = Math.min(14, Math.max(3, String(rule.text || "").split("\n").length + 1));
+    return `<article class="tuning-rule${rule.customized ? " is-custom" : ""}" data-rule="${escapeHtml(rule.id)}">
+      <div class="tuning-rule-head">
+        <div>
+          <strong>${escapeHtml(rule.label)}</strong>
+          ${rule.customized ? '<span class="origin-badge is-custom">已修改</span>' : ""}
+          ${rule.hint ? `<p>${escapeHtml(rule.hint)}</p>` : ""}
+        </div>
+        <button type="button" class="icon-button bordered-icon" data-reset="${escapeHtml(rule.id)}" title="還原這條的預設" aria-label="還原預設"><i data-lucide="rotate-ccw"></i></button>
+      </div>
+      <textarea rows="${rows}" data-text="${escapeHtml(rule.id)}">${escapeHtml(rule.text)}</textarea>
+      <div class="tuning-rule-actions">
+        <span class="editor-hint" data-status="${escapeHtml(rule.id)}"></span>
+        <button type="button" class="command-button" data-save="${escapeHtml(rule.id)}"><i data-lucide="check"></i><span>儲存</span></button>
+      </div>
+    </article>`;
+  }
+
+  async function loadTuning() {
+    try {
+      const body = await api("/api/admin/tuning");
+      el("tuning-scope").textContent = body.customized
+        ? `AI 回答時遵守的所有規則都在這裡；目前有 ${body.customized} 條被你改過`
+        : "AI 回答時遵守的所有規則都在這裡；改完存檔，下一則回答就照新的規則走";
+      el("tuning-groups").innerHTML = body.groups.map((group) => `
+        <section class="tuning-group">
+          <div class="pipeline-heading"><h3>${escapeHtml(group.label)}</h3>${group.hint ? `<p>${escapeHtml(group.hint)}</p>` : ""}</div>
+          <div class="tuning-rules">${group.rules.map(tuningRuleCard).join("")}</div>
+        </section>`).join("");
+      window.lucide?.createIcons();
+      tuningLoaded = true;
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function saveRule(ruleId) {
+    const field = document.querySelector(`[data-text="${CSS.escape(ruleId)}"]`);
+    if (!field) return;
+    try {
+      await api("/api/admin/tuning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule_id: ruleId, text: field.value }),
+      });
+      toast("已存檔，下一則回答就會照新規則");
+      await loadTuning();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function resetRule(ruleId) {
+    try {
+      await api("/api/admin/tuning/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule_id: ruleId }),
+      });
+      toast("已還原預設");
+      await loadTuning();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function showPreview(tone = "expert") {
+    document.querySelectorAll(".preview-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.tone === tone);
+    });
+    el("tuning-preview-panel").hidden = false;
+    el("preview-body").textContent = "載入中";
+    try {
+      const body = await api(`/api/admin/tuning/preview?tone=${encodeURIComponent(tone)}`);
+      el("preview-body").textContent = body.instructions;
+    } catch (error) {
+      el("preview-body").textContent = error.message;
+    }
   }
 
   async function loadStats() {
@@ -561,6 +640,31 @@
     }
     const remove = event.target.closest("[data-remove]");
     if (remove) removeKnowledge(remove.dataset.remove);
+  });
+  el("tuning-groups").addEventListener("click", (event) => {
+    const save = event.target.closest("[data-save]");
+    if (save) { saveRule(save.dataset.save); return; }
+    const reset = event.target.closest("[data-reset]");
+    if (reset) resetRule(reset.dataset.reset);
+  });
+  el("tuning-preview").addEventListener("click", () => showPreview("expert"));
+  el("preview-close").addEventListener("click", () => { el("tuning-preview-panel").hidden = true; });
+  el("tuning-preview-panel").addEventListener("click", (event) => {
+    if (event.target === el("tuning-preview-panel")) el("tuning-preview-panel").hidden = true;
+    const tab = event.target.closest(".preview-tab");
+    if (tab) showPreview(tab.dataset.tone);
+  });
+  el("tuning-reset-all").addEventListener("click", async () => {
+    if (!window.confirm("要把所有規則還原成預設嗎？你改過的內容會全部清掉。")) return;
+    try {
+      await api("/api/admin/tuning/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      toast("已全部還原預設");
+      await loadTuning();
+    } catch (error) { toast(error.message, true); }
   });
   el("refresh-quality").addEventListener("click", loadQuality);
   el("refresh-health").addEventListener("click", () => loadHealth(true));

@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
+from . import tuning
 from .retrieval import SearchHit
 
 
@@ -177,11 +178,35 @@ def model_timeout() -> float:
 
 
 class AnswerEngine:
-    def __init__(self, policy_path: str | Path | None = None, timeout: float | None = None):
+    def __init__(
+        self,
+        policy_path: str | Path | None = None,
+        timeout: float | None = None,
+        rules_provider=None,
+    ):
         self.timeout = model_timeout() if timeout is None else timeout
+        # rules_provider 回傳後台改過的規則（rule_id -> 文字）；沒有就全用預設。
+        # 每次組指令時重讀，後台一存檔下一則回答就生效，不用重啟。
+        self.rules_provider = rules_provider
         self.policy = DEFAULT_POLICY
         if policy_path and Path(policy_path).is_file():
             self.policy = Path(policy_path).read_text(encoding="utf-8")
+
+    def _overrides(self) -> dict[str, str]:
+        if not self.rules_provider:
+            return {}
+        try:
+            return self.rules_provider() or {}
+        except Exception as exc:  # noqa: BLE001 - 讀不到覆寫就用預設，不能讓回答掛掉
+            log_model_failure("tuning", exc, "falling back to default rules")
+            return {}
+
+    def instructions(self, tone: str = DEFAULT_TONE, include_followups: bool = False) -> str:
+        """實際送給模型的指令；後台「AI 模型校調」看到的就是這一份。"""
+        overrides = self._overrides()
+        policy = tuning.compose_policy(overrides) if tuning.policy_sections() else self.policy
+        tone_text = tuning.compose_tone(normalize_tone(tone), overrides)
+        return policy + tone_text + (FOLLOWUP_INSTRUCTION if include_followups else "")
 
     @property
     def model_enabled(self) -> bool:
@@ -262,9 +287,12 @@ class AnswerEngine:
         "看客人怎麼來 還是看客人來了之後怎麼接"
     )
 
+    def model_failed_message(self) -> str:
+        return self._overrides().get("reply-model_failed", "").strip() or self.MODEL_FAILED_MESSAGE
+
     def _extractive_answer(self, hits: list[SearchHit], model_failed: bool = False) -> str:
         if model_failed:
-            return self.MODEL_FAILED_MESSAGE
+            return self.model_failed_message()
         lines = ["根據目前已核准的知識庫資料："]
         for index, hit in enumerate(hits[:3], start=1):
             text = " ".join(hit.text.split())
@@ -323,10 +351,7 @@ class AnswerEngine:
         payload = {
             "model": os.environ["LLM_MODEL"],
             "instructions": (
-                self.policy
-                + TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS[DEFAULT_TONE])
-                + (FOLLOWUP_INSTRUCTION if include_followups else "")
-                + extra_instruction
+                self.instructions(tone, include_followups) + extra_instruction
             ),
             "input": model_input,
             "reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "low")},
