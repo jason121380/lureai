@@ -77,9 +77,25 @@ class HumanizeTests(unittest.TestCase):
             self.assertIn(line, joined)
 
     def test_postprocess_splits_a_long_single_line(self):
+        """一行太長就斷行，斷完超過 2 行才換下一則。"""
         parts = postprocess("先看這週的回覆率 抓 20 則來看 明天再回報給我")
 
-        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts, ["先看這週的回覆率\n抓 20 則來看", "明天再回報給我"])
+
+    def test_no_line_is_longer_than_the_twelve_character_rule(self):
+        """只數行數擋不住「一行 120 字」——行數檢查看到 1 行就放行了。"""
+        wall = (
+            "因為你一年前染過黑色染膏 現在又是細髮 沒有漂過 我會先確認髮尾的殘留和彈性 "
+            "再評估奶茶色需要漂到哪個程度 奶茶色不一定都要漂"
+        )
+
+        parts = postprocess(wall)
+
+        for part in parts:
+            for line in part.split("\n"):
+                # 字數只算內容不算空白；單一詞組本身就超過時不硬切，所以放寬一點。
+                self.assertLessEqual(len(line.replace(" ", "")), 16, line)
+            self.assertLessEqual(len(part.split("\n")), 2, part)
 
     def test_message_gaps_make_the_replies_arrive_one_by_one(self):
         """三則不能同時跳出來——每一則之間要再等一小段。"""

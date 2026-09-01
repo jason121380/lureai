@@ -22,6 +22,11 @@ MAX_PARTS = 3
 # 一則最多幾行；模型忘了空行時這裡自己重排。
 MAX_LINES_PER_PART = 2
 
+# 一行最多幾個字。跟 `line`／`service` 語氣裡寫的 12 字規則一致。
+# 只數行數是擋不住的：模型常常回一整行 120 字、一個換行都沒有，
+# 行數檢查看到「1 行」就直接放行，畫面上就是一大坨。
+MAX_CHARS_PER_LINE = 12
+
 CITATION_PATTERN = re.compile(r"\s*\[\d{1,2}\]")
 PUNCTUATION_PATTERN = re.compile(r"[，。、；：！？,.;:!?]+")
 SPLIT_CHARS = " ，。、；：！？,.;:!?"
@@ -56,6 +61,61 @@ def context_instruction(context) -> str:
     return "\n\n## 這一則的群組脈絡\n" + "\n".join(lines)
 
 
+# 兩個字以內的一段不會是獨立的句子，它是後面那段的一部分（「抓 20 則來看」被
+# 空白切成「抓」「20」「則來看」）。不先黏回去的話，斷行會落在「20」跟「則」中間。
+GLUE_BELOW = 3
+
+
+def _glue_fragments(segments: list[str]) -> list[str]:
+    glued: list[str] = []
+    pending = ""
+    for segment in segments:
+        pending = f"{pending} {segment}" if pending else segment
+        if len(segment) >= GLUE_BELOW:
+            glued.append(pending)
+            pending = ""
+    if pending:
+        if glued:
+            glued[-1] = f"{glued[-1]} {pending}"
+        else:
+            glued.append(pending)
+    return glued
+
+
+def wrap_line(line: str, cap: int = MAX_CHARS_PER_LINE) -> list[str]:
+    """把過長的一行斷成每行 cap 字以內。
+
+    標點已經被拿掉，空白就是模型唯一的斷句記號，所以照空白切、再把短的併回去，
+    才不會切在詞的中間。單一段本身就超過 cap 時（沒有空白可切）才硬切，
+    而且要超過兩倍才硬切——寧可有一行 13 字，也不要把詞切斷。
+
+    **字數只算內容、不算空白**：空白是分隔符不是字。把空白算進去的話，
+    「先看回覆率 這週抓 20 則」這種一行 11 個字的正常句子會被拆成兩行。
+    """
+    segments = _glue_fragments([seg for seg in str(line or "").split(" ") if seg])
+    if not segments:
+        return []
+    lines: list[str] = []
+    current = ""
+    for segment in segments:
+        while len(segment) > cap * 2:
+            if current:
+                lines.append(current)
+                current = ""
+            lines.append(segment[:cap])
+            segment = segment[cap:]
+        if not current:
+            current = segment
+        elif len(current.replace(" ", "")) + len(segment.replace(" ", "")) <= cap:
+            current = f"{current} {segment}"
+        else:
+            lines.append(current)
+            current = segment
+    if current:
+        lines.append(current)
+    return lines
+
+
 def strip_citations(text: str) -> str:
     """引用編號只給稽核核對用，送進 LINE 前拿掉（來源另外回在 citations）。"""
     cleaned = CITATION_PATTERN.sub("", str(text or ""))
@@ -82,7 +142,8 @@ def postprocess(reply_text: str) -> list[str]:
     # 模型忘了空行時，一則會塞進七八行——先重排成每則最多 2 行。
     reflowed = []
     for part in parts:
-        lines = part.split("\n")
+        # 先把過長的行斷開，再數行數。順序反了就擋不住「一行 120 字」。
+        lines = [wrapped for line in part.split("\n") for wrapped in wrap_line(line)]
         for index in range(0, len(lines), MAX_LINES_PER_PART):
             reflowed.append("\n".join(lines[index:index + MAX_LINES_PER_PART]))
     parts = reflowed
