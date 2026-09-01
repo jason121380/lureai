@@ -291,7 +291,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .source-excerpt { margin: 14px 0 0; padding-left: 13px; color: var(--ink-soft); border-left: 3px solid var(--line-strong); font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
 .drawer-overlay { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .3); border: 0; }
 /* 手機版選單用：接住選單旁 20% 區域的點擊，但不壓暗畫面 */
+/* 推開式選單：遮罩只蓋「被推到右邊的那張頁面」，選單本身還要點得到。 */
 .drawer-overlay.clear { background: transparent; }
+@media (max-width: 760px) {
+  .drawer-overlay.clear { left: 75%; z-index: 30; }
+}
 
 /* Administration */
 .admin-body { overflow: auto; }
@@ -450,10 +454,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   input, select, textarea { font-size: 18px; }
   .icon-button { width: 40px; height: 40px; }
   .app-shell { display: block; }
-  /* 手機版選單開成左側 60% 純白抽屜：沒有壓暗的背景、沒有陰影，
-     上方就不會出現跟狀態列的交界；右邊露出的那截用透明層接住點擊來關閉。 */
-  .sidebar, .sidebar.desktop-hidden { position: fixed; inset: 0; z-index: 60; width: 60%; margin-left: 0; padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--surface); border-right: 1px solid var(--line); transform: translateX(-104%); transition: transform 180ms ease; }
-  .sidebar.open { transform: translateX(0); }
+  /* 手機版選單是「把主畫面往右推」，不是蓋在上面（比照 ChatGPT App）：
+     選單一直在底下不動，動的是 .chat-main——往右推 75%、縮一點、帶圓角與陰影，
+     看起來像整張頁面被推到旁邊。
+     兩個關鍵：
+     (1) `transform-origin: left center`——用預設的 center 時，縮放會讓左緣再往右
+         移一段，蓋不準的那條縫會露出選單，透明遮罩也對不齊。
+     (2) .chat-main 要有自己的底色，不然推開後會透出下面的選單。 */
+  .sidebar, .sidebar.desktop-hidden { position: fixed; inset: 0; right: auto; z-index: 10; width: 75%; margin-left: 0; padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--surface); border-right: 0; transform: none; transition: none; }
+  .chat-main { position: relative; z-index: 20; background: var(--canvas); transform-origin: left center; transition: transform 260ms cubic-bezier(.32, .72, 0, 1), border-radius 260ms ease, box-shadow 260ms ease; }
+  .sidebar.open + .chat-main { overflow: hidden; border-radius: 20px; box-shadow: -2px 0 24px rgba(0, 0, 0, .18); transform: translateX(75%) scale(.92); }
   .sidebar-close, .menu-button, .sidebar.desktop-hidden + .chat-main .menu-button { display: inline-grid; }
   .sidebar-panel { display: none; }
   /* 手機版 topbar 是 auto row，高度含安全區，所以變數要跟著算。 */

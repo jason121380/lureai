@@ -100,18 +100,30 @@ class StaticUiTests(unittest.TestCase):
         # html 也要關掉整頁捲動（body 有、html 沒有時仍會整頁捲）。
         self.assertIn("html, body { height: 100%; margin: 0; overflow: hidden; }", css)
 
-    def test_mobile_sidebar_opens_as_a_white_60_percent_drawer(self):
+    def test_mobile_sidebar_pushes_the_page_aside(self):
+        """選單不是蓋上去，是把主畫面往右推（比照 ChatGPT App）。"""
         css = CSS.read_text(encoding="utf-8")
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 左側 60% 純白抽屜：沒有壓暗背景與陰影，頂端不會出現交界。
-        mobile_rule = css.split("手機版選單開成左側 60% 純白抽屜", 1)[1].split("}", 1)[0]
-        self.assertIn("inset: 0;", mobile_rule)
-        self.assertIn("width: 60%;", mobile_rule)
-        self.assertIn("background: var(--surface);", mobile_rule)
-        self.assertNotIn("box-shadow", mobile_rule)
-        # 右邊露出的那截用透明層接住點擊來關閉（不壓暗畫面）。
-        self.assertIn(".drawer-overlay.clear { background: transparent; }", css)
+        block = css.split("手機版選單是「把主畫面往右推」", 1)[1]
+        panel = block.split(".sidebar, .sidebar.desktop-hidden {", 1)[1].split("}", 1)[0]
+        pushed = block.split(".sidebar.open + .chat-main {", 1)[1].split("}", 1)[0]
+
+        # 選單一直在底下不動：不做位移、疊在主畫面下面。
+        self.assertIn("width: 75%;", panel)
+        self.assertIn("transform: none;", panel)
+        self.assertIn("z-index: 10;", panel)
+        # 動的是主畫面：往右推、縮一點、圓角與陰影。
+        self.assertIn("translateX(75%)", pushed)
+        self.assertIn("scale(.92)", pushed)
+        self.assertIn("border-radius", pushed)
+        self.assertIn("box-shadow", pushed)
+        # 縮放的原點要在左邊，否則左緣會再往右移、遮罩對不齊。
+        self.assertIn("transform-origin: left center;", block.split(".chat-main {", 1)[1].split("}", 1)[0])
+        # 主畫面要有自己的底色，不然推開後會透出下面的選單。
+        self.assertIn("background: var(--canvas);", block.split(".chat-main {", 1)[1].split("}", 1)[0])
+        # 透明遮罩只蓋被推開的那一截，選單本身還要點得到。
+        self.assertIn(".drawer-overlay.clear { left: 75%; z-index: 30; }", css)
         opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
         self.assertIn('classList.add("clear")', opener)
 
