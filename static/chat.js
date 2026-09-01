@@ -5,6 +5,9 @@
   // 開場建議：題庫最多收 100 題，每次空白對話隨機顯示 5 題。
   const WELCOME_PROMPT_POOL = 100;
   const WELCOME_PROMPT_COUNT = 5;
+  // 客服模式一次最多幾顆泡泡；超過的中間會被併起來（併起來會變長訊息，
+  // 所以長度控制主要靠 tuning 的 12 字規則，這裡只是安全網）。
+  const SERVICE_MAX_BUBBLES = 4;
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
@@ -590,10 +593,14 @@
       .map((line) => line.replace(/[，。、；：！？!?；「」『』（）()]/g, " "))
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    // 每次最多 3 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
+    // 每次最多 4 則（硬上限）。模型超寫時把中間併成一則，不能直接丟掉——
     // 丟中間會把「範例」「話術」的正文整段吃掉，只剩開頭跟結尾，答案就不到位了。
-    if (lines.length <= 3) return lines;
-    return [lines[0], lines.slice(1, -1).join(" "), lines[lines.length - 1]];
+    if (lines.length <= SERVICE_MAX_BUBBLES) return lines;
+    return [
+      ...lines.slice(0, SERVICE_MAX_BUBBLES - 2),
+      lines.slice(SERVICE_MAX_BUBBLES - 2, -1).join(" "),
+      lines[lines.length - 1],
+    ];
   }
 
   function renderServiceBubbles(content) {
