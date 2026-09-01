@@ -921,8 +921,8 @@
   function openSidebar() {
     el("sidebar").classList.remove("desktop-hidden");
     el("sidebar").classList.add("open");
-    // 手機版選單佔左側 80%：右邊露出的區域用「透明」層接住點擊來關閉，
-    // 不壓暗畫面（壓暗會在狀態列下緣出現一條明顯交界）。
+    // 手機版是把主畫面往右推 75%：被推到右邊的那一截用「透明」層接住點擊
+    // 來關閉，不壓暗畫面（壓暗會在狀態列下緣出現一條明顯交界）。
     if (window.matchMedia("(max-width: 760px)").matches) {
       el("drawer-overlay").classList.add("clear");
       el("drawer-overlay").hidden = false;
