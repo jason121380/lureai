@@ -387,7 +387,7 @@
     return row;
   }
 
-  // 客服模式像真人打字：第一句直接出現，之後每句停 1~2 秒再發，
+  // 客服模式像真人打字：第一句直接出現，之後每句隨機停 1.5~2.5 秒再發，
   // 中間掛著輸入中的點點；狀態列、來源與追問等全部發完才顯示。
   function revealServiceMessage(item) {
     const row = messages.lastElementChild;
@@ -410,7 +410,7 @@
         lines[index].hidden = false;
         index += 1;
         messages.scrollTop = messages.scrollHeight;
-        setTimeout(step, 1000 + Math.random() * 1000);
+        setTimeout(step, 1500 + Math.random() * 1000);
         return;
       }
       typing.remove();

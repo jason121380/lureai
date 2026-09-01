@@ -36,8 +36,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/domains.py` | 兩大主題（店務營運管理／設計師一對一行銷輔導）的定義與歸類規則 |
 | `app/curation.py` | 知識品質檢查（零碎、遮罩過多、標題無意義）|
 | `config/synonyms.json` | 檢索同義詞層，可直接擴充讓 AI 聽懂更多說法（避免加入「流程／方法」這類泛用詞）|
-| `knowledge/*.md` | 六本人工整理的知識手冊（coach／chat／ads／social／session／ops），編譯後共 209 塊 |
-| `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.2 萬筆檢索別名 |
+| `knowledge/*.md` | 七本人工整理的知識手冊（coach／chat／ads／social／session／career／ops），編譯後共 241 塊 |
+| `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.4 萬筆檢索別名 |
 | `scripts/build_knowledge_index.py` | 唯一的索引編譯器（手冊 → JSONL，含問法展開）|
 | `scripts/coverage_report.py` | 用問法索引量測檢索覆蓋率 |
 | `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` |
