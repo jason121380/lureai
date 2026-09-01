@@ -25,7 +25,6 @@
         <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
         <a href="#knowledge"><i data-lucide="library"></i><span>知識庫</span></a>
         <a href="#quality"><i data-lucide="sparkles"></i><span>品質檢查</span></a>
-        <a href="#linebot"><i data-lucide="message-circle"></i><span>LINE 回覆設定</span></a>
         <a href="#users"><i data-lucide="users"></i><span>使用者帳號</span></a>
         <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
       </nav>
@@ -102,30 +101,6 @@
         <div id="quality-summary" class="stats-grid"><div class="empty-state">載入中</div></div>
         <div class="pipeline-heading"><h3>需要整理的知識</h3><p>點「編輯」可改寫成完整句子；匯入知識需在原始檔調整</p></div>
         <div id="quality-list" class="knowledge-list"><div class="empty-state">載入中</div></div>
-      </section>
-
-      <section id="linebot" class="admin-section" hidden>
-        <div class="section-heading">
-          <div><h2>LINE 回覆設定</h2><p id="linebot-scope">lurebot 在 LINE 群組自動回覆時的真人模擬設定；只影響 LINE，不影響這裡的對話</p></div>
-        </div>
-        <form id="linebot-form" class="knowledge-editor">
-          <div class="editor-row even-row">
-            <label>回覆停頓<select id="linebot-delay" data-dynamic="true" aria-label="回覆停頓"></select></label>
-            <label>回覆長短<select id="linebot-length" data-dynamic="true" aria-label="回覆長短"></select></label>
-            <label>語氣<select id="linebot-tone" data-dynamic="true" aria-label="語氣"></select></label>
-          </div>
-          <div class="switch-row">
-            <label class="switch-item"><input type="checkbox" id="linebot-no-punct"><span>不使用標點符號（用空白分段，像平常打 LINE）</span></label>
-            <label class="switch-item"><input type="checkbox" id="linebot-split"><span>長回覆拆成多則短訊息（最多 3 則）</span></label>
-          </div>
-          <label class="editor-body">自訂指示
-            <textarea id="linebot-extra" rows="4" maxlength="1000" placeholder="想讓 AI 在 LINE 上額外遵守的規則，例如：先問對方在哪一間店。留空就照預設。"></textarea>
-          </label>
-          <div class="editor-actions">
-            <span id="linebot-hint" class="editor-hint">載入中</span>
-            <button type="submit" class="command-button"><i data-lucide="check"></i><span>儲存設定</span></button>
-          </div>
-        </form>
       </section>
 
       <section id="users" class="admin-section" hidden>

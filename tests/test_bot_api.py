@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from app.humanize import DEFAULT_STYLE, normalize_style, postprocess, reply_delay, strip_citations
+from app.humanize import DELAY_RANGE, postprocess, reply_delay, strip_citations
 from app.server import AppContext, create_server
 
 from tests.test_ingest import approved_chunk
@@ -38,60 +38,29 @@ class StubAnswerer:
 
 
 class HumanizeTests(unittest.TestCase):
-    def test_unknown_values_fall_back_to_defaults(self):
-        style = normalize_style({"delay": "instant", "length": "epic", "tone": "angry"})
-
-        self.assertEqual(style["delay"], DEFAULT_STYLE["delay"])
-        self.assertEqual(style["length"], DEFAULT_STYLE["length"])
-        self.assertEqual(style["tone"], DEFAULT_STYLE["tone"])
-
-    def test_override_keeps_stored_values_for_missing_keys(self):
-        stored = normalize_style({"tone": "calm", "length": "long"})
-        style = normalize_style({"tone": "lively"}, base=stored)
-
-        self.assertEqual(style["tone"], "lively")
-        self.assertEqual(style["length"], "long")
+    """送出前的固定動作；回覆的語氣與長短規則寫在 line 語氣裡，這裡沒有可調參數。"""
 
     def test_citations_are_stripped_before_sending(self):
         self.assertEqual(strip_citations("先看回覆率 [1]"), "先看回覆率")
 
     def test_postprocess_splits_lines_and_drops_punctuation(self):
-        style = normalize_style({"no_punct": True, "split_long": True})
-
-        parts = postprocess("先看回覆率，這週抓 20 則 [1]\n明天再回報給我 [2]", style)
+        parts = postprocess("先看回覆率，這週抓 20 則 [1]\n明天再回報給我 [2]")
 
         self.assertEqual(parts, ["先看回覆率 這週抓 20 則", "明天再回報給我"])
 
     def test_postprocess_caps_at_three_messages(self):
-        style = normalize_style({"split_long": True})
+        self.assertEqual(len(postprocess("一 [1]\n二\n三\n四")), 3)
 
-        parts = postprocess("一 [1]\n二\n三\n四", style)
+    def test_postprocess_splits_a_long_single_line(self):
+        parts = postprocess("先看這週的回覆率 抓 20 則來看 明天再回報給我")
 
-        self.assertEqual(len(parts), 3)
-
-    def test_postprocess_keeps_every_line_when_capping(self):
-        """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問題不能消失。"""
-        style = normalize_style({"split_long": True})
-
-        parts = postprocess("可以先用這個貼文範例\n最近想整理髮型的你\n這週有 2 個名額\n要一起改嗎", style)
-
-        self.assertEqual(parts[0], "可以先用這個貼文範例")
-        self.assertEqual(parts[-1], "要一起改嗎")
-        self.assertIn("最近想整理髮型的你", parts[1])
-        self.assertIn("這週有 2 個名額", parts[1])
-
-    def test_postprocess_merges_lines_when_split_is_off(self):
-        style = normalize_style({"split_long": False, "no_punct": False})
-
-        parts = postprocess("先看回覆率。[1]\n再看預約數。", style)
-
-        self.assertEqual(parts, ["先看回覆率。 再看預約數。"])
+        self.assertEqual(len(parts), 2)
 
     def test_delay_stays_inside_the_reply_token_window(self):
-        for name in ("none", "short", "natural", "slow"):
-            delay = reply_delay(normalize_style({"delay": name}))
-            self.assertGreaterEqual(delay, 0)
-            self.assertLessEqual(delay, 30)
+        for _ in range(20):
+            delay = reply_delay()
+            self.assertGreaterEqual(delay, DELAY_RANGE[0])
+            self.assertLessEqual(delay, DELAY_RANGE[1])
 
 
 class BotApiTests(unittest.TestCase):
@@ -134,16 +103,6 @@ class BotApiTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())
 
-    def admin_request(self, method, path, payload=None, token="secret-token"):
-        data = None if payload is None else json.dumps(payload).encode()
-        headers = {"Content-Type": "application/json", "X-Admin-Token": token}
-        request = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(request, timeout=5) as response:
-                return response.status, json.loads(response.read())
-        except urllib.error.HTTPError as error:
-            return error.code, json.loads(error.read())
-
     def test_bot_endpoints_reject_wrong_token(self):
         self.assertEqual(self.request("GET", "/api/bot/health", token="nope")[0], 401)
         self.assertEqual(self.request("GET", "/api/bot/health", token=None)[0], 401)
@@ -157,39 +116,14 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["chunks"], 1)
         self.assertIn("model_enabled", body)
-        self.assertEqual(body["style"], DEFAULT_STYLE)
+        self.assertNotIn("style", body)
 
-    def test_style_is_edited_in_the_admin_and_read_back_by_the_bot(self):
-        status, body = self.admin_request("POST", "/api/admin/bot-style", {"style": {
-            "tone": "calm", "length": "medium", "no_punct": False,
-            "extra_prompt": "先問對方的店在哪",
-        }})
-
-        self.assertEqual(status, 200)
-        self.assertEqual(body["style"]["tone"], "calm")
-
-        status, body = self.request("GET", "/api/bot/style")
-        self.assertEqual(status, 200)
-        self.assertEqual(body["style"]["length"], "medium")
-        self.assertFalse(body["style"]["no_punct"])
-        self.assertEqual(body["style"]["extra_prompt"], "先問對方的店在哪")
-
-    def test_admin_style_endpoints_need_the_admin_token(self):
-        self.assertEqual(self.admin_request("GET", "/api/admin/bot-style", token="nope")[0], 401)
+    def test_style_endpoints_are_gone(self):
+        # 回覆行為由 line 語氣決定，沒有可調參數，也就沒有設定端點。
+        self.assertEqual(self.request("GET", "/api/bot/style")[0], 404)
         self.assertEqual(
-            self.admin_request("POST", "/api/admin/bot-style", {"style": {}}, token="nope")[0], 401
+            self.request("POST", "/api/bot/style", {"style": {"tone": "humor"}})[0], 404
         )
-        status, body = self.admin_request("GET", "/api/admin/bot-style")
-        self.assertEqual(status, 200)
-        self.assertEqual(set(body["options"]), {"delay", "length", "tone"})
-        self.assertTrue(body["bot_api_enabled"])
-
-    def test_bot_cannot_change_the_style(self):
-        # 設定只在後台改；機器人這條路只讀得到，改不動。
-        status, _body = self.request("POST", "/api/bot/style", {"style": {"tone": "humor"}})
-
-        self.assertEqual(status, 404)
-        self.assertEqual(self.request("GET", "/api/bot/style")[1]["style"]["tone"], "natural")
 
     def test_reply_returns_line_ready_messages(self):
         stub = StubAnswerer("先看這週回覆率 [1]\n明天回報給我 [1]")
@@ -202,13 +136,12 @@ class BotApiTests(unittest.TestCase):
                 "group_name": "台中一店", "speaker": "小美", "stage": "開權限",
                 "recent": ["設計師 小美: 版面弄好了", "輔導 阿明: 很棒"],
             },
-            "style": {"delay": "none"},
         })
 
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "answered")
         self.assertEqual(body["messages"], ["先看這週回覆率", "明天回報給我"])
-        self.assertEqual(body["delay_seconds"], 0.0)
+        self.assertGreaterEqual(body["delay_seconds"], DELAY_RANGE[0])
         self.assertNotIn("[1]", body["answer"])
         self.assertEqual(body["citations"][0]["locator"], "aftercare-1")
         self.assertEqual(stub.tone, "line")
@@ -223,7 +156,6 @@ class BotApiTests(unittest.TestCase):
 
         status, body = self.request("POST", "/api/bot/reply", {
             "message": "燙髮後怎麼整理？", "conversation_id": "C123",
-            "style": {"delay": "none"},
         })
 
         self.assertEqual(status, 200)

@@ -28,7 +28,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `app/service.py` | 聊天編排：預檢 → 檢索 → 政策 → 回答 → 稽核（含 PII 遮罩） |
 | `app/retrieval.py` | FTS5 + CJK bigram 重排序 |
 | `app/answer.py` | OpenAI Responses API 呼叫與抽取式降級；timeout 由 `LLM_TIMEOUT_SECONDS` 控制 |
-| `app/humanize.py` | LINE 真人模擬：語氣／長短／去標點／拆則／回覆停頓，只給 `/api/bot/*` 用 |
+| `app/humanize.py` | LINE 出口的固定動作：去引用、去標點、拆則、回覆停頓，沒有可調參數 |
 | `app/policy.py` | 敏感話題攔截（只擋人才能決定的事）、0.72 信心門檻 |
 | `app/followups.py` | 建議問題規劃：每個追問都先驗證答得出來，不足時從相鄰知識補 |
 | `app/storage.py` | SQLite schema 與所有查詢（一律在 `_lock` 內）|
@@ -49,7 +49,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **改知識就要重編索引**：`knowledge/*.md` 是唯一的知識來源，改完一定要跑 `scripts/build_knowledge_index.py`，否則測試會擋（`test_written_index_matches_the_playbooks`）。
 - **問法索引不是答案**：`aliases` 只進檢索欄位，不會被引用或輸出。
 - **追問不能斷**：建議問題一律經 `FollowupPlanner` 驗證（政策不擋＋撈得到夠格知識），`tests/test_followup_chain.py` 會實跑 50 輪連續追問，任何一輪轉人工就算失敗。
-- **lurebot 大腦外接**：LINE 端（lurebot）自己沒有知識庫，一律打 `/api/bot/reply` 取回覆。這條路走 `X-Bot-Token`（env `BOT_API_TOKEN`，沒設定就整組關閉）與 `lurebot` 服務帳號記帳，檢索／政策／引用守門／稽核全部與 `/api/chat` 共用同一條 `service.chat`。三個硬規則：政策擋下（敏感題、低於 0.72）一律回 `escalated` 且 `messages` 為空，讓真人接手；模型降級的回覆回 `unavailable`，不進 LINE（邊界題的固定回答例外，它本來就是寫給 LINE 的）；`[n]` 引用只在送出前的出口剝除（LINE 模式與客服模式一樣不做引用守門，否則少一個編號就整則不回）。真人模擬設定（停頓／長短／語氣／去標點／拆則／自訂指示）只在後台「LINE 回覆設定」分頁改，`/api/bot/style` 是唯讀，lurebot 沒有編輯介面。
+- **lurebot 大腦外接**：LINE 端（lurebot）自己沒有知識庫，一律打 `/api/bot/reply` 取回覆。這條路走 `X-Bot-Token`（env `BOT_API_TOKEN`，沒設定就整組關閉）與 `lurebot` 服務帳號記帳，檢索／政策／引用守門／稽核全部與 `/api/chat` 共用同一條 `service.chat`。三個硬規則：政策擋下（敏感題、低於 0.72）一律回 `escalated` 且 `messages` 為空，讓真人接手；模型降級的回覆回 `unavailable`，不進 LINE（邊界題的固定回答例外，它本來就是寫給 LINE 的）；`[n]` 引用只在送出前的出口剝除（LINE 模式與客服模式一樣不做引用守門，否則少一個編號就整則不回）。**回覆行為沒有可調參數**：語氣、長短與斷句規則寫在 `line` 語氣裡，送出前的去標點／拆則／停頓寫死在 `app/humanize.py`（停頓 8-25 秒）。兩邊都不要再長出設定面板，要改就改 `line` 語氣或 `humanize.py`。
 - **語氣設定**：chat API 的 `tone`（`expert` 預設／`service`／`line`）只切換輸出格式指令（`app/answer.py` `TONE_INSTRUCTIONS`）與前端渲染（客服模式逐行泡泡）；未知值一律當 expert，追問規劃不受影響。
 - **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。**守門只套用在專家模式**：客服模式的編號前端本來就會剝掉、LINE 模式在出口剝掉，硬要求會讓正常回覆被丟掉（客服看到降級訊息，LINE 直接不回話），因此由 `AnswerEngine.requires_citations(tone)` 放行這兩種。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks`、`retry_with_citations` 與 `requires_citations`。
 - **開場題庫**：`run.py` 的歡迎題庫共 100 題，每題都必須答得出來且不重複，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳整份打散的題庫、前端每次抽 5 題（`WELCOME_PROMPT_COUNT`）。加題目前先用檢索驗過分數有沒有過 0.72。
@@ -61,7 +61,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
 - **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
-- **後台定位**：知識編輯台（總覽／知識庫／品質檢查／LINE 回覆設定／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
+- **後台定位**：知識編輯台（總覽／知識庫／品質檢查／帳號／系統健康）。可直接新增編輯知識，存 SQLite（`chunks.origin='custom'`），重建索引不會被覆蓋；`匯出 JSONL` 可下載回存 repo 永久化。
 - 對話紀錄存 localStorage（per user id），伺服器不存聊天內容，只存稽核（問題已遮罩 PII）。
 
 ## 工作流程
