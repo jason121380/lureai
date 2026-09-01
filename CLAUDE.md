@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Claude Code 工作指南。修改本專案前先讀這份文件與 `MEMORY.md`（決策紀錄）、`STYLE.md`（視覺規範）。
+Claude Code 工作指南。修改本專案前先讀這份文件與 `MEMORY.md`（決策紀錄）、`STYLE.md`（視覺規範）、`brain.md`（回覆規則總覽：語氣、長短、引用、追問；改回覆行為要同步它）。
 
 ## 專案概觀
 

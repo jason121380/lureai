@@ -37,14 +37,18 @@ class ApiTests(unittest.TestCase):
             "app.css": ".chat-main {} .admin-shell {}",
             "chat.js": 'fetch("/api/chat")',
             "admin.js": 'fetch("/api/admin/health")',
-            "logo.svg": '<svg aria-label="lure ai"></svg>',
+            "logo.png": b"\x89PNG\r\n\x1a\n" + b"logo",
+            "favicon.png": b"\x89PNG\r\n\x1a\n" + b"icon",
             "manifest.webmanifest": '{"name":"LUREAI"}',
             "vendor/lucide.min.js": "const lucide = {};",
         }
         for relative, content in frontend_assets.items():
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            if isinstance(content, bytes):
+                target.write_bytes(content)
+            else:
+                target.write_text(content, encoding="utf-8")
         self.context = AppContext.create(
             db_path=root / "knowledge.db",
             knowledge_path=source,
@@ -254,7 +258,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(checks["database"]["status"], "ok")
         self.assertEqual(checks["rag"]["details"]["chunks"], 1)
         self.assertEqual(checks["knowledge"]["details"]["records"], 1)
-        self.assertEqual(checks["frontend"]["details"]["assets"], 8)
+        self.assertEqual(checks["frontend"]["details"]["assets"], 9)
         self.assertEqual(checks["auth"]["status"], "ok")
         self.assertEqual(checks["auth"]["details"]["users"], 1)
         self.assertTrue(checks["llm"]["details"]["reachable"])

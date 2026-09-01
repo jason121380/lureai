@@ -22,7 +22,7 @@
 <body>
   <section id="login-gate" class="login-gate" aria-labelledby="login-title">
     <form id="login-form" class="login-panel">
-      <img class="login-logo" src="logo.svg" alt="lure ai">
+      <img class="login-logo" src="logo.png" alt="lure ai">
       <div class="login-heading">
         <h1 id="login-title" class="login-tagline">Your Private Brain</h1>
       </div>
@@ -38,7 +38,7 @@
   <div id="app-shell" class="app-shell" hidden>
     <aside class="sidebar" id="sidebar" aria-label="對話側邊欄">
       <div class="brand-row">
-        <img class="brand-logo" src="logo.svg" alt="lure ai">
+        <img class="brand-logo" src="logo.png" alt="lure ai">
         <button class="icon-button sidebar-search" id="sidebar-search" type="button" title="搜尋對話" aria-label="搜尋對話"><i data-lucide="search"></i></button>
         <button class="icon-button sidebar-panel" id="sidebar-panel" type="button" title="收合側邊欄" aria-label="收合側邊欄"><i data-lucide="panel-left-close"></i></button>
         <button class="icon-button sidebar-close" id="sidebar-close" title="關閉側邊欄" aria-label="關閉側邊欄"><i data-lucide="x"></i></button>
@@ -82,9 +82,11 @@
             </div>
           </div>
         </div>
-        <div class="user-account" id="user-account" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" title="帳號選單">
-          <div id="profile-avatar" class="profile-avatar" aria-hidden="true">U</div>
-          <div class="profile-copy"><strong id="user-name">使用者</strong><span id="index-scope" hidden>索引已隔離</span></div>
+        <div class="user-account">
+          <button class="account-trigger" id="user-account" type="button" aria-haspopup="true" aria-expanded="false" title="帳號選單">
+            <div id="profile-avatar" class="profile-avatar" aria-hidden="true">U</div>
+            <div class="profile-copy"><strong id="user-name">使用者</strong><span id="index-scope" hidden>索引已隔離</span></div>
+          </button>
           <a id="admin-link" class="icon-button" href="/admin" target="_blank" rel="noopener" title="設定（另開分頁）" aria-label="設定（另開分頁）" hidden><i data-lucide="settings"></i></a>
           <button id="logout-button" class="icon-button" type="button" title="登出" aria-label="登出"><i data-lucide="log-out"></i></button>
         </div>

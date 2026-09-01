@@ -906,13 +906,8 @@
   document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
     button.addEventListener("click", () => setTone(button.dataset.tone));
   });
-  el("user-account").addEventListener("click", (event) => {
-    if (event.target.closest("#admin-link, #logout-button")) return;
-    toggleAccountMenu();
-  });
-  el("user-account").addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleAccountMenu(); }
-  });
+  // 名字區是真正的 <button>，Enter／空白鍵原生就會觸發 click。
+  el("user-account").addEventListener("click", () => toggleAccountMenu());
   document.querySelectorAll(".account-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".account-tab").forEach((other) => other.classList.toggle("active", other === tab));

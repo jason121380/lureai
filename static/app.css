@@ -99,8 +99,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .usage-spend, .usage-tokens { display: block; }
 .usage-spend { font-size: 11px; font-weight: 650; }
 .usage-tokens { margin-top: 3px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; }
-.user-account { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px; border-radius: 10px; cursor: pointer; }
-.user-account:hover { background: var(--hover); }
+/* 帳號列分三區 hover：名字（開彈窗）、設定、登出各自獨立 */
+.user-account { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.account-trigger { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px 6px; color: inherit; background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-align: left; }
+.account-trigger:hover { background: var(--hover); }
 .user-account .icon-button { flex: 0 0 30px; width: 30px; height: 30px; color: var(--muted); }
 .profile-avatar { width: 31px; height: 31px; flex: 0 0 31px; display: grid; place-items: center; color: #fff; background: var(--ink); border-radius: 50%; font-size: 13px; font-weight: 700; }
 .profile-copy { min-width: 0; flex: 1; }
