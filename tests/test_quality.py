@@ -1,8 +1,9 @@
 """回覆品質守門的判斷邊界。
 
 這裡守的是實測 QA 抓到的四種失分：延後回答、承諾沒交付、問到立場不表態、
-以及輔導對話裡不該出現的角色（主管／轉人工）。同時要守住反向：正常的好回答
-不能被擋，擋掉會變成降級訊息，比廢話更糟。
+以及把人推給不存在的對象（轉人工／會有專人）。同時要守住反向：正常的好回答
+不能被擋，擋掉會變成降級訊息，比廢話更糟——**「主管」不算違規**，沙龍當然有
+主管，整份 ops 知識的客訴、請假、輪值、離職流程都在講主管。
 """
 import unittest
 
@@ -62,10 +63,20 @@ class StanceTests(unittest.TestCase):
 
 
 class ForbiddenRoleTests(unittest.TestCase):
-    def test_escalating_to_a_human_role_is_rejected(self):
-        for answer in ("這個要問你的主管", "我幫你轉人工處理", "這邊會有專人跟你聯繫"):
+    def test_punting_to_a_nonexistent_agent_is_rejected(self):
+        for answer in ("我幫你轉人工處理", "這邊會有專人跟你聯繫", "我轉接專人給你"):
             found = quality.problems("客人要退費", answer)
-            self.assertTrue(any("獨立設計師" in item for item in found), answer)
+            self.assertTrue(any("沒有人工客服" in item for item in found), answer)
+
+    def test_real_roles_in_the_playbooks_pass(self):
+        # 沙龍有主管、有專人、有公司現行公告，這些都是知識庫的原文用法。
+        for question, answer in (
+            ("客人客訴要怎麼處理", "超出職權的部分請主管出面\n你先掌握問題再道歉"),
+            ("年假怎麼請", "年假須經主管核准 避開招生期"),
+            ("櫃檯要怎麼整理", "檯面簡化 有專人收拾"),
+            ("價格可以自己改嗎", "價格依公司現行公告為準 不要自己開"),
+        ):
+            self.assertEqual(quality.problems(question, answer), [], answer)
 
 
 class SafetyTests(unittest.TestCase):

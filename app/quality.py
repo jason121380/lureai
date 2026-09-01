@@ -47,8 +47,11 @@ STANCE_QUESTION = re.compile(
     r"你覺得.{0,12}(嗎|呢)|該不該|要不要|值不值得|我適合|準備好了嗎|撐(下去|得住)|時機對"
 )
 
-# 這些字出現在輔導對話裡就是錯的：獨立設計師沒有主管，AI 顧問也沒有「人工」可轉。
-FORBIDDEN_WORDS = ("主管", "轉人工", "專人", "現行核准", "公司現行")
+# 只擋「把人推給不存在的對象」這件事。**不要擋「主管」**：沙龍當然有主管，
+# 客訴 SOP、請假、輪值、早會、離職流程整份 ops 知識都在講主管，擋掉等於把
+# 照著知識回答的正確答案判成不合格（使用者指正：「會有主管的」）。
+# 「專人」「公司現行」同理，知識庫本來就有正當用法，只擋轉接的講法。
+FORBIDDEN_PATTERN = re.compile(r"轉人工|轉接專人|會有專人|專人(為你|跟你|與你|再跟你)")
 
 
 def _requested_count(question: str) -> int:
@@ -121,12 +124,12 @@ def problems(question: str, answer: str) -> list[str]:
             "第一句就講「我的傾向是…」，再用他給過的數字說明理由。"
         )
 
-    # TASK 4b：輔導對話裡不存在的角色。
-    hit = [word for word in FORBIDDEN_WORDS if word in text]
-    if hit:
+    # TASK 4b：把人推給不存在的對象。
+    punt = FORBIDDEN_PATTERN.search(text)
+    if punt:
         found.append(
-            f"不要出現{'、'.join(hit)}：他是獨立設計師，沒有主管也沒有人工可以轉。"
-            "自己給技術面判斷與溝通做法。"
+            f"不要說「{punt.group(0)}」：這裡沒有人工客服也沒有專人可以接手，"
+            "你就是那個要給答案的人。自己給技術面判斷與溝通做法。"
         )
     return found
 
