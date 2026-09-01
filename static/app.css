@@ -62,9 +62,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .primary-nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; stroke-width: 1.8; }
 .sidebar-label { margin: 0 10px 8px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .conversation-list { flex: 1; min-height: 0; overflow-y: auto; }
-.conversation-item { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 13px; }
+.conversation-item { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 13px; }
 .conversation-item:hover, .conversation-item.active { background: var(--hover); }
-.conversation-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.conversation-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 每個對話記錄最後活動的日期時間 */
+.conversation-time { color: var(--muted); font-size: 10px; font-family: "SFMono-Regular", Consolas, monospace; }
 .conversation-delete { width: 28px; height: 28px; flex: 0 0 28px; display: inline-grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
 .conversation-delete svg { width: 15px; height: 15px; }
 .conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
