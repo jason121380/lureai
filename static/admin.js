@@ -217,16 +217,26 @@
     } catch (error) { toast(error.message, true); }
   }
 
-  async function saveRule(ruleId) {
-    const field = document.querySelector(`[data-text="${CSS.escape(ruleId)}"]`);
-    if (!field) return;
+  // 一律從「被點的那張卡片」裡面取值，不要用全域 querySelector 找 textarea——
+  // 全域找一旦對不上（舊快取、重複 id、部署中新舊檔混搭）就會存到別條規則去，
+  // 使用者改的沒存到，還把第一條標記成已修改。
+  async function saveRule(card) {
+    const ruleId = card?.dataset.rule;
+    const field = card?.querySelector("textarea[data-text]");
+    if (!ruleId || !field) return;
+    if (field.dataset.text !== ruleId) {
+      toast("這張卡片的資料對不上，請重新整理後再試", true);
+      return;
+    }
+    const label = card.querySelector(".tuning-rule-head strong")?.textContent || ruleId;
     try {
       await api("/api/admin/tuning", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rule_id: ruleId, text: field.value }),
       });
-      toast("已存檔，下一則回答就會照新規則");
+      // 把存到哪一條講出來：萬一又存錯，使用者當下就看得見。
+      toast(`已存檔：${label}`);
       await loadTuning();
     } catch (error) { toast(error.message, true); }
   }
@@ -662,10 +672,10 @@
     if (remove) removeKnowledge(remove.dataset.remove);
   });
   el("tuning-groups").addEventListener("click", (event) => {
-    const save = event.target.closest("[data-save]");
-    if (save) { saveRule(save.dataset.save); return; }
-    const reset = event.target.closest("[data-reset]");
-    if (reset) resetRule(reset.dataset.reset);
+    const card = event.target.closest(".tuning-rule");
+    if (!card) return;
+    if (event.target.closest("[data-save]")) { saveRule(card); return; }
+    if (event.target.closest("[data-reset]")) resetRule(card.dataset.rule);
   });
   el("tuning-menu").addEventListener("click", (event) => {
     const button = event.target.closest("[data-group]");

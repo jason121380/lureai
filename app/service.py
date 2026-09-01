@@ -1,17 +1,26 @@
-from datetime import datetime, timezone
+import inspect
 import re
+from datetime import datetime, timezone
 from typing import Iterator
 from uuid import uuid4
 
 from .answer import AnswerEngine, log_model_failure, normalize_citation_marks, normalize_tone
 from .followups import FollowupPlanner, welcome_questions
-from .policy import PolicyEngine
+from .policy import PolicyEngine, speaker_name
 from .retrieval import Retriever
 from .storage import KnowledgeStore
 from .usage import UsagePricing
 
 
 FOLLOWUP_PATTERN = re.compile(r"^[▷›>]\s*(.+)$")
+
+
+def _accepts_speaker(answerer) -> bool:
+    """測試用的假 answerer 可能沒有 speaker 參數，不要因此炸掉。"""
+    try:
+        return "speaker" in inspect.signature(answerer.smalltalk).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def split_followups(text: str) -> tuple[str, list[str]]:
@@ -177,6 +186,16 @@ class CustomerService:
             "model_status": "boundary" if direct else "policy",
         }
 
+    def _speaker_note(self, recent_history: list[dict], question: str) -> str:
+        note = getattr(self.answerer, "speaker_note", None)
+        return note(self._speaker(recent_history, question)) if note else ""
+
+    @staticmethod
+    def _speaker(recent_history: list[dict], question: str) -> str:
+        """他說過名字就記著，之後直接叫名字（記得名字卻不用，跟沒記一樣）。"""
+        said = [item["content"] for item in recent_history if item.get("role") == "user"]
+        return speaker_name(said + [question])
+
     def _smalltalk_result(
         self,
         trace_id: str,
@@ -189,6 +208,9 @@ class CustomerService:
     ) -> dict:
         """閒聊／情緒／欲言又止：不查知識庫、不掛來源，但照樣記帳與稽核。"""
         answer, mode, model_status, usage = self.answerer.smalltalk(
+            question, history=recent_history, allow_model=allow_model, tone=tone, kind=kind,
+            speaker=self._speaker(recent_history, question),
+        ) if _accepts_speaker(self.answerer) else self.answerer.smalltalk(
             question, history=recent_history, allow_model=allow_model, tone=tone, kind=kind,
         )
         return {
@@ -240,7 +262,7 @@ class CustomerService:
             history=recent_history,
             allow_model=allow_model,
             tone=tone,
-            extra_instruction=extra_instruction,
+            extra_instruction=extra_instruction + self._speaker_note(recent_history, question),
             include_followups=want_followups,
         )
         followups: list[str] = []

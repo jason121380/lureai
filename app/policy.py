@@ -1,3 +1,5 @@
+import re
+
 from dataclasses import dataclass
 
 from .retrieval import SearchHit
@@ -105,6 +107,28 @@ ACTION_MARKERS = (
 # 欲言又止：「算了 沒事」這種，不要當成問題，也不要放他走。
 HESITATION_TERMS = ("算了", "沒事", "沒什麼", "沒有啦", "沒事了", "當我沒說", "不說了")
 
+# 自我介紹：「我叫小婷」「我在板橋做三年」不是問題，撈不到知識就會掉到
+# 「我手邊的資料不夠」，等於一開口就被打槍。這條只能在分流處理，改指令沒用。
+SELF_INTRO_PATTERNS = (
+    re.compile(r"我叫[\w\u4e00-\u9fff]{1,10}"),
+    re.compile(r"我(?:的名字|名字)[是叫]"),
+    re.compile(r"我是[\w\u4e00-\u9fff]{0,10}(?:設計師|助理|店長|老闆|新人)"),
+    re.compile(r"我(?:現在)?在[\w\u4e00-\u9fff]{1,12}(?:店|沙龍|工作室|上班|做)"),
+    re.compile(r"(?:做|待|待了|入行)\s*\d+\s*年"),
+)
+
+# 從對話裡把名字撈出來，之後可以直接叫他的名字（記得名字就要用）。
+NAME_PATTERN = re.compile(r"我(?:叫|的名字是|名字是)\s*([\w\u4e00-\u9fff]{1,10})")
+
+
+def speaker_name(messages) -> str:
+    """從使用者說過的話裡找出他的名字；找不到就回空字串。"""
+    for text in reversed([str(item or "") for item in (messages or [])]):
+        match = NAME_PATTERN.search(text)
+        if match:
+            return match.group(1).strip("。，、!！?？ ")[:10]
+    return ""
+
 
 @dataclass(frozen=True)
 class PolicyDecision:
@@ -160,9 +184,17 @@ class PolicyEngine:
         比對得很嚴：整句去掉語助詞後要正好是那個詞（或疊字、或加個稱呼）。
         用「包含」比對會把「好累」當成「好」，但那是有知識可查的情緒題。
         """
-        normalized = "".join(str(question or "").lower().split())
-        normalized = normalized.strip(SMALLTALK_PUNCTUATION)
-        if not normalized or len(normalized) > SMALLTALK_MAX_CHARS:
+        raw = str(question or "")
+        text_lower = raw.lower()
+        normalized = "".join(text_lower.split()).strip(SMALLTALK_PUNCTUATION)
+        if not normalized:
+            return None
+        if len(normalized) > SMALLTALK_MAX_CHARS:
+            # 太長的一律當成有內容的問題，只有自我介紹例外（「我叫小婷 在板橋做三年」）。
+            if not any(marker in text_lower for marker in ACTION_MARKERS):
+                for pattern in SELF_INTRO_PATTERNS:
+                    if pattern.search(raw):
+                        return PolicyDecision("smalltalk", "self_intro")
             return None
         # 原句與「去掉句尾語助詞」的版本都比一次：「哈囉」本身是招呼語，
         # 「好喔」則要剝掉「喔」才等於「好」。
@@ -175,6 +207,10 @@ class PolicyEngine:
                     candidate == term + suffix for suffix in SMALLTALK_SUFFIXES
                 ):
                     return PolicyDecision("smalltalk", "smalltalk")
+        if not any(marker in text_lower for marker in ACTION_MARKERS):
+            for pattern in SELF_INTRO_PATTERNS:
+                if pattern.search(raw):
+                    return PolicyDecision("smalltalk", "self_intro")
         # 「算了 沒事」是兩個詞接在一起，逐個剝掉之後如果什麼都不剩就是欲言又止。
         remainder = normalized
         for term in HESITATION_TERMS:

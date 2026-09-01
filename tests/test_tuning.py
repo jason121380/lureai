@@ -25,10 +25,18 @@ class ComposeTests(unittest.TestCase):
 
         self.assertEqual(tuning.compose_policy(), original)
 
-    def test_every_tone_round_trips_byte_for_byte(self):
+    def test_tone_instructions_come_from_the_catalogue(self):
+        """規則正本只有一份：answer.TONE_INSTRUCTIONS 由目錄組出來，不能各自維護。"""
         for tone in ("expert", "service", "line"):
             with self.subTest(tone=tone):
                 self.assertEqual(tuning.compose_tone(tone), TONE_INSTRUCTIONS[tone])
+
+    def test_every_catalogue_rule_reaches_the_model(self):
+        for group in tuning.TONE_GROUPS:
+            composed = tuning.compose_tone(group["tone"])
+            for rule in group["rules"]:
+                with self.subTest(rule=rule["id"]):
+                    self.assertIn(rule["text"], composed)
 
     def test_override_replaces_only_that_rule(self):
         composed = tuning.compose_tone("service", {"service-01": "改成這句"})
