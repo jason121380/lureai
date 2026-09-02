@@ -547,6 +547,19 @@ class StaticUiTests(unittest.TestCase):
 
         self.assertIn(".message-row:last-child", css)
 
+    def test_every_answer_can_be_copied_as_plain_text(self):
+        js = CHAT_JS.read_text(encoding="utf-8")
+
+        # 複製鈕與評分同一列，但不綁 traceId——離線快取的回答沒有評分 id，
+        # 照樣要能複製。
+        self.assertIn("copy-button", js)
+        self.assertIn("function plainAnswer", js)
+        # 貼到 LINE 就能用：引用編號與 Markdown 記號都要拿掉。
+        self.assertIn("plainAnswer(item.content)", js)
+        # navigator.clipboard 在非安全內容下是 undefined，必須留後路。
+        self.assertIn("document.execCommand", js)
+        self.assertIn(".feedback-button.copied", CSS.read_text(encoding="utf-8"))
+
     def test_chat_controller_persists_conversations(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 

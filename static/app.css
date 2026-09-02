@@ -223,6 +223,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .feedback-button { width: 28px; height: 28px; display: inline-grid; place-items: center; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
 .feedback-button.selected[data-rating="up"] { color: var(--ok); background: var(--ok-soft); }
 .feedback-button.selected[data-rating="down"] { color: var(--warning); background: var(--warning-soft); }
+.feedback-button.copied { color: var(--ok); background: var(--ok-soft); }
 .feedback-button svg { width: 15px; height: 15px; }
 
 .citation-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }

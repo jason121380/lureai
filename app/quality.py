@@ -53,6 +53,42 @@ STANCE_QUESTION = re.compile(
 # 「專人」「公司現行」同理，知識庫本來就有正當用法，只擋轉接的講法。
 FORBIDDEN_PATTERN = re.compile(r"轉人工|轉接專人|會有專人|專人(為你|跟你|與你|再跟你)")
 
+# TASK 5a：被質疑就道歉、把原本正確的立場整個推翻。輔導最怕這個——設計師來
+# 問就是要一個站得住的判斷，一被頂就縮回去等於沒有人在給意見。
+# 只擋「純認錯」：道歉之後有給理由或重新表態的不算，模型本來就該修正真的講錯的地方。
+PUSHBACK_PATTERN = re.compile(
+    r"你(說|講)?錯|不對吧|不是這樣|才不是|真的嗎|你確定|確定嗎|我不同意|亂講|哪有|怎麼可能"
+)
+APOLOGY_PATTERN = re.compile(
+    r"抱歉|不好意思|對不起|是我(說|講|寫|弄)錯|我錯了|我(剛剛|剛才)?(說|講)錯|更正"
+)
+REASON_PATTERN = re.compile(r"因為|原因|依據|根據|來源|理由|差別在|之所以|所以我|判斷是|實際上|其實")
+
+# TASK 5b：同一則裡對同一件事又說可以又說不要，看的人不知道到底要做什麼。
+# 抓法是「肯定詞＋兩個字」與「否定詞＋兩個字」撞在同一個詞上（建議漲價／不要漲價）。
+# 取兩個字是刻意的：抓長一點會被後面的字岔開（「漲價 5-10%」vs「漲太多」本來就
+# 是不同的話）。肯定詞前面要擋掉「不」「別」，否則「不建議漲價」自己會對上自己。
+# 拿 278 塊知識全文跑過，零誤判；殘留的邊緣情況（「建議先觀察兩週／不要觀察太久」）
+# 誤判的代價只是重打一次，第二次不合格照樣送原本那則。
+POSITIVE_ADVICE = re.compile(r"(?<![不別])(?:建議|可以|應該|值得)(?:先)?([一-鿿]{2})")
+NEGATIVE_ADVICE = re.compile(r"(?:不建議|不要|不應該|先不要|先別|別)(?:先)?([一-鿿]{2})")
+
+
+def capitulated(question: str, answer: str) -> bool:
+    """被頂了一句就道歉收回，而且沒給任何理由或新的立場。"""
+    if not PUSHBACK_PATTERN.search(str(question or "")):
+        return False
+    if not APOLOGY_PATTERN.search(str(answer or "")):
+        return False
+    text = str(answer or "")
+    return not (REASON_PATTERN.search(text) or STANCE_PATTERN.search(text))
+
+
+def contradictions(answer: str) -> set[str]:
+    """同一則裡又叫人做又叫人不要做的那件事。"""
+    text = str(answer or "")
+    return set(POSITIVE_ADVICE.findall(text)) & set(NEGATIVE_ADVICE.findall(text))
+
 
 def _requested_count(question: str) -> int:
     """他要幾個？問句裡的數量詞（十個 hashtag）。"""
@@ -152,6 +188,23 @@ def problems(question: str, answer: str, tone: str = "") -> list[str]:
         found.append(
             "有一則連寫了一長串又沒有換行。規則是每行 12 字、一則最多 2 行、"
             "最多 3 則——講不完就只講最關鍵的那一件，其餘等他問再說。"
+        )
+
+    # TASK 5a：一被質疑就認錯收回。
+    if capitulated(question, text):
+        found.append(
+            "他只是質疑了一句，你就道歉把原本的判斷收回去，而且沒說為什麼。"
+            "先講你原本的依據是什麼，真的講錯就說清楚錯在哪裡、正確的是什麼；"
+            "沒講錯就把立場守住。"
+        )
+
+    # TASK 5b：同一則自相矛盾。
+    conflict = contradictions(text)
+    if conflict:
+        topic = "、".join(sorted(conflict))
+        found.append(
+            f"同一則裡對「{topic}」又說可以又說不要，看的人不知道到底要做什麼。"
+            "選一個立場講清楚，有前提就把前提寫出來。"
         )
 
     # TASK 4b：把人推給不存在的對象。
