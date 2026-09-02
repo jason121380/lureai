@@ -98,6 +98,35 @@ def build_pdf(text: str) -> bytes:
     return out + b"%%EOF"
 
 
+def build_pdf_with_form_xobject(text: str) -> bytes:
+    """把內容包進 Form XObject——簡報／報表列印出來常常長這樣。
+
+    頁面串流只剩 `/X1 Do`，真正的字在表單裡。不跟進去就只抓得到頁首頁尾。
+    """
+    codes = {char: index + 1 for index, char in enumerate(dict.fromkeys(text))}
+    pairs = "".join(f"<{code:04X}> <{ord(char):04X}>\n" for char, code in codes.items())
+    cmap = (
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+        f"{len(codes)} beginbfchar\n{pairs}endbfchar\n"
+        "endcmap CMapName currentdict /CMap defineresource pop end end"
+    ).encode()
+    body = "".join(f"{codes[char]:04X}" for char in text)
+    form = f"BT /F1 12 Tf 72 720 Td <{body}> Tj ET".encode()
+    page_stream = b"q 1 0 0 1 0 0 cm /X1 Do Q"
+    objects = {
+        1: b"<< /Type /Page /Resources << /XObject << /X1 5 0 R >> >> /Contents 4 0 R >>",
+        2: b"<< /Type /Font /Subtype /Type0 /ToUnicode 3 0 R >>",
+        3: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap),
+        4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(page_stream), page_stream),
+        5: b"<< /Type /XObject /Subtype /Form /Resources << /Font << /F1 2 0 R >> >> "
+           b"/Length %d >>\nstream\n%s\nendstream" % (len(form), form),
+    }
+    out = b"%PDF-1.4\n"
+    for number, payload in objects.items():
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, payload)
+    return out + b"%%EOF"
+
+
 class PdfTests(unittest.TestCase):
     def test_subset_font_text_is_mapped_through_tounicode(self):
         """PDF 的字元編碼不是 Unicode，要查字型附的 /ToUnicode 對照表。
@@ -110,6 +139,29 @@ class PdfTests(unittest.TestCase):
         text = extract_text("手冊.pdf", build_pdf(wanted))
 
         self.assertEqual(text, wanted)
+
+    def test_text_inside_a_form_xobject_is_found(self):
+        wanted = "服務後第三天傳關懷訊息，先問整理順不順，再自然邀請留評論。"
+        text = extract_text("簡報.pdf", build_pdf_with_form_xobject(wanted))
+        self.assertIn("服務後第三天", text)
+        self.assertIn("邀請留評論", text)
+
+    def test_a_slide_deck_printed_as_images_says_so(self):
+        """使用者實際遇到的：投影片是圖片，只抓得到瀏覽器列印的頁首頁尾。
+
+        以前這種會過關，然後把一行網址存成一則「知識」。
+        """
+        furniture = "2026/9/2下午3:05即時簡報\nhttps://www.taiwan-marketing.com/slides2/22"
+        with self.assertRaises(UnreadableDocument) as caught:
+            extract_text("簡報.pdf", build_pdf(furniture))
+        self.assertIn("內容本身是圖片", str(caught.exception))
+        self.assertIn(".pptx", str(caught.exception))
+
+    def test_a_page_that_happens_to_cite_a_url_still_reads(self):
+        """有網址不代表沒內容——只有「整份只剩網址」才要擋。"""
+        wanted = "Google 商家的評論流程要放在售後關懷之後，詳細做法看 https://example.com/guide"
+        text = extract_text("手冊.pdf", build_pdf(wanted))
+        self.assertIn("售後關懷之後", text)
 
     def test_garbled_output_is_rejected_rather_than_shown(self):
         """有文字層但解不開字型時，抓到的是亂碼。給亂碼比明講讀不到更糟。"""
@@ -196,6 +248,13 @@ class ProseTests(unittest.TestCase):
 
         self.assertEqual(len(proposals), 1)
         self.assertEqual(proposals[0]["section_title"], "客訴處理原則")
+
+    def test_a_lone_url_is_not_knowledge(self):
+        """一行網址就有三十幾個拉丁字母，光數字母會把列印頁尾當成有內容。"""
+        from app.extract import split_document
+
+        furniture = "2026/9/2 下午3:05 即時簡報\nhttps://www.taiwan-marketing.com/slides2/22"
+        self.assertEqual(split_document("簡報.pdf", furniture), [])
 
     def test_a_price_table_is_still_knowledge(self):
         """有中文的表格要留著——價目表是有用的知識，不能跟日曆一起被丟掉。"""

@@ -166,6 +166,20 @@ PDF_FONT_DICT = re.compile(rb"/Font\s*<<(.*?)>>", re.DOTALL)
 PDF_FONT_ENTRY = re.compile(rb"/([^\s/<>\[\]]+)\s+(\d+)\s+\d+\s+R")
 PDF_TOUNICODE = re.compile(rb"/ToUnicode\s+(\d+)\s+\d+\s+R")
 PDF_REF = re.compile(rb"(\d+)\s+\d+\s+R")
+# 內容不一定寫在頁面的串流裡：簡報、報表常常把每一頁包成一個 Form XObject，
+# 頁面串流只剩一行 `/X1 Do`。不跟進去就會只抓到瀏覽器列印的頁首頁尾。
+PDF_XOBJECT_DICT = re.compile(rb"/XObject\s*<<(.*?)>>", re.DOTALL)
+PDF_FORM = re.compile(rb"/Subtype\s*/Form\b")
+
+# 瀏覽器列印出來的頁首頁尾（標題＋日期時間、網址＋頁碼）不是內容。
+# 整份 PDF 只剩這些，代表投影片其實是圖片，沒有文字層。
+PRINT_FURNITURE = re.compile(
+    r"https?://\S+"
+    r"|\d{4}\s*[/年-]\s*\d{1,2}\s*[/月-]\s*\d{1,2}日?"
+    r"|\d{1,2}\s*[:：]\s*\d{2}"
+    r"|[上下]午"
+    r"|第?\s*\d+\s*/\s*\d+\s*頁?"
+)
 
 CMAP_BFCHAR = re.compile(rb"beginbfchar(.*?)endbfchar", re.DOTALL)
 CMAP_BFRANGE = re.compile(rb"beginbfrange(.*?)endbfrange", re.DOTALL)
@@ -405,6 +419,21 @@ def _pdf_text(data: bytes) -> str:
             stream_ids.append(int(contents.group(1)))
         elif contents and contents.group(2):
             stream_ids.extend(int(ref) for ref in PDF_REF.findall(contents.group(2)))
+        # 每一頁包成一個 Form XObject 是簡報／報表的常見做法，頁面串流本身
+        # 只剩 `/X1 Do`。表單裡也可能自己帶字型，要一起收進來。
+        xobjects = PDF_XOBJECT_DICT.search(resources)
+        if xobjects:
+            for _name, xid in PDF_FONT_ENTRY.findall(xobjects.group(1)):
+                form = objects.get(int(xid), b"")
+                if not PDF_FORM.search(form):
+                    continue
+                form_fonts = PDF_FONT_DICT.search(form)
+                if form_fonts:
+                    for name, font_id in PDF_FONT_ENTRY.findall(form_fonts.group(1)):
+                        mapping, width = cmap_for(int(font_id))
+                        if mapping:
+                            fonts.setdefault(name, (mapping, width))
+                stream_ids.append(int(xid))
         text = "".join(
             _pdf_page_text(_pdf_stream(objects.get(sid, b"")), fonts) for sid in stream_ids
         )
@@ -419,6 +448,13 @@ def _pdf_text(data: bytes) -> str:
         raise UnreadableDocument(
             "這個 PDF 抓不到文字（掃描檔，或用了讀不出對照表的字型）。"
             "請用 Word 另存成 .docx，或把內容複製成 .txt 再上傳"
+        )
+    # 抓到的全是瀏覽器列印的頁首頁尾（標題、日期、網址、頁碼），代表版面本身
+    # 是圖片。這種以前會過關，然後把一行網址存成一則「知識」。
+    if len(PRINT_FURNITURE.sub("", joined).strip()) < 16:
+        raise UnreadableDocument(
+            "這個 PDF 只抓得到列印的頁首頁尾（日期、網址），內容本身是圖片。"
+            "請上傳原始檔（.pptx／.docx），或把文字複製成 .txt 再上傳"
         )
     return joined
 
