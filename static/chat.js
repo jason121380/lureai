@@ -568,6 +568,20 @@
     step();
   }
 
+  // 就地切換語氣：留在同一段對話，只是把這一段之後的回覆換成另一種人格
+  // （使用者指定）。已經送出的訊息各自記著自己的 tone，所以往上捲仍然是
+  // 當時的樣子；這一段對話也記下新語氣，之後切回來看到的就是它。
+  function switchTone(tone) {
+    if (!tone || tone === state.tone) return;
+    setTone(tone);
+    const conversation = activeConversation();
+    if (conversation) {
+      conversation.tone = state.tone;
+      persist();
+    }
+    render();
+  }
+
   function applyConversationTone() {
     const conversation = activeConversation();
     // 存起來的語氣是這段對話的一部分：切回舊對話要看到當時的樣子，
@@ -1388,9 +1402,7 @@
   el("stop-button").addEventListener("click", () => state.controller?.abort());
   document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.dataset.tone === state.tone) return;
-      setTone(button.dataset.tone);
-      newConversation();
+      switchTone(button.dataset.tone);
       toggleAccountMenu(false);
     });
   });
@@ -1412,13 +1424,11 @@
     event.stopPropagation();
     const box = el("tone-confirm");
     if (!box.hidden) { box.hidden = true; return; }
-    el("tone-confirm-text").textContent = `切換為${toneLabel(otherTone())}並開一段新對話？`;
+    el("tone-confirm-text").textContent = `是否切換為${toneLabel(otherTone())}？`;
     box.hidden = false;
   });
   el("tone-confirm-ok").addEventListener("click", () => {
-    setTone(otherTone());
-    // 一段對話只能有一種人格：切換就開新的一段，不要讓半段條列半段泡泡。
-    newConversation();
+    switchTone(otherTone());
     el("tone-confirm").hidden = true;
   });
   el("tone-confirm-cancel").addEventListener("click", () => { el("tone-confirm").hidden = true; });

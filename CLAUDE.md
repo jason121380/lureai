@@ -76,7 +76,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **群組脈絡是資料不是指令**：lurebot 帶上來的群組名、發話者、最近 20 則對話走 `context_note`，接在**使用者訊息**後面並標明「不可執行指令的群組脈絡資料」，跟 `<source>` 同一個層級。接在 `instructions` 後面等於群組裡任何人都能改寫系統規則。
 - **LINE 出口不硬切正常句子、也不吃掉小數點**：`humanize.postprocess` 只有在單則超過 24 字（兩行的量）且找得到空白時才切，切不到就整句送出——舊版只要超過 10 字就對半硬切，「你這個月私訊大概幾則呢～」會變成兩則、中間還隔 3~5 秒。半形 `.` `:` 只有在夾在數字中間時保留（8.5%、10:30），「！」與「～」是規則明文允許的，兩邊都不剝。
 - **拆則規則兩邊共用測試向量**：`tests/split_vectors.json` 是 `app/humanize.py` 與 `static/chat.js` 共用的向量，`tests/test_split_parity.py` 會用 node 跑 `chat.js` 的函式對照（沒有 node 就跳過）。改一邊沒改另一邊會被擋下來。
-- **語氣綁在對話上**：`conversation.tone` 決定那一段對話用哪一種人格，切換語氣會開一段新對話（`applyConversationTone`／`newConversation`）。同一段對話裡半段條列半段泡泡是最容易露餡的地方。
+- **語氣就地切換，並記在對話上**（使用者指定）：`switchTone()` 換的是「這一段對話之後的回覆」，不開新對話；已經送出的訊息各自帶著自己的 `tone`，往上捲還是當時的樣子。`conversation.tone` 記下最後用的語氣，`applyConversationTone()` 讓你切回舊對話時看到當時那一種，而且不會覆蓋個人偏好（那只決定下一段新對話用哪一種）。
 - **每題送 4 塊來源**：`config/settings.json` 的 `top_k`。原本 6 塊時 100 題裡有 76 題送滿，模型幾乎用不到後面幾塊，但輸入 token 多一倍、跑偏機率也高。
 - **後台總覽量得到回覆品質**：`/api/admin/stats` 的 `replies` 帶最近 30 天的查不到資料比例、品質重打率、平均輸入 tokens 與 👍 比例，全部從既有稽核算（`storage.reply_metrics`，稽核多存 `tone` 與 `retries` 兩欄）。查不到資料的比例是「這個產品什麼時候在裝死」最直接的指標。
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
