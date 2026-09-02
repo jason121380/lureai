@@ -9,7 +9,7 @@ from pathlib import Path
 from app.ingest import ingest_jsonl
 from app.policy import SENSITIVE_TOPICS
 from app.replica import PostgresReplica
-from app.server import AppContext, create_server
+from app.server import BOT_SERVICE_USERNAME, AppContext, create_server
 from app.storage import KnowledgeStore
 
 
@@ -282,6 +282,15 @@ def main(argv: list[str] | None = None) -> int:
             if username and password:
                 try:
                     context.auth.ensure_bootstrap_user(username, password, os.getenv("USER_ROLE"))
+                except ValueError:
+                    pass
+            # 服務帳號的 id 也要重新認一次。整批換掉帳號表之後，開機時記下的那個
+            # id 可能已經是別人的——lurebot 的用量與稽核就會記到某個真人頭上。
+            if context.bot_token:
+                try:
+                    context.bot_user_id = context.auth.ensure_bootstrap_user(
+                        BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
+                    )["id"]
                 except ValueError:
                     pass
         replica.start(context.store)

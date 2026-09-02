@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from typing import Iterator
 from uuid import uuid4
 
-from .answer import AnswerEngine, log_model_failure, normalize_citation_marks, normalize_tone
+from .answer import (
+    AnswerEngine, CONTACT_PATTERN, log_model_failure, mask_contacts,
+    normalize_citation_marks, normalize_tone,
+)
 from . import quality
 from .followups import FollowupPlanner, welcome_questions
 from .policy import COACHING_TERMS, PolicyEngine, speaker_name
@@ -68,12 +71,10 @@ CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 # 號碼就離開了這台機器。這裡只挑不會誤傷的兩種：下面
 # `SENSITIVE_HISTORY_PATTERN` 那條含關鍵字的規則對稽核夠好，但拿來改寫問題會
 # 把「客人一直看手機」也一起遮掉。
-_CONTACT_SOURCE = (
-    r"09\d{2}[- ]?\d{3}[- ]?\d{3}|(?:\+?886[- ]?)?9\d{8}|"
-    r"0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}|"
-    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
-)
-CONTACT_PATTERN = re.compile(f"(?:{_CONTACT_SOURCE})", re.I)
+# 正本在 `app/answer.py`（模型邊界那一層），這裡 re-export 是為了讓檢索與
+# 稽核拿到的也是同一份乾淨的問題——遮在模型那層可以擋住外送，但擋不住
+# 「原始號碼被拿去查知識庫、或寫進長期保存的稽核」。
+_CONTACT_SOURCE = CONTACT_PATTERN.pattern.removeprefix("(?:").removesuffix(")")
 
 # 稽核那條多認一組關鍵字寫法（「電話：0912…」）。它只用在會長期留著的紀錄上，
 # 寧可多遮一點；**不要拿它去改寫問題**，`電話\s*\S+` 會把「客人一直看手機」
@@ -134,7 +135,7 @@ class CustomerService:
         if len(question) > self.max_question_chars:
             raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
         # 遮罩要在這裡做，檢索、模型與稽核拿到的才是同一份乾淨的問題。
-        return CONTACT_PATTERN.sub("〔已遮罩〕", question)
+        return mask_contacts(question)
 
     def _safe_history(self, history: list[dict] | None) -> list[dict]:
         """送進模型的脈絡：使用者的問題與 AI 自己上一則回覆。
@@ -185,16 +186,25 @@ class CustomerService:
         # 讓「然後呢？」「我想寫得自然一點」這種接話仍然查得到正確主題。
         hits = self.retriever.retrieve(question, limit=self.top_k * 2)
         weak = max(self.policy.minimum_score, WEAK_MATCH_SCORE)
-        if recent_history and (
-            not hits or hits[0].score < weak or is_follow_up(question)
-        ):
+        # 沒有店裡名詞的接話（「為什麼」「然後呢」）本來就看不懂，補脈絡的那份
+        # **同分就要贏**。兩個不同 query 的分數不是同一把尺，硬要求嚴格較高的話，
+        # 打平時會留下無脈絡的那份——實測「我想漲價」→「為什麼」兩邊都是 0.8566，
+        # 於是選到「客人為什麼會在活動期消費」，完全不是他在問的事。
+        # 分數只是勉強及格的那條路照舊要嚴格較高：那裡的問題本身是看得懂的，
+        # 同分就換掉會讓自足的問題被前一題帶走。
+        dependent = is_follow_up(question)
+        if recent_history and (not hits or hits[0].score < weak or dependent):
             previous_questions = [
                 item["content"] for item in recent_history if item["role"] == "user"
             ][-2:]
             padded = self.retriever.retrieve(
                 "\n".join(previous_questions + [question]), limit=self.top_k * 2
             )
-            if padded and (not hits or padded[0].score > hits[0].score):
+            if padded and (
+                not hits
+                or (padded[0].score >= hits[0].score if dependent
+                    else padded[0].score > hits[0].score)
+            ):
                 hits = padded
         decision = self.policy.evaluate(hits)
         if decision.action == "escalate":
@@ -239,9 +249,11 @@ class CustomerService:
         if not used or len(used) == len(citations):
             return answer, citations
         renumber = {old: new for new, old in enumerate(used, start=1)}
+        # 指不到任何來源的編號直接從畫面上拿掉。留著的話會出現一個點不開的
+        # 「[99]」，而下面列出的來源根本沒有第 99 個。
         rewritten = CITATION_REF_PATTERN.sub(
             lambda match: f"[{renumber[int(match.group(1))]}]"
-            if int(match.group(1)) in renumber else match.group(0),
+            if int(match.group(1)) in renumber else "",
             answer,
         )
         return rewritten, [citations[old - 1] for old in used]
@@ -512,8 +524,12 @@ class CustomerService:
             candidate, followups = split_followups(normalize_citation_marks(partial.strip()))
             # 客服模式不用引用守門（編號本來就不顯示），避免好答案被丟掉。
             needs_citation = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
+            valid_citation = getattr(
+                self.answerer, "has_valid_citation",
+                lambda text, count: bool(re.search(r"\[\d+\]", text or "")),
+            )
             if model_status == "used" and candidate and (
-                not needs_citation or re.search(r"\[\d+\]", candidate)
+                not needs_citation or valid_citation(candidate, len(grounded_hits))
             ):
                 answer = candidate
                 mode = "llm"
@@ -590,11 +606,9 @@ class CustomerService:
         user_id: int | None = None,
         allow_model: bool = True,
     ) -> dict:
-        question = str(message or "").strip()
-        if not question:
-            raise ValueError("問題不可為空")
-        if len(question) > self.max_question_chars:
-            raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
+        # 走跟聊天同一套驗證與遮罩。這裡原本自己抄了一份長度檢查卻沒有遮罩，
+        # 於是「客人 0912-345-678 一直沒回」在聊天被遮掉，標題那條路卻原樣送出。
+        question = self._validated_question(message)
         title, model_status, usage = self.answerer.generate_title(
             question, str(answer or ""), allow_model=allow_model
         )
@@ -608,6 +622,26 @@ class CustomerService:
         }
         self._audit(question, result, [], user_id=user_id)
         return {"title": title, "model_status": model_status}
+
+    def record_usage(self, reason: str, usage: dict, user_id: int | None = None) -> None:
+        """把「不是聊天」的模型呼叫也記進帳本（目前是後台的文件分析）。
+
+        走跟聊天同一張 audits 表，月預算與後台總覽才看得到它。
+        """
+        self._audit(
+            f"[{reason}]",
+            {
+                "trace_id": str(uuid4()),
+                "conversation_id": None,
+                "status": "usage",
+                "reason": reason,
+                "usage": usage,
+                "tone": "",
+                "retries": 0,
+            },
+            [],
+            user_id=user_id,
+        )
 
     def _normalize_history(self, history: list[dict] | None) -> list[dict]:
         """驗證前端／lurebot 送上來的對話脈絡。

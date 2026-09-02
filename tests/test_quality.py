@@ -163,6 +163,27 @@ class SafetyTests(unittest.TestCase):
         answer = "先看到店率 20% [1]\n低於基準就從邀約話術改起 [2]"
         self.assertEqual(quality.problems("廣告成效不好", answer), [])
 
+    def test_followup_lines_are_not_content(self):
+        """結尾那幾行「▷ 建議問題」是給前端做按鈕的，不是回答。
+
+        它們天生有動詞跟數字（「那我該先改哪一步？」「我需要多少預算？」），
+        整段一起送檢就會過關；但服務把追問拆走之後，使用者收到的正文只剩
+        「我陪你一起拆這個問題」，狀態還是 answered。守門要驗他真的看到的東西。
+        """
+        answer = (
+            "我陪你一起拆這個問題 [1]\n\n"
+            "▷ 那我該先改哪一步？\n"
+            "▷ 我需要多少預算？"
+        )
+        self.assertTrue(quality.problems("廣告成效不好", answer))
+
+    def test_a_real_answer_with_followups_still_passes(self):
+        answer = (
+            "先看到店率 20% [1]\n低於基準就從邀約話術改起 [2]\n\n"
+            "▷ 那我該先改哪一步？"
+        )
+        self.assertEqual(quality.problems("廣告成效不好", answer), [])
+
     def test_retry_note_carries_every_reason(self):
         found = ["第一個問題", "第二個問題"]
         note = quality.retry_note(found)

@@ -380,6 +380,24 @@ class KnowledgeStore:
                 ),
             )
 
+    def audit_belongs_to(self, trace_id: str, user_id: int | None) -> bool:
+        """這個 trace 是不是這個人自己的那一則回答。
+
+        回饋端點原本收下任何 trace_id：別人的、根本不存在的都回 200，於是後台
+        「👍 比例」這個用來判斷回覆好不好的指標，任何登入的人都能灌。
+        """
+        if not trace_id:
+            return False
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT user_id FROM audits WHERE trace_id = ? LIMIT 1", (trace_id,)
+            ).fetchone()
+        if row is None:
+            return False
+        owner = row["user_id"]
+        # 舊資料沒有記 user_id（那時還沒有帳號），不要因此把老使用者的按讚擋掉。
+        return owner is None or user_id is None or int(owner) == int(user_id)
+
     def add_feedback(self, trace_id: str, user_id: int | None, rating: str, created_at: str) -> None:
         """每人對每則回答一票，重按就更新（讚改倒讚）。"""
         with self._lock, self.connection:

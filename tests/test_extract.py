@@ -109,7 +109,7 @@ class FallbackTests(unittest.TestCase):
         class NoModel:
             model_enabled = False
 
-        items, source = extract.propose_chunks(NoModel(), "客訴手冊.md", DOC)
+        items, source, _usage = extract.propose_chunks(NoModel(), "客訴手冊.md", DOC)
 
         self.assertEqual(source, "rules")
         self.assertTrue(items)
@@ -118,7 +118,7 @@ class FallbackTests(unittest.TestCase):
         class WithModel:
             model_enabled = True
 
-        items, source = extract.propose_chunks(WithModel(), "客訴手冊.md", DOC, allow_model=False)
+        items, source, _usage = extract.propose_chunks(WithModel(), "客訴手冊.md", DOC, allow_model=False)
 
         self.assertEqual(source, "rules")
         self.assertTrue(items)

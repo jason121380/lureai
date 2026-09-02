@@ -982,6 +982,12 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     if not trace_id or len(trace_id) > 64 or rating not in ("up", "down"):
                         self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_request", "message": "回饋格式無效"})
                         return
+                    if not context.store.audit_belongs_to(trace_id, user["id"]):
+                        self._json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": "not_found", "message": "找不到這一則回答"},
+                        )
+                        return
                     context.store.add_feedback(
                         trace_id, user["id"], rating,
                         datetime.now(timezone.utc).isoformat(),
@@ -1075,9 +1081,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         or usage_summary["budget_twd"] <= 0
                         or usage_summary["spend_twd"] < usage_summary["budget_twd"]
                     )
-                    items, source = extract.propose_chunks(
+                    items, source, usage = extract.propose_chunks(
                         context.service.answerer, name, text, allow_model=within_budget,
                     )
+                    # 這條路一次送兩萬多字進模型，是單次最貴的呼叫。不記帳的話
+                    # 後台看到的月花費會比實際少，預算上限也擋不到它。
+                    if usage.get("input_tokens") or usage.get("output_tokens"):
+                        context.service.record_usage(
+                            "knowledge_analyze", usage, user_id=admin["id"] if admin else None,
+                        )
                     self._json(HTTPStatus.OK, {"items": items, "source": source, "name": name})
                     return
                 if parsed.path == "/api/admin/knowledge":
