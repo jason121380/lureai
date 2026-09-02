@@ -7,12 +7,15 @@
   --sidebar: #f9f9f9;
   --line: #ececec;
   --line-strong: #d9d9d9;
-  --muted: #8f8f8f;
+  /* 小字對比：#8f8f8f 在白底只有 3.23:1、#10a37f 在 --ok-soft 上只有 2.8:1，
+     都低於 WCAG AA 對小字的 4.5:1。這幾個 token 幾乎只用在 12~14px 的說明字與
+     徽章上，是整個介面最看不清楚的地方。壓深之後分別是 5.1:1 與 4.7:1。 */
+  --muted: #6e6e6e;
   --hover: #ececec;
   --bubble: #f4f4f4;
-  --ok: #10a37f;
+  --ok: #0b7a5f;
   --ok-soft: #e6f4ef;
-  --warning: #d92d20;
+  --warning: #c4281c;
   --warning-soft: #fdecea;
   --caution: #b54708;
   --caution-soft: #fff3e0;

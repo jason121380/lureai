@@ -65,6 +65,18 @@ class HumanizeTests(unittest.TestCase):
         self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 3)
         self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四\n\n五\n\n六")), 3)
 
+    def test_the_merged_middle_message_cannot_grow_without_a_limit(self):
+        """併中間那則時要夾行數，不然愈長的回答併出來愈像一坨。
+
+        上限刻意是一般的兩倍（4 行）而不是 2 行：一則貼文範例常常就是四五行，
+        硬砍到 2 行會把範例砍掉一半，那比「中間那則長一點」糟得多。
+        """
+        parts = postprocess("\n\n".join(f"第 {index} 段" for index in range(1, 13)))
+
+        self.assertEqual(len(parts), 3)
+        self.assertLessEqual(max(part.count("\n") + 1 for part in parts), 4)
+        self.assertEqual(parts[-1], "第 12 段")
+
     def test_postprocess_keeps_every_line_when_capping(self):
         """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問句不能消失。"""
         parts = postprocess(

@@ -218,5 +218,36 @@ class AnswerTests(unittest.TestCase):
         })
 
 
+class LineTimeoutTests(unittest.TestCase):
+    """LINE 的 reply token 只有 60 秒，所有打模型的路都要吃同一份時間預算。"""
+
+    def _timeout_used(self, call):
+        seen = {}
+
+        def fake_urlopen(_request, timeout=None):
+            seen["timeout"] = timeout
+            raise TimeoutError("too slow")
+
+        with patch.dict(os.environ, {
+            "LLM_BASE_URL": "https://example.test/v1",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "gpt-5.6-luna",
+        }), patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            call(AnswerEngine())
+        return seen.get("timeout")
+
+    def test_smalltalk_uses_the_line_ceiling_like_every_other_call(self):
+        """閒聊原本走全域的 60 秒。加上出口那段 8-25 秒的停頓，最壞會超過
+        reply token 的窗口——設計師在群組裡打一句「哈囉」，收到的是已讀不回。
+        """
+        from app.answer import LINE_TIMEOUT_CEILING
+
+        line = self._timeout_used(lambda engine: engine.smalltalk("哈囉", tone="line"))
+        expert = self._timeout_used(lambda engine: engine.smalltalk("哈囉", tone="expert"))
+
+        self.assertEqual(line, LINE_TIMEOUT_CEILING)
+        self.assertGreater(expert, line)
+
+
 if __name__ == "__main__":
     unittest.main()

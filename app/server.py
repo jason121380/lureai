@@ -29,6 +29,25 @@ from .followups import welcome_questions
 # 單條規則的長度上限：夠寫一段完整的話，但擋掉整份文件貼進來。
 TUNING_RULE_MAX_CHARS = 4000
 
+
+def _trusted_proxies() -> tuple:
+    """`TRUSTED_PROXY_IPS`：逗號分隔的 IP 或 CIDR，指定哪幾台 proxy 的
+    `X-Forwarded-For` 可以採信。沒設就用「內網或本機」這個預設（見 `_client_ip`）。
+    """
+    networks = []
+    for item in os.getenv("TRUSTED_PROXY_IPS", "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
+TRUSTED_PROXIES = _trusted_proxies()
+
 # 對話紀錄存伺服器（使用者決定），這幾個上限只是防呆，不讓單一帳號無限長大。
 CONVERSATION_KEEP = 100
 CONVERSATION_MAX_MESSAGES = 200
@@ -432,13 +451,39 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             )
             return False
 
+        # 網頁只有專家與客服兩種語氣。`line` 是寫給 LINE 出口的：句子沒有標點、
+        # 要拆成多則、引用在出口才剝掉。網頁照單全收的話，畫面上會出現一段沒有
+        # 標點的文字，而且那條路還跳過了引用守門——同一個 tone 在兩條路上的
+        # 出口行為並不一樣。
+        WEB_TONES = ("expert", "service")
+
+        @classmethod
+        def _web_tone(cls, value) -> str:
+            tone = str(value or "").strip().lower()
+            return tone if tone in cls.WEB_TONES else "expert"
+
         def _client_ip(self) -> str:
+            """這條連線背後真正的來源 IP，用來當限流的鑰匙。
+
+            `X-Forwarded-For` 是客戶端可以自己寫的，所以只在「這一跳本來就是
+            我們的 proxy」時才採信。設了 `TRUSTED_PROXY_IPS` 就以那份名單為準；
+            沒設時退回「內網或本機來的才信」——雲端平台一律是內網 proxy 連進來，
+            全部不信的話所有人會共用同一個 IP，一個人打錯密碼就把整間店鎖在外面。
+            偽造 XFF 仍然換得到新的 IP 鑰匙，擋那件事的是上面「只看帳號」那把。
+            """
             peer = self.client_address[0]
             try:
                 peer_address = ipaddress.ip_address(peer)
             except ValueError:
                 return peer
-            if peer_address.is_private or peer_address.is_loopback:
+            if TRUSTED_PROXIES:
+                trusted = any(
+                    peer_address.version == network.version and peer_address in network
+                    for network in TRUSTED_PROXIES
+                )
+            else:
+                trusted = peer_address.is_private or peer_address.is_loopback
+            if trusted:
                 forwarded = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
                 if forwarded:
                     try:
@@ -747,7 +792,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 "messages": [],
                 "delay_seconds": 0.0,
                 "answer": "",
-                "citations": result.get("citations", []),
+                # 只有真的要送進 LINE 的那則才附來源。轉真人與降級的情況
+                # lurebot 一個字都不會送出，這時候還把知識原文帶回去，等於
+                # bot 權杖一旦外流就多洩漏一份內容，payload 也白白變大。
+                "citations": [],
                 "answer_mode": result.get("answer_mode", ""),
                 "model_status": result.get("model_status", ""),
             }
@@ -771,6 +819,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 return
             response["messages"] = messages
             response["answer"] = strip_citations(result["answer"]).strip()
+            # 走到這裡才是真的會送出去的那則，來源這時候才附上（稽核對照用）。
+            response["citations"] = result.get("citations", [])
             rules = context.store.model_rules()
             response["delay_seconds"] = reply_delay(
                 delay_range=tuning.parse_delay_range(
@@ -807,8 +857,14 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     return
                 if parsed.path == "/api/auth/login":
                     username = str(payload.get("username", "")).strip().casefold()
-                    login_key = f"{self._client_ip()}|{username}"
-                    if not context.login_limiter.allowed(login_key):
+                    # 兩把鑰匙一起看。只用 IP＋帳號的話，攻擊者每次換一個
+                    # X-Forwarded-For 就是一把新鑰匙，等於沒有上限；「只看帳號」
+                    # 那把偽造不掉，才是真正擋得住針對單一帳號硬猜的那一道。
+                    login_keys = (
+                        f"ip|{self._client_ip()}|{username}",
+                        f"account|{username}",
+                    )
+                    if not all(context.login_limiter.allowed(key) for key in login_keys):
                         self._json(
                             HTTPStatus.TOO_MANY_REQUESTS,
                             {"error": "too_many_attempts", "message": "登入嘗試過多，請稍後再試"},
@@ -820,13 +876,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             payload.get("username", ""), payload.get("password", "")
                         )
                     except ValueError:
-                        context.login_limiter.failed(login_key)
+                        for key in login_keys:
+                            context.login_limiter.failed(key)
                         self._json(
                             HTTPStatus.UNAUTHORIZED,
                             {"error": "invalid_credentials", "message": "帳號或密碼錯誤"},
                         )
                         return
-                    context.login_limiter.succeeded(login_key)
+                    for key in login_keys:
+                        context.login_limiter.succeeded(key)
                     self._json(
                         HTTPStatus.OK,
                         {"user": user},
@@ -863,7 +921,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         payload.get("history"),
                         user_id=user["id"],
                         allow_model=within_budget,
-                        tone=payload.get("tone"),
+                        tone=self._web_tone(payload.get("tone")),
                     )
                     self._json(HTTPStatus.OK, result)
                     return
@@ -889,7 +947,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         payload.get("history"),
                         user_id=user["id"],
                         allow_model=within_budget,
-                        tone=payload.get("tone"),
+                        tone=self._web_tone(payload.get("tone")),
                     )
                     # 驗證錯誤要在串流開始前用 JSON 回覆；service 會先 yield 一個
                     # start 事件，所以這裡幾乎立刻返回，header 不會被模型生成卡住。

@@ -144,6 +144,25 @@ class SafetyTests(unittest.TestCase):
         answer = "先看私訊到店率\n這 30 個裡面有幾個真的來"
         self.assertEqual(quality.problems("廣告成效不好", answer), [])
 
+    def test_citation_number_is_not_content(self):
+        """專家模式每一點都要附 `[1]`，那個數字不是他要的東西。
+
+        不先剝掉的話「我陪你一起拆這個問題 [1]」會被當成「有給數字」而放行——
+        整個守門對專家模式等於失效，而那正是它最該擋的一種空話。
+        """
+        for answer in (
+            "我陪你一起拆這個問題",
+            "我陪你一起拆這個問題 [1]",
+            "我陪你一起拆這個問題[1]",
+            "我陪你一起拆這個問題【1】",
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(quality.problems("廣告成效不好", answer), answer)
+
+    def test_real_numbers_still_count_as_content(self):
+        answer = "先看到店率 20% [1]\n低於基準就從邀約話術改起 [2]"
+        self.assertEqual(quality.problems("廣告成效不好", answer), [])
+
     def test_retry_note_carries_every_reason(self):
         found = ["第一個問題", "第二個問題"]
         note = quality.retry_note(found)

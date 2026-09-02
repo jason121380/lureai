@@ -340,6 +340,29 @@ class AnswerEngine:
                 )
                 usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                 if retried:
+                    # 引用補回來了，但內容還沒查過。舊版只驗 `[n]` 就直接送出，
+                    # 於是「格式修好、內容更空」的重打照樣會出去——品質守門對
+                    # 「第一次沒附引用」的那些回覆等於完全沒有作用。
+                    found = quality.problems(question, retried, tone=tone)
+                    if found:
+                        log_model_failure(
+                            "quality", detail=f"after citation retry | {found[0][:60]}"
+                        )
+                        self.last_retries += 1
+                        improved, quality_usage = self.retry_for_quality(
+                            question, hits, found, history=history, tone=tone,
+                            extra_instruction=extra_instruction,
+                            include_followups=include_followups,
+                            context_note=context_note,
+                        )
+                        usage = {
+                            key: usage.get(key, 0) + quality_usage.get(key, 0)
+                            for key in empty_usage
+                        }
+                        if improved:
+                            return improved, "llm", "used", usage
+                        # 兩次都不合格就送引用版那則：它至少有來源、也讀得通，
+                        # 比降級訊息好（跟上面那條路同一個取捨）。
                     return retried, "llm", "used", usage
                 return self._extractive_answer(hits, model_failed=True), "extractive", "missing_citations", usage
             except urllib.error.HTTPError as exc:
@@ -398,7 +421,10 @@ class AnswerEngine:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            # 閒聊也要吃 LINE 的時間預算。用全域的 60 秒，加上出口那段 8-25 秒
+            # 的回覆停頓，最壞會超過 LINE reply token 的 60 秒窗口——設計師在
+            # 群組裡打一句「哈囉」，收到的是已讀不回。
+            with urllib.request.urlopen(request, timeout=self._timeout_for(tone)) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except Exception as exc:  # noqa: BLE001 - 閒聊失敗就用備援句，不要讓對話斷掉
             log_model_failure("smalltalk", exc, f"model={self.model_name}")

@@ -707,5 +707,29 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("min-height: 44px", touch)
 
 
+class SyncAndStreamTests(unittest.TestCase):
+    """兩個「畫面看不出來」的錯：存不進去卻當作存好了、字打到別段對話裡。"""
+
+    def setUp(self):
+        self.chat = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
+
+    def test_a_failed_push_does_not_clear_the_pending_flag(self):
+        """只要沒有丟例外就當作存好了的話，500 與 401 都會靜靜地掉資料。"""
+        body = self.chat.split("async function pushConversations")[1].split("\n  }")[0]
+        self.assertIn("if (!response.ok) return;", body)
+        self.assertLess(body.index("if (!response.ok) return;"), body.index("pendingPush = false"))
+
+    def test_a_failed_delete_is_remembered_so_it_cannot_come_back(self):
+        body = self.chat.split("async function deleteConversationOnServer")[1].split("\n  }")[0]
+        self.assertIn("pendingDeletes.add(id)", body)
+        self.assertIn("pendingDeletes.delete(id)", self.chat)
+        sync = self.chat.split("async function syncWithServer")[1].split("\n  }")[0]
+        self.assertIn("!pendingDeletes.has(item.id)", sync)
+
+    def test_stream_text_only_goes_to_the_conversation_that_asked(self):
+        """A 還在生成、人切到 B，A 的字不可以一個一個打進 B 的泡泡裡。"""
+        self.assertIn("const streamingId = conversation.id;", self.chat)
+        self.assertIn("if (state.activeId !== streamingId) return;", self.chat)
+
 if __name__ == "__main__":
     unittest.main()

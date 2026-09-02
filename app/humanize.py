@@ -23,6 +23,8 @@ MAX_PARTS = 3
 
 # 一則最多幾行；模型忘了空行時這裡自己重排。
 MAX_LINES_PER_PART = 2
+# 併中間那則時的行數上限（見 postprocess）。
+MAX_LINES_MERGED = MAX_LINES_PER_PART * 2
 
 # 一行最多幾個字。跟 `line`／`service` 語氣裡寫的 12 字規則一致。
 # 只數行數是擋不住的：模型常常回一整行 120 字、一個換行都沒有，
@@ -168,8 +170,16 @@ def postprocess(reply_text: str) -> list[str]:
             return parts
         # 超過上限就把中間併成一則，不要直接砍掉尾巴——砍掉會連收尾的問句
         # 和範例正文一起消失，設計師收到的就是一段沒講完的話。
-        # 併起來時用換行接，不要接成一長條。
-        return [*parts[:MAX_PARTS - 2], "\n".join(parts[MAX_PARTS - 2:-1]), parts[-1]]
+        # 併起來時用換行接，不要接成一長條，而且要夾一次行數：舊版沒有夾，
+        # 六個單行段落會併成一則四行、八個會併成六行，愈長愈像一坨。
+        # 這裡的上限刻意放寬到一般的兩倍：一則貼文範例常常就是四五行，
+        # 硬砍到 2 行會把範例砍掉一半，那比「中間那則長一點」糟得多。
+        middle = [line for part in parts[MAX_PARTS - 2:-1] for line in part.split("\n")]
+        return [
+            *parts[:MAX_PARTS - 2],
+            "\n".join(middle[:MAX_LINES_MERGED]),
+            parts[-1],
+        ]
     single = parts[0]
     # 上面的 wrap_line 已經保證每行不超過 12 字，所以剩下的單則要嘛本來就短、
     # 要嘛是一個切不開的長詞。舊版只要超過 10 字就對半硬切，於是
