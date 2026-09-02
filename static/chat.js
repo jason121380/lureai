@@ -344,7 +344,8 @@
     const text = document.createElement("div");
     text.className = "message-text";
     if (item.loading) {
-      text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>';
+      text.innerHTML = '<div class="typing" aria-label="正在查詢"><span></span><span></span><span></span></div>'
+        + '<p class="wait-hint" hidden></p>';
     } else if (item.role === "assistant") {
       text.classList.add("rich");
       // 降級成知識原文時不逐句拆泡泡（會變成幾十則），維持一般排版＋降級標籤。
@@ -556,6 +557,45 @@
   const BULLET_LINE = /^\s*[-*•]\s+(.*)$/;
   const ORDERED_LINE = /^\s*(\d{1,2})[.)]\s+(.*)$/;
   const HEADING_LINE = /^\s*#{1,3}\s+(.*)$/;
+
+  // 等太久要講一句話。三顆點只證明畫面沒死，說不出「還要多久」，也說不出
+  // 「它在幹嘛」——推理模型一題寫 40 秒是常態（`LLM_TIMEOUT_SECONDS` 給到 60），
+  // 中間完全沒有交代，看起來就像當掉。
+  // 階段是照實際流程排的：先檢索、再生成、超過 25 秒通常是題目本身難。
+  const WAIT_HINTS = [
+    [5000, "正在查知識庫"],
+    [12000, "正在整理回答"],
+    [25000, "這題比較複雜，還在寫"],
+    [45000, "快好了，再等一下"],
+  ];
+  let waitTimer = null;
+  let waitStartedAt = 0;
+
+  function paintWaitHint() {
+    const hint = messages.querySelector(".message-text .wait-hint");
+    if (!hint) return;
+    const elapsed = Date.now() - waitStartedAt;
+    const stage = WAIT_HINTS.filter(([after]) => elapsed >= after).pop();
+    if (!stage) {
+      hint.hidden = true;
+      return;
+    }
+    // 秒數要真的在跳：只寫「正在整理回答」看久了跟卡住沒兩樣。
+    hint.hidden = false;
+    hint.textContent = `${stage[1]}（已等 ${Math.round(elapsed / 1000)} 秒）`;
+  }
+
+  function startWaitHint() {
+    stopWaitHint();
+    waitStartedAt = Date.now();
+    // 每秒重找一次節點：render() 隨時可能把整串訊息重畫掉。
+    waitTimer = window.setInterval(paintWaitHint, 1000);
+  }
+
+  function stopWaitHint() {
+    if (waitTimer) window.clearInterval(waitTimer);
+    waitTimer = null;
+  }
 
   function inlineMarkup(text, citationCount) {
     let html = escapeHtml(text);
@@ -823,6 +863,7 @@
     setBusy(true);
     persist();
     render();
+    startWaitHint();
     try {
       // 最近 8 題完整送出（模型脈絡與檢索用），更早的只送前 80 字，
       // 讓伺服器知道哪些題目已經問過，建議問題才不會重複。
@@ -841,8 +882,10 @@
         state.controller.signal,
         (delta) => {
           streamedText += delta;
-          // 客服模式不即時吐字：維持輸入中的點點，等結果再一句一句發。
+          // 客服模式不即時吐字：維持輸入中的點點，等結果再一句一句發——
+          // 那條路的等待提示要留著跑，不能在這裡停掉。
           if (tone === "service") return;
+          stopWaitHint();
           const textNode = messages.lastElementChild?.querySelector(".message-text");
           if (textNode) {
             textNode.textContent = streamedText;
@@ -880,6 +923,7 @@
         retryPrompt: error.name === "AbortError" ? "" : value,
       };
     } finally {
+      stopWaitHint();
       state.controller = null;
       setBusy(false);
       persist();

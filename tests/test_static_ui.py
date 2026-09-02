@@ -561,6 +561,24 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("document.execCommand", js)
         self.assertIn(".feedback-button.copied", CSS.read_text(encoding="utf-8"))
 
+    def test_a_slow_answer_says_what_it_is_doing(self):
+        """三顆點只證明畫面沒死，說不出「還要多久」也說不出「它在幹嘛」。
+
+        推理模型一題寫 40 秒是常態（LLM_TIMEOUT_SECONDS 給到 60），中間沒有
+        交代就跟當掉一樣。
+        """
+        js = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn("WAIT_HINTS", js)
+        for stage in ("正在查知識庫", "正在整理回答", "這題比較複雜"):
+            self.assertIn(stage, js)
+        # 秒數要真的在跳：只換一句話看久了跟卡住沒兩樣。
+        self.assertIn("已等 ${Math.round(elapsed / 1000)} 秒", js)
+        # 開始送出就起算；收到第一段字或整個結束就停。
+        self.assertIn("startWaitHint();", js)
+        self.assertIn("stopWaitHint();", js)
+        self.assertIn(".wait-hint", CSS.read_text(encoding="utf-8"))
+
     def test_pwa_pages_do_not_zoom(self):
         """PWA 要像 App：兩指放大、連點兩下放大都關掉。"""
         for page in (INDEX, ADMIN):

@@ -72,6 +72,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
 - **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
 - **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。
+- **等太久要講一句話**：聊天等待超過 5 秒，三顆點下面會出現分階段提示＋已等秒數（查知識庫 → 整理回答 → 這題比較複雜 → 快好了）。推理模型一題寫 40 秒是常態（`LLM_TIMEOUT_SECONDS` 預設 60），中間完全沒有交代就跟當掉一樣。**秒數要真的在跳**，只換一句話看久了跟靜止沒兩樣。收到第一段字（客服模式除外，那條路不即時吐字）或整個結束就停。
 - **PWA 不給縮放**：兩個頁面的 viewport 都帶 `maximum-scale=1, user-scalable=no`，`body` 補 `touch-action: manipulation` 關掉連點兩下放大。**iOS Safari 的瀏覽器分頁會忽略 `user-scalable=no`**（Apple 為了無障礙刻意不理），加到主畫面才生效，所以 `static/app.js` 還會擋掉 `gesturestart/change/end`。
 - **載入中要看得出系統還活著**：`.loading-state` 是會跑的進度條（整個元件只靠一個 class，文字與條都用虛擬元素畫，HTML 的初始狀態與 JS 重填的那份才不會各寫一份）。**載入失敗要停下來**：`showLoadFailure()` 把載入條換成錯誤訊息＋「重新載入」，toast 消失之後畫面不能還停在「載入中」，否則使用者會一直等一個不會來的東西。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
