@@ -172,6 +172,29 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('el("upload-backdrop").addEventListener("click", closeUpload)', script)
         self.assertIn('event.key === "Escape"', script)
 
+    def test_touch_devices_get_no_hover_highlight(self):
+        """觸控裝置點過之後 :hover 會黏住，側欄會出現兩個灰底。
+
+        所以 hover 的視覺一律關在 `hover: hover` 裡；`.active` 與 focus 狀態
+        不能跟著進去，它們代表真的狀態，在觸控裝置上也要看得到。
+        """
+        css = CSS.read_text(encoding="utf-8")
+
+        block = css.split("@media (hover: hover) {", 1)[1]
+        self.assertIn(".conversation-item:hover", block)
+        self.assertIn(".icon-button:hover", block)
+        # 區塊外面不可以再有 :hover 的樣式（註解不算）。
+        outside = "\n".join(
+            line for line in css.split("@media (hover: hover) {", 1)[0].splitlines()
+            if not line.strip().startswith("/*") and not line.strip().startswith("*")
+        )
+        self.assertNotIn(":hover", outside)
+        # 選中與 focus 要留在外面。
+        self.assertIn(".conversation-item.active { background: var(--hover); }", outside)
+        self.assertIn(":focus-within .conversation-delete", outside)
+        # 觸控時刪除鈕本來就要看得見（沒有 hover 可以觸發）。
+        self.assertIn("@media (hover: none) {", css)
+
     def test_mobile_swipe_opens_and_closes_the_sidebar(self):
         """PWA 沒有瀏覽器的返回手勢，兩個方向都要自己做。"""
         script = CHAT_JS.read_text(encoding="utf-8")

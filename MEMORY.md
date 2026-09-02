@@ -10,6 +10,8 @@
 
 ## 產品決策
 
+- **2026-09-02 觸控裝置不該有 hover 底色**（使用者截圖：側欄同時有兩則反白，「hover / touch 不用出現陰影，只有 selected 才有」）：`:hover` 在觸控裝置上會**黏在最後點到的元素上**，所以看起來像同時選中兩則。把全部 24 條 hover 樣式整批搬進 `@media (hover: hover)`，`.active` 與 `:focus-visible`／`:focus-within` 留在外面（那是真的狀態，觸控也要看得到），靠 hover 才顯示的刪除鈕本來就有 `@media (hover: none)` 補常駐。實測：觸控裝置點第 4 則之後只有第 4 則有底色；有滑鼠的桌機滑過去仍會變色。
+
 - **2026-09-02 上傳支援 Word／Excel／PowerPoint／PDF／RTF**（使用者：「不能讀 word, pdf, excel 嗎」→「定義更廣」）：新增 `app/documents.py`。**沒有破零依賴**：新版 Office 就是 ZIP 裡放 XML，標準庫的 `zipfile` ＋ `xml.etree` 拆得開；PDF 的內容串流是 zlib 壓的，`zlib` 也在標準庫。Word 連表格裡的字都要抓（價目表整張會不見）、Excel 的文字存在 sharedStrings 要用索引指回去、PowerPoint 一張投影片一段。前端純文字檔照舊直接讀，二進位檔改送 base64（分段轉，`btoa(String.fromCharCode(...bytes))` 大檔會爆堆疊），端點上限 512KB → 8MB。
   **讀不了的要講下一步怎麼做**：舊版 `.doc/.xls/.ppt` 是 OLE 複合文件（標準庫拆不開）→「請另存成新版」；掃描版 PDF 沒有文字層 → 「請用 Word 另存成 .docx，或複製成 .txt」。給亂碼比明講讀不到更糟。
   **兩個寫測試才抓到的坑**：(1) 一個中文字在 RTF 裡是**連續兩個** `\'xx`，一個一個解會各自變成半個字，要整串收集起來一次解碼；(2) `_decode` 原本把 `utf-16` 排在 `big5` 前面，而沒有 BOM 的 UTF-16 幾乎任何偶數長度的位元組都吃得下——Big5 的中文檔會被解成亂碼。改成 UTF-16 只在有 BOM 時才試。
