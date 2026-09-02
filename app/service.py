@@ -407,6 +407,7 @@ class CustomerService:
                 grounded_hits,
                 asked=self._asked_questions(history, question),
                 candidates=followups,
+                question=question,
             )
         else:
             followups = []
@@ -502,11 +503,18 @@ class CustomerService:
                 mode = "llm"
                 # 品質守門原本只掛在非串流那條路，而網頁聊天全部走串流——
                 # 「我陪你一起拆」這種空話在網頁上是原樣送出的（體檢 B1）。
+                before_quality = answer
                 answer, extra_usage, retries = self._enforce_quality(
                     question, answer, grounded_hits, recent_history, tone, note,
                 )
                 usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
-                answer, followups = split_followups(answer)
+                if answer != before_quality:
+                    # 只有真的重打過才重新拆一次 ▷ 行。無條件再拆一次會把上面
+                    # 已經拆出來的追問清成空的（重打前的 answer 早就沒有 ▷ 了），
+                    # 模型寫的追問就全部作廢，只能退回相鄰知識——畫面上就是
+                    # 問賣產品卻建議「我想自己開店」。
+                    answer, retried = split_followups(answer)
+                    followups = retried or followups
             else:
                 if model_status == "used":
                     # 模型有回但沒附引用：加上警語重打一次再放棄。
@@ -549,6 +557,7 @@ class CustomerService:
                 grounded_hits,
                 asked=self._asked_questions(history, question),
                 candidates=followups,
+                question=question,
             ),
         }
         self._audit(question, result, hits, user_id=user_id)

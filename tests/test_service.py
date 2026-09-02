@@ -193,6 +193,32 @@ class ServiceTests(unittest.TestCase):
             hits = self.service.retriever.retrieve(question, limit=1)
             self.assertTrue(hits and hits[0].score >= self.service.policy.minimum_score, question)
 
+    def test_stream_keeps_the_followups_the_model_wrote(self):
+        """串流路徑不可以把模型寫的追問洗掉。
+
+        品質守門加進串流之後，程式無條件又拆了一次 ▷ 行——但那時候 ▷ 已經被
+        拆走了，於是追問被清成空的，只能退回相鄰知識，畫面上就變成問賣產品
+        卻建議「我想自己開店」。
+        """
+        class FollowupAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None, tone="expert", **_kwargs):
+                yield ("delta", "依示範方向吹整就好。[1]\n\n▷ 燙髮居家照護怎麼做？\n▷ 日常整理要注意什麼？")
+                yield ("usage", {
+                    "input_tokens": 1, "cached_input_tokens": 0,
+                    "cache_write_input_tokens": 0, "output_tokens": 1,
+                })
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = FollowupAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
+
+        self.assertIn("燙髮居家照護怎麼做？", result["followups"])
+
     def test_stream_with_fullwidth_citations_is_accepted(self):
         class FullwidthAnswerer:
             model_enabled = True
