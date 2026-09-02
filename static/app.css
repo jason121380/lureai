@@ -568,7 +568,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .tuning-menu { position: static; grid-auto-flow: column; grid-auto-columns: max-content; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
   .tuning-menu button { border: 1px solid var(--line-strong); border-radius: var(--radius-pill); }
   .tuning-menu button.active { border-color: var(--ink); }
-  .tuning-rule-head { flex-direction: column; }
+  /* 維持橫排：改成直排的話還原鍵會被撐成一個滿版的空盒子。 */
+  .tuning-rule-head { flex-direction: row; align-items: flex-start; }
   .preview-panel { padding: 12px; }
   .preview-head { flex-wrap: wrap; }
   .preview-tabs { margin-left: 0; }
@@ -578,7 +579,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .compact-search .select-field { flex: 1 1 auto; }
   .compact-search .select-button { min-width: 0; width: 100%; }
   .user-form { flex-direction: column; }
-  .admin-search-form .command-button span { display: none; }
+  .user-form .select-field, .user-form .select-button, .user-form select { width: 100%; min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -597,7 +598,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .domain-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .domain-head h4 { margin: 0; font-size: 17px; font-weight: 600; }
 .domain-head span { color: var(--muted); font-size: 14px; }
-.domain-badge { padding: 2px 8px; color: var(--ink-soft); background: var(--bubble); border: 1px solid var(--line); border-radius: var(--radius-pill); font-weight: 600; }
+.domain-badge { padding: 2px 8px; color: var(--ink-soft); background: var(--bubble); border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; }
 .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
 /* 分類卡改用淡底而不是每格都描一條框：一頁 40 幾格時框線比內容還搶眼。 */
 .category-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: var(--radius-sm); font-size: 15px; }
@@ -625,6 +626,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .knowledge-length { flex: 0 0 62px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; text-align: right; }
 .knowledge-detail { padding: 0 10px 14px 36px; }
 .knowledge-detail .knowledge-actions { margin-top: 12px; }
+
+/* 知識庫的手機版。**這個 media query 一定要放在上面那些規則後面**：
+   media query 不加權重，同分時是後者勝——寫在檔案前段的話會被桌機規則蓋掉
+   （實測標題被擠成「第…」還往右溢出）。
+   390px 放不下一列六個欄位，所以改成兩行：標題與字數一行、次要資訊一行。 */
+@media (max-width: 760px) {
+  .knowledge-summary { flex-wrap: wrap; row-gap: 4px; padding: 12px 8px; }
+  .knowledge-summary-title { flex: 1 1 auto; overflow: visible; white-space: normal; }
+  /* 主題、來源、分類在手機上資訊量最低，收起來換版面。 */
+  .knowledge-summary > .domain-badge, .knowledge-summary > .origin-badge,
+  .knowledge-summary > .knowledge-category { display: none; }
+  /* 字數靠右收在第一行；定位點自己一行。兩個細節少一個就會歪：
+     - `flex-basis: 100%` 才會真的換行（光給 order 只改順序，不會換行）；
+     - 定位點在 DOM 裡排在字數前面，所以要用 order 把它推到最後，
+       不然它先換行、字數就被擠到第三行去了。
+     縮排用 padding 不用 margin：margin 會加在 100% 之外，右緣會溢出。 */
+  .knowledge-length { order: 2; margin-left: auto; }
+  .knowledge-summary > .source-locator { order: 3; flex: 0 0 100%; padding-left: 26px; }
+  .knowledge-detail { padding: 0 8px 12px 26px; }
+}
 .knowledge-card { padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .knowledge-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .knowledge-card h3 { margin: 0; font-size: 17px; font-weight: 600; }
@@ -632,7 +653,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .knowledge-actions { display: flex; flex: 0 0 auto; gap: 4px; }
 .knowledge-card p { margin: 12px 0 0; color: var(--ink-soft); font-size: 15px; line-height: 1.75; }
 .knowledge-note { color: var(--muted); font-size: 14px; white-space: nowrap; }
-.origin-badge { padding: 2px 8px; color: var(--muted); background: var(--bubble); border-radius: var(--radius-pill); font-weight: 600; }
+.origin-badge { padding: 2px 8px; color: var(--muted); background: var(--bubble); border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; }
 .origin-badge.is-custom { color: var(--ok); background: var(--ok-soft); }
 .issue-chip { display: inline-block; padding: 3px 9px; color: var(--caution); background: var(--caution-soft); border-radius: var(--radius-pill); font-size: 14px; font-weight: 600; }
 .issue-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
@@ -679,7 +700,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
    `.active` 與 `:focus-visible`／`:focus-within` 不在這裡，它們代表真的狀態，
    在觸控裝置上也要看得到。 */
 @media (hover: hover) {
-  .knowledge-summary:hover { background: var(--hover); border-radius: var(--radius-sm); }
   .icon-button:hover { background: var(--hover); }
   .primary-nav-item:hover { background: var(--hover); }
   .conversation-item:hover { background: var(--hover); }
