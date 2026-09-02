@@ -1,7 +1,8 @@
 """回覆品質守門的判斷邊界。
 
-這裡守的是實測 QA 抓到的四種失分：延後回答、承諾沒交付、問到立場不表態、
-以及把人推給不存在的對象（轉人工／會有專人）。同時要守住反向：正常的好回答
+這裡守的是實測 QA 抓到的六種失分：延後回答、承諾沒交付、問到立場不表態、
+把人推給不存在的對象（轉人工／會有專人）、被質疑就無條件認錯、同一則自相矛盾。
+同時要守住反向：正常的好回答
 不能被擋，擋掉會變成降級訊息，比廢話更糟——**「主管」不算違規**，沙龍當然有
 主管，整份 ops 知識的客訴、請假、輪值、離職流程都在講主管。
 """
@@ -77,6 +78,62 @@ class ForbiddenRoleTests(unittest.TestCase):
             ("價格可以自己改嗎", "價格依公司現行公告為準 不要自己開"),
         ):
             self.assertEqual(quality.problems(question, answer), [], answer)
+
+
+class CapitulationTests(unittest.TestCase):
+    """被頂一句就道歉收回立場。輔導最怕這個——設計師來就是要一個站得住的判斷。"""
+
+    def test_apologising_and_backing_down_with_no_reason_is_rejected(self):
+        found = quality.problems("你說錯了吧", "抱歉，是我說錯了，你說的才對。")
+        self.assertTrue(found)
+        self.assertIn("收回", found[0])
+
+    def test_correcting_yourself_with_a_reason_passes(self):
+        # 真的講錯就該改口——只要說得出錯在哪裡、正確的是什麼。
+        answer = "抱歉，我剛剛講錯了。原因是我把到店率當成回流率；到店率的及格線是 20%。"
+        self.assertEqual(quality.problems("你說錯了吧", answer), [])
+
+    def test_holding_the_position_passes(self):
+        answer = "我的傾向還是先不要漲價。你上個月回流率 25%，還沒到 30-40% 的健康區間。"
+        self.assertEqual(quality.problems("不對吧", answer), [])
+
+    def test_apology_without_pushback_is_not_flagged(self):
+        # 沒有人質疑他，那句「不好意思」只是禮貌用語。
+        self.assertEqual(quality.problems("私訊怎麼開場？", "不好意思讓你久等，先問髮況。"), [])
+
+
+class ContradictionTests(unittest.TestCase):
+    def test_saying_both_do_and_dont_about_one_thing_is_rejected(self):
+        answer = "現在建議漲價 5-10%。不過這個階段不要漲價，先把回流率做起來。"
+        found = quality.problems("我可以漲價嗎", answer)
+        self.assertTrue(any("漲價" in item and "又說" in item for item in found), found)
+
+    def test_one_clear_stance_passes(self):
+        answer = "我的傾向是可以漲價，幅度抓 5-10%，先從新客開始。"
+        self.assertEqual(quality.problems("我可以漲價嗎", answer), [])
+
+    def test_declining_it_outright_passes(self):
+        # 「不建議漲價」裡面也有「建議漲價」，肯定詞的擋字要真的擋住。
+        answer = "我不建議漲價，先把指名率做起來，回流率到 30% 再談。"
+        self.assertEqual(quality.problems("我可以漲價嗎", answer), [])
+
+    def test_a_qualifier_on_the_same_verb_is_not_a_contradiction(self):
+        answer = "可以漲價，但不要漲太多，5-10% 就好。"
+        self.assertEqual(quality.problems("我可以漲價嗎", answer), [])
+
+    def test_no_curated_chunk_reads_as_self_contradictory(self):
+        """278 塊人工整理的知識就是模型輸出的語感，一塊都不該被判成矛盾。"""
+        import json
+        from pathlib import Path
+
+        rows = [
+            json.loads(line)
+            for line in Path("knowledge/designer_coaching_process.jsonl")
+            .read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        self.assertGreater(len(rows), 200)
+        flagged = [row["locator"] for row in rows if quality.contradictions(row.get("text", ""))]
+        self.assertEqual(flagged, [])
 
 
 class SafetyTests(unittest.TestCase):

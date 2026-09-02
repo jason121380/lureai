@@ -406,11 +406,34 @@
       content.append(retry);
     }
 
-    // 每則回答都能評分（👍👎），回饋存進伺服器供之後加強知識。
-    if (item.role === "assistant" && item.status === "answered" && item.traceId && !item.loading) {
+    // 每則回答都能複製與評分（👍👎），回饋存進伺服器供之後加強知識。
+    // 複製不綁 traceId：沒有評分 id 的回答（例如離線快取）照樣要能複製。
+    if (item.role === "assistant" && item.status === "answered" && !item.loading) {
       const feedback = document.createElement("div");
       feedback.className = "feedback-row";
-      [["up", "thumbs-up", "這則回答有幫助"], ["down", "thumbs-down", "這則回答沒幫助"]].forEach(([rating, icon, label]) => {
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "feedback-button copy-button";
+      copy.title = "複製這則回答";
+      copy.setAttribute("aria-label", "複製這則回答");
+      copy.innerHTML = `<i data-lucide="copy"></i>`;
+      copy.addEventListener("click", async () => {
+        const ok = await copyText(plainAnswer(item.content));
+        copy.classList.toggle("copied", ok);
+        copy.title = ok ? "已複製" : "複製失敗，請長按選取";
+        copy.setAttribute("aria-label", copy.title);
+        copy.innerHTML = `<i data-lucide="${ok ? "check" : "copy"}"></i>`;
+        window.lucide?.createIcons();
+        window.setTimeout(() => {
+          copy.classList.remove("copied");
+          copy.title = "複製這則回答";
+          copy.setAttribute("aria-label", copy.title);
+          copy.innerHTML = `<i data-lucide="copy"></i>`;
+          window.lucide?.createIcons();
+        }, 1600);
+      });
+      feedback.append(copy);
+      if (item.traceId) [["up", "thumbs-up", "這則回答有幫助"], ["down", "thumbs-down", "這則回答沒幫助"]].forEach(([rating, icon, label]) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `feedback-button${item.feedback === rating ? " selected" : ""}`;
@@ -598,6 +621,54 @@
     flushParagraph();
     flushList();
     return blocks.join("");
+  }
+
+  // 一鍵複製要給的是「貼到 LINE 就能用」的純文字：拿掉引用編號與 Markdown
+  // 記號，但保留條列的破折號與換行——設計師複製的多半就是話術與清單。
+  function plainAnswer(content) {
+    return String(content || "")
+      .split("\n")
+      .map((rawLine) => {
+        const line = rawLine.trimEnd();
+        const heading = line.match(HEADING_LINE);
+        const body = heading ? heading[1] : line;
+        return body
+          .replace(/\s*\[\d{1,2}\]/g, "")
+          .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+          .replace(/`([^`\n]+)`/g, "$1")
+          .trimEnd();
+      })
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  // navigator.clipboard 只在安全內容（HTTPS／localhost）下存在，PWA 以外的
+  // 情境（區網 http 測試）會整個 undefined，所以留一條 textarea 的後路。
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (error) {
+      // 使用者拒絕權限或非安全內容：往下走後路。
+    }
+    const scratch = document.createElement("textarea");
+    scratch.value = text;
+    scratch.setAttribute("readonly", "");
+    scratch.style.position = "fixed";
+    scratch.style.opacity = "0";
+    document.body.append(scratch);
+    scratch.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (error) {
+      ok = false;
+    }
+    scratch.remove();
+    return ok;
   }
 
   // 客服模式：像真人一句一句發訊息。
