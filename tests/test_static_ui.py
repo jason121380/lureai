@@ -174,10 +174,13 @@ class StaticUiTests(unittest.TestCase):
         script = CHAT_JS.read_text(encoding="utf-8")
 
         self.assertIn('addEventListener("touchstart"', script)
-        # 關著時只認左緣起手，才不會跟內容的橫向捲動打架。
-        self.assertIn("if (!open && touch.clientX > SWIPE_EDGE) return;", script)
-        self.assertIn("const SWIPE_EDGE = 24;", script)
-        # 開著時畫面任何地方往左滑都收起來。
+        # 兩個方向都不限制起手位置：畫面任何地方往右滑展開、往左滑收起。
+        self.assertNotIn("SWIPE_EDGE", script)
+        # 但起手在輸入框或會橫向捲動的東西上時不接手。
+        self.assertIn("function swipeBlocked(target)", script)
+        self.assertIn('tag === "INPUT" || tag === "TEXTAREA"', script)
+        self.assertIn("node.scrollWidth > node.clientWidth + 1", script)
+        self.assertIn("if (swipeBlocked(event.target)) return;", script)
         self.assertIn("!swipe.open && deltaX > SWIPE_DISTANCE", script)
         self.assertIn("swipe.open && deltaX < -SWIPE_DISTANCE", script)
         self.assertIn("openSidebar();", script)

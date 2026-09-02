@@ -1238,21 +1238,34 @@
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);
   // 手機版手勢（PWA 裡沒有瀏覽器的返回手勢，所以兩個方向都要自己做）：
-  // - 選單關著：只有從螢幕左緣 24px 內往右滑才展開。限制在邊緣，才不會跟
-  //   內容的橫向捲動、或訊息上的左右滑動作打架。
-  // - 選單開著：畫面上任何地方往左滑都收起來——選單佔了 75%，要求使用者
-  //   一定要滑到右邊那一小截才收得掉並不合理。
-  const SWIPE_EDGE = 24;      // 展開時的起手邊緣寬度
+  // 畫面上任何地方往右滑＝展開，往左滑＝收起。不限制起手位置——選單佔 75%，
+  // 要求使用者一定要從螢幕邊緣起手（或滑到右邊那一小截才收得掉）並不合理。
+  // 聊天頁沒有任何橫向捲動的容器，所以不會打架；真的有的時候用下面那道保險。
   const SWIPE_DISTANCE = 50;  // 橫向要滑超過這麼多才算數
   const SWIPE_DRIFT = 40;     // 直向偏移超過這麼多就當成在捲動，取消手勢
+
+  // 起手落在輸入框或「自己會橫向捲動」的東西上時不要接手：前者橫滑是在移動
+  // 游標，後者橫滑是在捲它自己的內容。
+  function swipeBlocked(target) {
+    for (let node = target; node && node !== document.body; node = node.parentElement) {
+      if (!(node instanceof Element)) continue;
+      const tag = node.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (node.scrollWidth > node.clientWidth + 1) {
+        const overflowX = getComputedStyle(node).overflowX;
+        if (overflowX === "auto" || overflowX === "scroll") return true;
+      }
+    }
+    return false;
+  }
+
   let swipe = null;
   document.addEventListener("touchstart", (event) => {
     if (event.touches.length !== 1) return;
     if (!window.matchMedia("(max-width: 760px)").matches) return;
+    if (swipeBlocked(event.target)) return;
     const touch = event.touches[0];
-    const open = el("sidebar").classList.contains("open");
-    if (!open && touch.clientX > SWIPE_EDGE) return;
-    swipe = { x: touch.clientX, y: touch.clientY, open };
+    swipe = { x: touch.clientX, y: touch.clientY, open: el("sidebar").classList.contains("open") };
   }, { passive: true });
   document.addEventListener("touchmove", (event) => {
     if (!swipe) return;
