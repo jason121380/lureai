@@ -174,7 +174,11 @@ class KnowledgeStore:
                 (since,),
             ).fetchone()
             votes = self.connection.execute(
-                "SELECT rating, COUNT(*) AS count FROM feedback GROUP BY rating"
+                # 同一張卡上寫著「最近 30 天」，這一列卻查了全部期間——
+                # 半年前的評分會一直把數字往上（或往下）拉，看不出這個月變好還變壞。
+                "SELECT rating, COUNT(*) AS count FROM feedback"
+                " WHERE created_at >= ? GROUP BY rating",
+                (since,),
             ).fetchall()
         total = int(row["total"] or 0)
         counted = {str(vote["rating"]): int(vote["count"]) for vote in votes}

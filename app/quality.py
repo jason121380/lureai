@@ -18,6 +18,13 @@ DELAY_PATTERNS = (
     re.compile(r"我們(先)?(一起)?把.{0,12}(拆開|拆一拆|理一理|看一遍)"),
 )
 
+# 專家模式規定每一點都要附 `[1]`，那個數字不是內容。不先剝掉的話
+# 「我陪你一起拆這個問題 [1]」會被 `NUMBER_PATTERN` 當成「有給數字」而放行，
+# 整個守門對專家模式等於失效——而那正是它最該擋的一種空話。
+# 半形與全形都要認。實際跑的時候 `normalize_citation_marks` 已經先正規化過，
+# 但這個函式在測試與知識掃描裡是單獨被呼叫的，自己認得出來才不會有死角。
+CITATION_MARK = re.compile(r"[【〔\[（(]\s*[0-9０-９]{1,2}\s*[】〕\]）)]")
+
 # 有這些東西才算真的給了內容：數字、可執行的動作、或明確立場。
 NUMBER_PATTERN = re.compile(r"\d")
 # 「問」要排除「問題」：「我陪你拆這個問題」正是要抓的空話，不是動作。
@@ -178,7 +185,8 @@ def problems(question: str, answer: str, tone: str = "") -> list[str]:
     `tone` 是聊天語氣（service／line）時會多檢查長度：那兩種是通訊軟體的
     短句，專家模式本來就該講完講透，不套這條。
     """
-    text = str(answer or "").strip()
+    # 引用編號先剝掉再判斷：它是格式不是內容（見 CITATION_MARK）。
+    text = CITATION_MARK.sub("", str(answer or "")).strip()
     if not text:
         return []
     found: list[str] = []

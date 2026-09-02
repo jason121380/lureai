@@ -75,11 +75,12 @@ class ServerTestCase(unittest.TestCase):
         """換一組 cookie＝模擬另一台裝置登入同一個帳號。"""
         return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
-    def request(self, method, path, payload=None, token=None):
+    def request(self, method, path, payload=None, token=None, extra_headers=None):
         data = None if payload is None else json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"}
         if token:
             headers["X-Admin-Token"] = token
+        headers.update(extra_headers or {})
         request = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         try:
             with self.client.open(request, timeout=3) as response:
@@ -155,6 +156,45 @@ class ApiTests(ServerTestCase):
 
         self.assertEqual(status, 429)
         self.assertEqual(body["error"], "too_many_attempts")
+
+    def test_login_limit_survives_a_forged_forwarded_for(self):
+        """每次換一個 X-Forwarded-For 就換到一把新鑰匙，等於沒有上限。
+
+        雲端一律是內網 proxy 連進來，所以那個標頭是採信的；擋得住這件事的是
+        「只看帳號」那把鑰匙——它偽造不掉。
+        """
+        for index in range(5):
+            status, _body = self.request(
+                "POST", "/api/auth/login",
+                {"username": "unknown-user", "password": "wrong-password"},
+                extra_headers={"X-Forwarded-For": f"203.0.113.{index}"},
+            )
+            self.assertEqual(status, 401)
+
+        status, body = self.request(
+            "POST", "/api/auth/login",
+            {"username": "unknown-user", "password": "wrong-password"},
+            extra_headers={"X-Forwarded-For": "203.0.113.99"},
+        )
+
+        self.assertEqual(status, 429)
+        self.assertEqual(body["error"], "too_many_attempts")
+
+    def test_web_chat_never_runs_the_line_tone(self):
+        """`line` 是寫給 LINE 出口的：沒有標點、要拆成多則、引用在出口才剝掉。
+
+        網頁照單全收的話畫面會出現一段沒有標點的文字，而且那條路還跳過了引用
+        守門——同一個 tone 在兩條路上的出口行為並不一樣。
+        """
+        self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })
+        status, body = self.request("POST", "/api/chat", {
+            "message": "燙髮後怎麼整理？", "tone": "line",
+        })
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["tone"], "expert")
 
     def test_admin_can_create_or_reset_user(self):
         status, body = self.request("POST", "/api/admin/users", {

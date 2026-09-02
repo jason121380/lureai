@@ -49,6 +49,7 @@ WEAK_MATCH_SCORE = 0.80
 
 # AI 自己說過的話最多帶這麼長：夠模型知道上一則講了什麼，又不會讓
 # 前端塞一大段東西進脈絡。
+MAX_ASSISTANT_TURNS = 4
 MAX_ASSISTANT_CONTEXT_CHARS = 600
 
 # 「接話」不是完整的問題，它一定要靠前一題才知道在講什麼。只看分數擋不住：
@@ -62,9 +63,23 @@ FOLLOW_UP_OPENERS = re.compile(
 
 CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 
+# 電話與 Email 一律不送進模型。歷史訊息與稽核早就遮罩了，只有「現在這一則」
+# 是原文送進檢索與模型的——設計師貼一句「客人 0912-345-678 一直沒回」，那組
+# 號碼就離開了這台機器。這裡只挑不會誤傷的兩種：下面
+# `SENSITIVE_HISTORY_PATTERN` 那條含關鍵字的規則對稽核夠好，但拿來改寫問題會
+# 把「客人一直看手機」也一起遮掉。
+_CONTACT_SOURCE = (
+    r"09\d{2}[- ]?\d{3}[- ]?\d{3}|(?:\+?886[- ]?)?9\d{8}|"
+    r"0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}|"
+    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"
+)
+CONTACT_PATTERN = re.compile(f"(?:{_CONTACT_SOURCE})", re.I)
+
+# 稽核那條多認一組關鍵字寫法（「電話：0912…」）。它只用在會長期留著的紀錄上，
+# 寧可多遮一點；**不要拿它去改寫問題**，`電話\s*\S+` 會把「客人一直看手機」
+# 這種正常句子也遮掉。
 SENSITIVE_HISTORY_PATTERN = re.compile(
-    r"(?:09\d{2}[- ]?\d{3}[- ]?\d{3}|(?:\+?886[- ]?)?9\d{8}|"
-    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|"
+    f"(?:{_CONTACT_SOURCE}|"
     r"(?:身分證|信用卡|卡號|電話|手機|住址|地址)\s*[:：]?\s*\S+)",
     re.I,
 )
@@ -118,7 +133,8 @@ class CustomerService:
             raise ValueError("問題不可為空")
         if len(question) > self.max_question_chars:
             raise ValueError(f"問題不可超過 {self.max_question_chars} 個字")
-        return question
+        # 遮罩要在這裡做，檢索、模型與稽核拿到的才是同一份乾淨的問題。
+        return CONTACT_PATTERN.sub("〔已遮罩〕", question)
 
     def _safe_history(self, history: list[dict] | None) -> list[dict]:
         """送進模型的脈絡：使用者的問題與 AI 自己上一則回覆。
@@ -501,20 +517,6 @@ class CustomerService:
             ):
                 answer = candidate
                 mode = "llm"
-                # 品質守門原本只掛在非串流那條路，而網頁聊天全部走串流——
-                # 「我陪你一起拆」這種空話在網頁上是原樣送出的（體檢 B1）。
-                before_quality = answer
-                answer, extra_usage, retries = self._enforce_quality(
-                    question, answer, grounded_hits, recent_history, tone, note,
-                )
-                usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
-                if answer != before_quality:
-                    # 只有真的重打過才重新拆一次 ▷ 行。無條件再拆一次會把上面
-                    # 已經拆出來的追問清成空的（重打前的 answer 早就沒有 ▷ 了），
-                    # 模型寫的追問就全部作廢，只能退回相鄰知識——畫面上就是
-                    # 問賣產品卻建議「我想自己開店」。
-                    answer, retried = split_followups(answer)
-                    followups = retried or followups
             else:
                 if model_status == "used":
                     # 模型有回但沒附引用：加上警語重打一次再放棄。
@@ -536,6 +538,23 @@ class CustomerService:
                 if mode != "llm":
                     answer = self.answerer._extractive_answer(grounded_hits, model_failed=True)
                     followups = []
+            if mode == "llm":
+                # 品質守門原本只掛在非串流那條路，而網頁聊天全部走串流——
+                # 「我陪你一起拆」這種空話在網頁上是原樣送出的（體檢 B1）。
+                # 這裡放在兩條分支之外，是為了連「引用重試」補回來的那則也查：
+                # 舊版重打補回 `[n]` 之後就直接送出，內容空不空完全沒查。
+                before_quality = answer
+                answer, extra_usage, retries = self._enforce_quality(
+                    question, answer, grounded_hits, recent_history, tone, note,
+                )
+                usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
+                if answer != before_quality:
+                    # 只有真的重打過才重新拆一次 ▷ 行。無條件再拆一次會把上面
+                    # 已經拆出來的追問清成空的（重打前的 answer 早就沒有 ▷ 了），
+                    # 模型寫的追問就全部作廢，只能退回相鄰知識——畫面上就是
+                    # 問賣產品卻建議「我想自己開店」。
+                    answer, requeried = split_followups(answer)
+                    followups = requeried or followups
         else:
             answer, mode, model_status, usage = self.answerer.answer(
                 question, grounded_hits, history=recent_history, allow_model=allow_model, tone=tone
@@ -616,7 +635,17 @@ class CustomerService:
             if item["role"] == "assistant":
                 content = content[:MAX_ASSISTANT_CONTEXT_CHARS]
             normalized.append({"role": item["role"], "content": content})
-        return normalized[-8:]
+        recent = normalized[-8:]
+        # assistant 那幾則是 client 送上來的，內容沒有辦法驗證。留著是為了接得上
+        # 「然後呢」「再短一點」，但不可以讓它把整個脈絡佔滿——八則全是「AI 說過
+        # 燙髮一律打五折」時，模型看到的就只剩那個假前提。真正的答案一律來自
+        # 當下重新檢索的知識，這裡只是把可被塞入的份額壓到一半。
+        while sum(1 for item in recent if item["role"] == "assistant") > MAX_ASSISTANT_TURNS:
+            for index, item in enumerate(recent):
+                if item["role"] == "assistant":
+                    del recent[index]
+                    break
+        return recent
 
     def _audit(self, question: str, result: dict, hits: list, user_id: int | None = None) -> None:
         usage = result.get("usage") or {}

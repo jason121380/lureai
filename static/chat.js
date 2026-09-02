@@ -173,11 +173,15 @@
   async function pushConversations(conversations) {
     if (!conversations.length) return;
     try {
-      await fetch("/api/conversations", {
+      const response = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversations }),
       });
+      // 一定要看狀態碼。舊版只要沒有丟例外就當作存好了，於是 500、401、
+      // 限流回來的時候一樣把 pendingPush 清掉——這一段對話就只留在這台
+      // 瀏覽器裡，換裝置或重新部署之後就沒了，而且畫面上完全沒有跡象。
+      if (!response.ok) return;
       pendingPush = false;
     } catch (_) { /* 下一次編輯會再送一次 */ }
   }
@@ -193,14 +197,24 @@
     }, 1200);
   }
 
+  // 伺服器端沒刪成功的先記起來。不記的話下一次同步會把它從伺服器合併回來，
+  // 使用者看到的是「明明刪掉的對話自己活過來」——而且刪第二次也還是刪不掉。
+  const pendingDeletes = new Set();
+
   async function deleteConversationOnServer(id) {
     try {
-      await fetch("/api/conversations/delete", {
+      const response = await fetch("/api/conversations/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-    } catch (_) { /* 本機已經刪掉了，下次登入伺服器那份會蓋回來 */ }
+      if (response.ok) {
+        pendingDeletes.delete(id);
+        return true;
+      }
+    } catch (_) { /* 下面補記，下次同步時再刪一次 */ }
+    pendingDeletes.add(id);
+    return false;
   }
 
   async function savePref(key, value) {
@@ -969,6 +983,11 @@
       }));
       let streamedText = "";
       const tone = state.tone;
+      // 這一次生成屬於哪一段對話。生成中切到別段時，這些字不可以寫過去——
+      // 舊版直接抓畫面上最後一則訊息，A 還在生成、人切到 B，A 的字就一個一個
+      // 打進 B 的泡泡裡。最終結果本來就寫回下面那個 conversation 物件，
+      // 所以只要擋住畫面這一段就好。
+      const streamingId = conversation.id;
       const body = await streamChat(
         { message: value, conversation_id: conversation.id, history, tone },
         state.controller.signal,
@@ -977,6 +996,7 @@
           // 客服模式不即時吐字：維持輸入中的點點，等結果再一句一句發——
           // 那條路的等待提示要留著跑，不能在這裡停掉。
           if (tone === "service") return;
+          if (state.activeId !== streamingId) return;
           stopWaitHint();
           const textNode = messages.lastElementChild?.querySelector(".message-text");
           if (textNode) {
@@ -1269,9 +1289,12 @@
   }
 
   async function syncWithServer() {
+    // 上次沒刪成功的先補刪一次，再拉——順序反了的話這一輪又會把它合併回來。
+    for (const id of Array.from(pendingDeletes)) await deleteConversationOnServer(id);
     const remote = await pullConversations();
     if (!remote) { syncedOnce = true; return; }
-    const server = Array.isArray(remote.conversations) ? remote.conversations : [];
+    const server = (Array.isArray(remote.conversations) ? remote.conversations : [])
+      .filter((item) => !pendingDeletes.has(item.id));
     const local = state.conversations.filter((item) => (item.messages || []).length);
     const localOnly = local.filter((item) => !server.some((entry) => entry.id === item.id));
     const previous = lastSyncAt();
@@ -1317,7 +1340,8 @@
         body: JSON.stringify({ conversations: [conversation] }),
         keepalive: true,
       });
-      pendingPush = false;
+      // 這裡不清 pendingPush：keepalive 的結果看不到，先當作沒送成功，
+      // 頁面若從 bfcache 回來還會再送一次（多送一次無害，少送就是掉資料）。
     } catch (_) { /* 送不出去就等下次開啟時再同步 */ }
   }
 
