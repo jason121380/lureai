@@ -145,6 +145,22 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("flushList", code)
         self.assertIn("flushList();\n      paragraph.push(", renderer)
 
+    def test_knowledge_list_is_a_collapsed_accordion(self):
+        """278 則攤開來看不完，做成 QA 式收合清單才掃得動。"""
+        css = CSS.read_text(encoding="utf-8")
+        script = ADMIN_JS.read_text(encoding="utf-8")
+
+        # 一列一則、彼此靠在一起用分隔線隔開（不是各自浮著的卡片）。
+        self.assertIn(".knowledge-row + .knowledge-row { border-top:", css)
+        self.assertIn(".knowledge-list {", css)
+        # 預設收合，點標題才展開。
+        self.assertIn('class="knowledge-detail" hidden', script)
+        self.assertIn('aria-expanded="false"', script)
+        self.assertIn("async function toggleKnowledgeRow(index)", script)
+        # 清單只帶前 400 字，展開時才抓完整內容。
+        self.assertIn('(item.length || 0) > 400', script)
+        self.assertIn("/api/admin/knowledge/detail?chunk_id=", script)
+
     def test_upload_opens_as_a_modal(self):
         """「上傳檔案」按下去是彈窗，不是頁面裡的一塊。"""
         html = ADMIN.read_text(encoding="utf-8")

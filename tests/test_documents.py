@@ -6,6 +6,7 @@ Office 的新格式是 ZIP 裡放 XML，PDF 的內容串流是 zlib 壓的——
 import io
 import unittest
 import zipfile
+import zlib
 
 from app.documents import UnreadableDocument, extract_text
 
@@ -68,6 +69,59 @@ class OfficeTests(unittest.TestCase):
             extract_text("壞掉.docx", b"not a zip")
 
         self.assertIn("損毀", str(caught.exception))
+
+
+def build_pdf(text: str) -> bytes:
+    """組一份會走「子集字型」那條路的 PDF。
+
+    字元編碼從 1 開始編，真正的字要去 /ToUnicode 對照表查——這正是中文 PDF
+    抓出來會是亂碼的原因。
+    """
+    codes = {char: index + 1 for index, char in enumerate(dict.fromkeys(text))}
+    pairs = "".join(f"<{code:04X}> <{ord(char):04X}>\n" for char, code in codes.items())
+    cmap = (
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n"
+        f"{len(codes)} beginbfchar\n{pairs}endbfchar\n"
+        "endcmap CMapName currentdict /CMap defineresource pop end end"
+    ).encode()
+    body = "".join(f"{codes[char]:04X}" for char in text)
+    content = f"BT /F1 12 Tf 72 720 Td <{body}> Tj ET".encode()
+    objects = {
+        1: b"<< /Type /Page /Resources << /Font << /F1 2 0 R >> >> /Contents 4 0 R >>",
+        2: b"<< /Type /Font /Subtype /Type0 /ToUnicode 3 0 R >>",
+        3: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(cmap), cmap),
+        4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+    }
+    out = b"%PDF-1.4\n"
+    for number, payload in objects.items():
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, payload)
+    return out + b"%%EOF"
+
+
+class PdfTests(unittest.TestCase):
+    def test_subset_font_text_is_mapped_through_tounicode(self):
+        """PDF 的字元編碼不是 Unicode，要查字型附的 /ToUnicode 對照表。
+
+        少了這一步，中文 PDF 抓出來是一長串亂碼——而且長度夠長，光看長度
+        擋不掉，使用者看到的就是滿滿的符號。
+        """
+        wanted = "客訴處理原則先確認是光線問題還是真的沒到位"
+
+        text = extract_text("手冊.pdf", build_pdf(wanted))
+
+        self.assertEqual(text, wanted)
+
+    def test_garbled_output_is_rejected_rather_than_shown(self):
+        """有文字層但解不開字型時，抓到的是亂碼。給亂碼比明講讀不到更糟。"""
+        junk = "".join(chr(0x2400 + index % 200) for index in range(300))
+        pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n" \
+              b"2 0 obj\nstream\n" + f"BT ({junk}) Tj ET".encode("latin-1", "ignore") + \
+              b"\nendstream\nendobj\n%%EOF"
+
+        with self.assertRaises(UnreadableDocument) as caught:
+            extract_text("亂碼.pdf", pdf)
+
+        self.assertIn(".docx", str(caught.exception))
 
 
 class TextTests(unittest.TestCase):

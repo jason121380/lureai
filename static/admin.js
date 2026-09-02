@@ -411,28 +411,57 @@
     return `<div class="knowledge-text">${blocks.join("")}${full.length > 400 ? '<p class="knowledge-more">…</p>' : ""}</div>`;
   }
 
-  function knowledgeCard(item) {
+  // 知識庫是一長串，攤開來看不完——做成 QA 那種收合清單：一列一則、彼此
+  // 靠在一起用分隔線隔開，點標題才展開內文。
+  function knowledgeCard(item, index) {
     const custom = item.origin === "custom";
     const title = item.section_title || item.title || "（無標題）";
     const actions = custom
       ? `<button class="icon-button bordered-icon" data-edit="${escapeHtml(item.chunk_id)}" title="編輯" aria-label="編輯"><i data-lucide="pencil"></i></button>
          <button class="icon-button bordered-icon" data-remove="${escapeHtml(item.chunk_id)}" title="刪除" aria-label="刪除"><i data-lucide="trash-2"></i></button>`
       : "";
-    return `<article class="knowledge-card">
-      <div class="knowledge-head">
-        <div>
-          <h3>${escapeHtml(title)}</h3>
-          <div class="knowledge-meta">
+    return `<article class="knowledge-row" data-row="${index}">
+      <button type="button" class="knowledge-summary" aria-expanded="false" data-toggle="${index}">
+        <i data-lucide="chevron-right" class="knowledge-chevron"></i>
+        <span class="knowledge-summary-copy">
+          <span class="knowledge-summary-title">${escapeHtml(title)}</span>
+          <span class="knowledge-meta">
             <span class="domain-badge">${escapeHtml(domainLabels[item.domain] || "未分主題")}</span>
             <span class="origin-badge${custom ? " is-custom" : ""}">${custom ? "後台新增" : "匯入知識"}</span>
             <span>${escapeHtml(item.category || "未分類")}</span>
             <span class="source-locator">${escapeHtml(item.locator || "")}</span>
-          </div>
-        </div>
+          </span>
+        </span>
+        <span class="knowledge-length">${item.length || 0} 字</span>
+      </button>
+      <div class="knowledge-detail" hidden data-detail="${index}">
+        ${knowledgeExcerpt(item.text)}
         <div class="knowledge-actions">${actions}</div>
       </div>
-      ${knowledgeExcerpt(item.text)}
     </article>`;
+  }
+
+  async function toggleKnowledgeRow(index) {
+    const item = knowledgeCache[index];
+    const detail = document.querySelector(`[data-detail="${index}"]`);
+    const summary = document.querySelector(`[data-toggle="${index}"]`);
+    if (!item || !detail || !summary) return;
+    const opening = detail.hidden;
+    detail.hidden = !opening;
+    summary.setAttribute("aria-expanded", String(opening));
+    summary.closest(".knowledge-row").classList.toggle("open", opening);
+    // 清單只帶前 400 字，展開時才把完整內容抓回來（抓過就記住）。
+    if (opening && !item.fullText && (item.length || 0) > 400) {
+      try {
+        const body = await api(`/api/admin/knowledge/detail?chunk_id=${encodeURIComponent(item.chunk_id)}`);
+        item.fullText = body.chunk.text;
+        detail.innerHTML = knowledgeExcerpt(item.fullText)
+          + detail.querySelector(".knowledge-actions").outerHTML;
+        window.lucide?.createIcons();
+      } catch (_) {
+        // 抓不到就維持摘要，不要把已經展開的內容清掉。
+      }
+    }
   }
 
   const domainLabels = {
@@ -474,8 +503,12 @@
         ));
       }
       el("knowledge-results").innerHTML = knowledgeCache.length
-        ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>` + knowledgeCache.map(knowledgeCard).join("")
+        ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>`
+          + `<div class="knowledge-list">${knowledgeCache.map(knowledgeCard).join("")}</div>`
         : '<div class="empty-state">沒有符合的知識</div>';
+      el("knowledge-results").querySelectorAll("[data-toggle]").forEach((button) => {
+        button.addEventListener("click", () => toggleKnowledgeRow(Number(button.dataset.toggle)));
+      });
       window.lucide?.createIcons();
     } catch (error) {
       el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}

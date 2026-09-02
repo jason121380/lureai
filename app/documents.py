@@ -153,39 +153,217 @@ def _ooxml_text(suffix: str, data: bytes) -> str:
         return _pptx_text(archive)
 
 
-# PDF：把每個內容串流解壓，抓 Tj／TJ 這兩個「畫出文字」的運算子。
-PDF_STREAM = re.compile(rb"stream\r?\n(.*?)endstream", re.DOTALL)
-PDF_TEXT_OP = re.compile(rb"\((?:\\.|[^\\()])*\)")
+# ---- PDF ------------------------------------------------------------------
+# PDF 的字元編碼不是 Unicode：內嵌子集字型時，「客」可能是編號 0x0012。要拿到
+# 真正的字，得去讀字型附的 /ToUnicode CMap（編號 → Unicode 的對照表）。
+# 少了這一步，中文 PDF 抓出來就是一串亂碼——而且長度夠長，用長度判斷擋不掉。
+PDF_OBJECT = re.compile(rb"(\d+)\s+\d+\s+obj\b(.*?)\bendobj", re.DOTALL)
+PDF_STREAM_BODY = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.DOTALL)
+PDF_PAGE = re.compile(rb"/Type\s*/Page\b")
+PDF_CONTENTS = re.compile(rb"/Contents\s+(?:(\d+)\s+\d+\s+R|\[(.*?)\])", re.DOTALL)
+PDF_RESOURCES_REF = re.compile(rb"/Resources\s+(\d+)\s+\d+\s+R")
+PDF_FONT_DICT = re.compile(rb"/Font\s*<<(.*?)>>", re.DOTALL)
+PDF_FONT_ENTRY = re.compile(rb"/([^\s/<>\[\]]+)\s+(\d+)\s+\d+\s+R")
+PDF_TOUNICODE = re.compile(rb"/ToUnicode\s+(\d+)\s+\d+\s+R")
+PDF_REF = re.compile(rb"(\d+)\s+\d+\s+R")
+
+CMAP_BFCHAR = re.compile(rb"beginbfchar(.*?)endbfchar", re.DOTALL)
+CMAP_BFRANGE = re.compile(rb"beginbfrange(.*?)endbfrange", re.DOTALL)
+CMAP_HEX = re.compile(rb"<([0-9A-Fa-f]+)>")
+# 內容串流的四種東西：
+#   1. [ ... ] TJ  一段文字＋字距（負數夠大＝一個空格）
+#   2. ( ... ) Tj  或 < ... > Tj
+#   3. /F1 12 Tf   換字型
+#   4. x y Td／TD、T*、ET  換行
+# **Td 不一定是換行**：它是「移動文字位置」，同一行做字距微調也用它。只有
+# 垂直位移（第二個數字不是 0）才是真的換行——不分辨的話中文標題會被拆成
+# 一個字一行。
+PDF_TOKEN = re.compile(
+    rb"\[(.*?)\]\s*TJ"
+    rb"|(\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>)\s*(?:Tj|'|\")"
+    rb"|/([^\s/<>\[\]]+)\s+[\d.]+\s+Tf"
+    rb"|(-?[\d.]+)\s+(-?[\d.]+)\s+(?:Td|TD)"
+    rb"|\b(T\*|ET)\b",
+    re.DOTALL,
+)
+PDF_TJ_PART = re.compile(rb"(\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>)|(-?[\d.]+)")
+PDF_ESCAPE = re.compile(rb"\\([nrtbf()\\]|[0-7]{1,3})")
+PDF_ESCAPES = {b"n": b"\n", b"r": b"\r", b"t": b"\t", b"b": b"\b", b"f": b"\f"}
+# TJ 陣列裡的負數是往回拉的字距，夠大就代表這裡有一個空格。
+TJ_SPACE = 180.0
+
+
+def _pdf_objects(data: bytes) -> dict[int, bytes]:
+    return {int(m.group(1)): m.group(2) for m in PDF_OBJECT.finditer(data)}
+
+
+def _pdf_stream(body: bytes) -> bytes:
+    match = PDF_STREAM_BODY.search(body)
+    if not match:
+        return b""
+    raw = match.group(1)
+    try:
+        return zlib.decompress(raw)
+    except zlib.error:
+        return raw
+
+
+def _hex_to_text(token: bytes) -> str:
+    digits = re.sub(rb"[^0-9A-Fa-f]", b"", token)
+    if len(digits) % 4:
+        digits += b"0" * (4 - len(digits) % 4)
+    return bytes.fromhex(digits.decode()).decode("utf-16-be", errors="ignore")
+
+
+def _parse_cmap(stream: bytes) -> tuple[dict[int, str], int]:
+    """讀 /ToUnicode CMap，回傳（編號 → 字, 一個編號佔幾個位元組）。"""
+    mapping: dict[int, str] = {}
+    width = 1
+    for block in CMAP_BFCHAR.findall(stream):
+        tokens = CMAP_HEX.findall(block)
+        for source, target in zip(tokens[::2], tokens[1::2]):
+            width = max(width, len(source) // 2)
+            mapping[int(source, 16)] = _hex_to_text(b"<" + target + b">")
+    for block in CMAP_BFRANGE.findall(stream):
+        tokens = CMAP_HEX.findall(block)
+        for low, high, target in zip(tokens[::3], tokens[1::3], tokens[2::3]):
+            width = max(width, len(low) // 2)
+            start, stop, base = int(low, 16), int(high, 16), int(target, 16)
+            if stop - start > 65535:
+                continue
+            for offset in range(stop - start + 1):
+                mapping[start + offset] = chr(base + offset)
+    return mapping, width
+
+
+def _decode_show(token: bytes, cmap: dict[int, str] | None, width: int) -> str:
+    if token.startswith(b"<"):
+        digits = re.sub(rb"[^0-9A-Fa-f]", b"", token)
+        raw = bytes.fromhex(digits.decode()) if len(digits) % 2 == 0 else b""
+    else:
+        raw = PDF_ESCAPE.sub(
+            lambda m: PDF_ESCAPES.get(m.group(1), bytes([int(m.group(1), 8)]))
+            if m.group(1) in PDF_ESCAPES or m.group(1).isdigit() else m.group(1),
+            token[1:-1],
+        )
+    if not cmap:
+        return raw.decode("latin-1", errors="ignore")
+    step = max(1, width)
+    out = []
+    for index in range(0, len(raw) - step + 1, step):
+        out.append(cmap.get(int.from_bytes(raw[index:index + step], "big"), ""))
+    return "".join(out)
+
+
+def _pdf_page_text(content: bytes, fonts: dict[bytes, tuple[dict, int]]) -> str:
+    pieces: list[str] = []
+    cmap: dict[int, str] | None = None
+    width = 1
+
+    def newline() -> None:
+        if pieces and pieces[-1] != "\n":
+            pieces.append("\n")
+
+    for match in PDF_TOKEN.finditer(content):
+        array, single, font, _tx, ty, breaker = match.groups()
+        if font is not None:
+            cmap, width = fonts.get(font, (None, 1))
+        elif array is not None:
+            for part in PDF_TJ_PART.finditer(array):
+                if part.group(1):
+                    pieces.append(_decode_show(part.group(1), cmap, width))
+                else:
+                    try:
+                        if float(part.group(2)) <= -TJ_SPACE and pieces and pieces[-1] != " ":
+                            pieces.append(" ")
+                    except ValueError:
+                        pass
+        elif single is not None:
+            pieces.append(_decode_show(single, cmap, width))
+        elif ty is not None:
+            try:
+                if float(ty) != 0:
+                    newline()
+            except ValueError:
+                pass
+        elif breaker is not None:
+            newline()
+    return "".join(pieces)
+
+
+# 「看得懂的字」：中日韓、拉丁字母、數字、空白與常見標點。子集字型沒解開時
+# 抓到的是控制字元與隨機符號，這個比例會掉到很低。
+READABLE = re.compile(
+    r"[一-鿿　-〿＀-￯0-9A-Za-z\s.,;:!?%()\-—、。，！？「」『』（）]"
+)
+
+
+def _readable_ratio(text: str) -> float:
+    if not text:
+        return 0.0
+    return len(READABLE.findall(text)) / len(text)
 
 
 def _pdf_text(data: bytes) -> str:
-    chunks: list[str] = []
-    for match in PDF_STREAM.finditer(data):
-        raw = match.group(1)
-        try:
-            raw = zlib.decompress(raw)
-        except zlib.error:
-            pass  # 沒壓縮的串流直接用
-        for token in PDF_TEXT_OP.findall(raw):
-            body = token[1:-1]
-            body = re.sub(rb"\\([()\\])", rb"\1", body)
-            text = body.decode("utf-8", errors="ignore")
-            if text.strip():
-                chunks.append(text)
-    joined = " ".join(chunks)
-    joined = re.sub(r"[ \t]{2,}", " ", joined).strip()
-    # 掃描檔沒有文字層、CJK 又常常用子集字型（抓出來是亂碼），與其給一堆
-    # 垃圾讓人以為壞掉，不如明講要怎麼繞過。
-    if len(joined) < 40:
+    objects = _pdf_objects(data)
+    cmaps: dict[int, tuple[dict, int]] = {}
+
+    def cmap_for(font_id: int) -> tuple[dict, int]:
+        body = objects.get(font_id, b"")
+        ref = PDF_TOUNICODE.search(body)
+        if not ref:
+            # 組合字型（Type0）的實際字型在 /DescendantFonts 裡。
+            for child in PDF_REF.findall(body):
+                child_body = objects.get(int(child), b"")
+                ref = PDF_TOUNICODE.search(child_body)
+                if ref:
+                    break
+        if not ref:
+            return ({}, 1)
+        key = int(ref.group(1))
+        if key not in cmaps:
+            cmaps[key] = _parse_cmap(_pdf_stream(objects.get(key, b"")))
+        return cmaps[key]
+
+    pages: list[str] = []
+    for body in objects.values():
+        if not PDF_PAGE.search(body):
+            continue
+        resources = body
+        ref = PDF_RESOURCES_REF.search(body)
+        if ref:
+            resources = objects.get(int(ref.group(1)), b"")
+        fonts: dict[bytes, tuple[dict, int]] = {}
+        font_dict = PDF_FONT_DICT.search(resources)
+        if font_dict:
+            for name, font_id in PDF_FONT_ENTRY.findall(font_dict.group(1)):
+                mapping, width = cmap_for(int(font_id))
+                if mapping:
+                    fonts[name] = (mapping, width)
+        contents = PDF_CONTENTS.search(body)
+        stream_ids: list[int] = []
+        if contents and contents.group(1):
+            stream_ids.append(int(contents.group(1)))
+        elif contents and contents.group(2):
+            stream_ids.extend(int(ref) for ref in PDF_REF.findall(contents.group(2)))
+        text = "".join(
+            _pdf_page_text(_pdf_stream(objects.get(sid, b"")), fonts) for sid in stream_ids
+        )
+        if text.strip():
+            pages.append(text)
+
+    joined = re.sub(r"[ \t]{2,}", " ", "\n\n".join(pages)).strip()
+    # 掃描檔完全沒有文字層（長度 0），有文字層但解不開字型時抓到的是亂碼
+    # （長度夠長，光看長度擋不掉）。真正的判斷是「看得懂的字」佔多少；
+    # 長度只留一個很低的下限，免得把內容本來就短的 PDF 也擋掉。
+    if len(joined) < 16 or _readable_ratio(joined) < 0.7:
         raise UnreadableDocument(
-            "這個 PDF 抓不到文字（掃描檔或用了特殊字型）。"
+            "這個 PDF 抓不到文字（掃描檔，或用了讀不出對照表的字型）。"
             "請用 Word 另存成 .docx，或把內容複製成 .txt 再上傳"
         )
     return joined
 
 
-# 一個中文字在 RTF 裡是**連續兩個** \'xx，要整串收集起來一次解碼；
-# 一個一個解會各自變成半個字，中文全部壞掉。
 RTF_HEX_RUN = re.compile(r"(?:\\'[0-9a-fA-F]{2})+")
 RTF_UNICODE = re.compile(r"\\u(-?\d+)\s?\??")
 RTF_CONTROL = re.compile(r"\\[a-zA-Z]+-?\d*\s?|[{}]")
