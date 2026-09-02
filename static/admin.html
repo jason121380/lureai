@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <!-- 深色模式下沒有對應的 theme-color 時，iOS 會用系統灰底畫狀態列，
        頁面是白的就會出現一條分割線；兩種模式都指定白色並鎖定淺色配色。 -->
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -50,7 +50,7 @@
           <div class="stat-card alert-stat" id="stat-flagged-card"><span>待整理</span><strong id="stat-flagged">—</strong></div>
         </div>
         <div class="pipeline-heading"><h3>兩大主題涵蓋範圍</h3><p>知識分成「店務營運管理」與「設計師一對一行銷輔導」，下面是各自的分類與數量</p></div>
-        <div id="domain-grid" class="domain-grid"><div class="empty-state">載入中</div></div>
+        <div id="domain-grid" class="domain-grid"><div class="loading-state"></div></div>
       </section>
 
       <section id="knowledge" class="admin-section" hidden>
@@ -145,7 +145,7 @@
           </select>
           <button class="icon-button bordered-icon" type="submit" title="搜尋" aria-label="搜尋"><i data-lucide="search"></i></button>
         </form>
-        <div id="knowledge-results" class="knowledge-list"><div class="empty-state">載入中</div></div>
+        <div id="knowledge-results" class="knowledge-list"><div class="loading-state"></div></div>
       </section>
 
       <section id="quality" class="admin-section" hidden>
@@ -153,9 +153,9 @@
           <div><h2>品質檢查</h2><p>找出讀起來零碎、遮罩過多或標題無意義的知識</p></div>
           <button id="refresh-quality" class="command-button" type="button"><i data-lucide="refresh-cw"></i><span>重新檢查</span></button>
         </div>
-        <div id="quality-summary" class="stats-grid"><div class="empty-state">載入中</div></div>
+        <div id="quality-summary" class="stats-grid"><div class="loading-state"></div></div>
         <div class="pipeline-heading"><h3>需要整理的知識</h3><p>點「編輯」可改寫成完整句子；匯入知識需在原始檔調整</p></div>
-        <div id="quality-list" class="knowledge-list"><div class="empty-state">載入中</div></div>
+        <div id="quality-list" class="knowledge-list"><div class="loading-state"></div></div>
       </section>
 
       <section id="tuning" class="admin-section" hidden>
@@ -168,7 +168,7 @@
         </div>
         <div class="tuning-layout">
           <nav id="tuning-menu" class="tuning-menu" aria-label="規則分組"></nav>
-          <div id="tuning-groups" class="tuning-groups"><div class="empty-state">載入中</div></div>
+          <div id="tuning-groups" class="tuning-groups"><div class="loading-state"></div></div>
         </div>
       </section>
 
@@ -226,7 +226,7 @@
             </div>
           </form>
         </div>
-        <div id="user-results" class="table-shell"><div class="empty-state">載入中</div></div>
+        <div id="user-results" class="table-shell"><div class="loading-state"></div></div>
       </section>
 
       <section id="health" class="admin-section" hidden>
@@ -244,13 +244,14 @@
           </div>
         </div>
         <div id="health-grid" class="health-grid" aria-live="polite">
-          <div class="empty-state">載入中</div>
+          <div class="loading-state"></div>
         </div>
       </section>
     </main>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="vendor/lucide.min.js"></script>
+  <script src="app.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

@@ -39,7 +39,9 @@
 * { box-sizing: border-box; letter-spacing: 0; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
-body { overflow: hidden; background: var(--canvas); overscroll-behavior-y: none; }
+/* touch-action: manipulation 關掉「連點兩下放大」；捏合由 app.js 擋（iOS
+   Safari 的瀏覽器分頁不理 viewport 的 user-scalable=no）。 */
+body { overflow: hidden; background: var(--canvas); overscroll-behavior-y: none; touch-action: manipulation; }
 /* 安裝成 App 後畫面會延伸到瀏海與底部，這兩塊要跟內容同色。 */
 @supports (padding: env(safe-area-inset-top)) {
   html { background: var(--canvas); }
@@ -440,6 +442,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .table-status { display: inline-flex; padding: 3px 9px; color: var(--ok); background: var(--ok-soft); border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; }
 .table-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .empty-state { padding: 28px; color: var(--muted); text-align: center; font-size: 15px; }
+
+/* 載入中：一條跑不定量的進度條。單純寫「載入中」看不出來系統還活著，也不知道
+   要不要繼續等；請求逾時是 20 秒，動畫一停就代表出事了。
+   整個元件只靠一個 class：文字與進度條都用虛擬元素畫，這樣 HTML 的初始狀態與
+   JS 重新填的那一份不會各寫一份而走鐘。 */
+.loading-state { display: grid; gap: 12px; justify-items: center; padding: 28px 20px; }
+.loading-state::before {
+  content: "";
+  width: min(240px, 70%);
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--bubble) 0 38%, var(--ink) 44% 56%, var(--bubble) 62% 100%);
+  background-size: 260% 100%;
+  animation: loading-sweep 1.2s ease-in-out infinite;
+}
+.loading-state::after { content: "載入中"; color: var(--muted); font-size: 14px; }
+@keyframes loading-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* 載入失敗要停下來講清楚，不能繼續假裝在載入——toast 消失之後畫面上只剩
+   「載入中」，使用者會一直等一個永遠不會來的東西。 */
+.load-failed { display: grid; gap: 12px; justify-items: center; padding: 28px 20px; color: var(--muted); font-size: 15px; text-align: center; }
 .knowledge-count { margin: 12px 2px 0; color: var(--muted); font-size: 15px; }
 /* 知識卡內文照原結構條列呈現 */
 .knowledge-text { color: var(--ink-soft); font-size: 15px; line-height: 1.7; }

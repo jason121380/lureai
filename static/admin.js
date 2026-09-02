@@ -125,6 +125,18 @@
     window.lucide?.createIcons();
   }
 
+  // 載入失敗時把「載入中」換成錯誤與重試。toast 幾秒後就消失，畫面上如果還停在
+  // 「載入中」，使用者會一直等一個永遠不會來的東西（實測就是這樣卡住的）。
+  function showLoadFailure(targetId, message, retry) {
+    const target = el(targetId);
+    if (!target) return;
+    target.innerHTML = `<div class="load-failed"><span></span>
+      <button type="button" class="command-button ghost-button">重新載入</button></div>`;
+    target.querySelector("span").textContent = message || "載入失敗";
+    target.querySelector("button").addEventListener("click", retry);
+    window.lucide?.createIcons();
+  }
+
   async function api(path, options = {}) {
     const { timeoutMs = 20000, ...init } = options;
     // Without this a hung request leaves the panel on 「載入中…」 for ever.
@@ -214,7 +226,10 @@
       }).join("");
       renderTuningGroup();
       tuningLoaded = true;
-    } catch (error) { toast(error.message, true); }
+    } catch (error) {
+      toast(error.message, true);
+      showLoadFailure("tuning-groups", error.message, loadTuning);
+    }
   }
 
   // 一律從「被點的那張卡片」裡面取值，不要用全域 querySelector 找 textarea——
@@ -295,6 +310,7 @@
       return true;
     } catch (error) {
       el("admin-status").textContent = error.message;
+      showLoadFailure("domain-grid", error.message, loadStats);
       return false;
     }
   }
@@ -485,14 +501,14 @@
       const origin = el("knowledge-origin")?.value || "";
       const domain = el("knowledge-domain")?.value || "";
       if (query) {
-        el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
+        el("knowledge-results").innerHTML = '<div class="loading-state"></div>';
         const body = await api(
           `/api/admin/chunks?q=${encodeURIComponent(query)}&origin=${encodeURIComponent(origin)}&domain=${encodeURIComponent(domain)}`,
           { timeoutMs: 15000 },
         );
         knowledgeCache = body.items || [];
       } else {
-        if (knowledgeAll === null) el("knowledge-results").innerHTML = '<div class="empty-state">載入中…</div>';
+        if (knowledgeAll === null) el("knowledge-results").innerHTML = '<div class="loading-state"></div>';
         const all = await fetchAllKnowledge(options.force);
         knowledgeCache = all.filter((chunk) => (
           (!origin || (chunk.origin || "file") === origin) && (!domain || chunk.domain === domain)
@@ -792,7 +808,8 @@
         : '<div class="empty-state">所有知識都結構完整</div>';
       window.lucide?.createIcons();
     } catch (error) {
-      el("quality-list").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      showLoadFailure("quality-list", error.message, loadQuality);
+      el("quality-summary").innerHTML = "";
     } finally {
       button.disabled = false;
     }
@@ -807,7 +824,7 @@
         ? `<table class="data-table"><thead><tr><th>帳號</th><th>權限</th><th>狀態</th><th>最後更新</th></tr></thead><tbody>${rows}</tbody></table>`
         : '<div class="empty-state">尚未建立使用者帳號</div>';
     } catch (error) {
-      el("user-results").innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      showLoadFailure("user-results", error.message, loadUsers);
     }
   }
 
