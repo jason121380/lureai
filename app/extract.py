@@ -28,10 +28,21 @@ MAX_CHUNK_CHARS = 1200
 # 一份文件最多切幾塊：畫面上要一塊一塊確認，超過這個數量沒有人看得完。
 MAX_CHUNKS = 30
 
+# 一塊候選知識至少要有這麼多「字」（中日韓或拉丁字母）才算得上文句。
+# 日曆、純數字表格抓出來全是數字與符號，硬切成知識只會塞垃圾進索引。
+MIN_WORD_CHARS = 20
+WORD_CHARS = re.compile(r"[一-鿿　-〿0-9A-Za-z]")
+LETTERS = re.compile(r"[一-鿿A-Za-z]")
+
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
 # 「1. 標題」「一、標題」這種也算段落標題（Word 貼過來常見）。
 NUMBERED = re.compile(r"^\s{0,3}(?:\d{1,2}[.)]|第?[一二三四五六七八九十]{1,3}[、.])\s*(\S.{0,40})$")
 BULLET = re.compile(r"^\s*[-*•]\s+")
+
+
+def has_prose(text: str) -> bool:
+    """這段裡面有沒有文句。數字不算——日曆整份都是數字。"""
+    return len(LETTERS.findall(str(text or ""))) >= MIN_WORD_CHARS
 
 
 def _clean(text: str) -> str:
@@ -116,6 +127,8 @@ def split_document(name: str, text: str) -> list[dict]:
             title = section["title"] or _title_from(piece, base)
             if index:
                 title = f"{title}（續）"
+            if not has_prose(piece):
+                continue  # 日曆／純數字表格：切出來也不是知識
             proposals.append({
                 "section_title": title[:80],
                 "category": base[:20],
@@ -161,7 +174,7 @@ def _parse_items(text: str) -> list[dict]:
             continue
         body = str(item.get("text", "")).strip()
         title = " ".join(str(item.get("section_title", "")).split())
-        if not body or not title:
+        if not body or not title or not has_prose(body):
             continue
         domain = " ".join(str(item.get("domain", "")).split())
         category = " ".join(str(item.get("category", "")).split())[:20]

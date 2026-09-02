@@ -584,11 +584,14 @@
     el("upload-drop").focus();
   }
 
-  function setUploadProgress(done, total, label) {
+  // working=true 時跑不定量的動畫。分析一份檔案要幾十秒又問不到進度，
+  // 用「已完成／總數」的話單檔會整段停在 0%，看起來像當掉。
+  function setUploadProgress(done, total, label, working = false) {
     el("upload-progress").hidden = false;
-    // 進度條的寬度用「已完成／總數」，分析中的那一份先算半格，才不會一直停在 0。
+    const bar = el("upload-bar");
+    bar.classList.toggle("working", working);
     const ratio = total ? Math.min(1, done / total) : 0;
-    el("upload-bar-fill").style.width = `${Math.round(ratio * 100)}%`;
+    el("upload-bar-fill").style.width = working ? "" : `${Math.round(ratio * 100)}%`;
     el("upload-progress-text").textContent = label;
   }
 
@@ -642,9 +645,9 @@
     el("upload-results").innerHTML = "";
     el("upload-actions").hidden = true;
     let done = 0;
-    setUploadProgress(0, list.length, `分析中… 0 / ${list.length}`);
+    setUploadProgress(0, list.length, `分析中… 0 / ${list.length}`, true);
     for (const file of list) {
-      setUploadProgress(done, list.length, `分析中… ${file.name}（${done + 1} / ${list.length}）`);
+      setUploadProgress(done, list.length, `分析中… ${file.name}（${done + 1} / ${list.length}）`, true);
       try {
         let payload;
         if (isTextFile(file.name)) {

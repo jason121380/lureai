@@ -73,7 +73,8 @@ class SplitTests(unittest.TestCase):
 
 class ModelOutputTests(unittest.TestCase):
     def test_json_in_a_code_fence_is_parsed(self):
-        raw = '```json\n{"items":[{"section_title":"標題","category":"售後與回流","domain":"coaching","text":"內容"}]}\n```'
+        raw = ('```json\\n{"items":[{"section_title":"標題","category":"售後與回流",'
+               '"domain":"coaching","text":"客人反映顏色不對時先確認是光線問題還是真的沒到位不要當場說其實這樣很好看"}]}\\n```')
 
         items = extract._parse_items(raw)
 
@@ -81,14 +82,19 @@ class ModelOutputTests(unittest.TestCase):
         self.assertEqual(items[0]["domain"], "coaching")
 
     def test_an_unknown_domain_is_reclassified(self):
-        raw = '{"items":[{"section_title":"標題","category":"顧客服務","domain":"亂寫的","text":"內容"}]}'
+        raw = ('{"items":[{"section_title":"標題","category":"顧客服務",'
+               '"domain":"亂寫的","text":"客人反映顏色不對時先確認是光線問題還是真的沒到位不要當場說其實這樣很好看"}]}')
 
         items = extract._parse_items(raw)
 
         self.assertIn(items[0]["domain"], ("operations", "coaching"))
 
     def test_items_without_a_title_or_body_are_dropped(self):
-        raw = '{"items":[{"section_title":"","text":"有內容沒標題"},{"section_title":"有標題","text":""},{"section_title":"好的","text":"好的內容"}]}'
+        # 沒標題、沒內容、以及「有文字但根本不成句」（日曆那種）都要被丟掉。
+        raw = ('{"items":[{"section_title":"","text":"客人反映顏色不對時先確認是光線問題還是真的沒到位不要當場說其實這樣很好看"},'
+               '{"section_title":"有標題","text":""},'
+               '{"section_title":"數字表","text":"1 2 3 4 5 6 7 8 9 10"},'
+               '{"section_title":"好的","text":"客人反映顏色不對時先確認是光線問題還是真的沒到位不要當場說其實這樣很好看"}]}')
 
         items = extract._parse_items(raw)
 
