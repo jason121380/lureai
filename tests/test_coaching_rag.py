@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 
 from app.ingest import ingest_jsonl
+from app.policy import PolicyEngine
 from app.retrieval import Retriever
+from app.service import CustomerService
 from app.storage import KnowledgeStore
 
 
@@ -32,6 +34,51 @@ class CoachingRagTests(unittest.TestCase):
         accepted = {expected} if isinstance(expected, str) else set(expected)
         locators = [hit.locator for hit in self.retriever.retrieve(question, limit=6)]
         self.assertTrue(accepted & set(locators[:3]), locators)
+
+    def test_thin_follow_up_falls_back_to_the_conversation_topic(self):
+        """「我想寫得自然一點」自己只靠「自然」兩個字勉強過門檻，撈到的三塊全錯。
+
+        使用者實際遇到的：對話在談染燙後的關懷訊息，這句追問卻撈到評論信任、
+        廣告貼文分工、職涯迷惘。分數 0.767 剛好過 0.72，所以舊的補脈絡條件
+        （低於門檻才補）不會啟動。
+        """
+        from app.answer import AnswerEngine
+
+        service = CustomerService(
+            store=self.store,
+            retriever=self.retriever,
+            policy=PolicyEngine(minimum_score=0.72),
+            answerer=AnswerEngine(),
+        )
+        bare = [hit.locator for hit in self.retriever.retrieve("我想寫得自然一點", limit=6)]
+        self.assertNotIn("coach-37", bare[:3])  # 沒有脈絡時真的撈不到
+
+        _hits, grounded, escalation = service._route(
+            "我想寫得自然一點",
+            [{"role": "user", "content": "染燙護髮事後關懷訊息怎麼寫？"}],
+        )
+
+        self.assertIsNone(escalation)
+        self.assertIn("coach-37", [hit.locator for hit in grounded[:3]])
+
+    def test_self_contained_question_is_not_dragged_to_the_previous_topic(self):
+        """完整的問題自己就撈得準（實測 100 題最低 0.867），不可以被前一題帶走。"""
+        from app.answer import AnswerEngine
+
+        service = CustomerService(
+            store=self.store,
+            retriever=self.retriever,
+            policy=PolicyEngine(minimum_score=0.72),
+            answerer=AnswerEngine(),
+        )
+        _hits, grounded, _escalation = service._route(
+            "廣告一天要花多少錢？",
+            [{"role": "user", "content": "客訴現場的用語要怎麼改？"}],
+        )
+
+        locators = [hit.locator for hit in grounded[:3]]
+        self.assertIn("ads-04", locators)
+        self.assertNotIn("ops-16", locators)
 
     def test_retrieves_booking_funnel_diagnosis(self):
         self.assert_top_locators_include(

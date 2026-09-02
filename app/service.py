@@ -40,6 +40,12 @@ def split_followups(text: str) -> tuple[str, list[str]]:
     return "\n".join(lines).rstrip(), followups[:3]
 
 
+# 追問要不要帶上一題當脈絡，看的是「這一題自己撈得夠不夠準」，不是有沒有過門檻。
+# 實測：100 題完整問題最低 0.867；而「我想寫得自然一點」「然後呢？」這種接話
+# 只有 0.748~0.773——它們是靠一個字（「自然」）勉強過 0.72，主題完全不對。
+# 0.80 這條線把兩群分得很開，兩邊都還留著近 0.07 的餘裕。
+WEAK_MATCH_SCORE = 0.80
+
 CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 
 SENSITIVE_HISTORY_PATTERN = re.compile(
@@ -115,10 +121,11 @@ class CustomerService:
         if precheck.action == "escalate":
             return [], [], precheck
         # 先用問題本身檢索。夠好就用它，避免前一題把主題帶偏（「客人沒回要追嗎」
-        # 被前面的客訴問題拉去撈送客流程）；撈不動時才補上前兩題當脈絡，
-        # 讓「然後呢？」這種接話仍然有得查。
+        # 被前面的客訴問題拉去撈送客流程）；只是「勉強及格」時才補上前兩題當脈絡，
+        # 讓「然後呢？」「我想寫得自然一點」這種接話仍然查得到正確主題。
         hits = self.retriever.retrieve(question, limit=self.top_k * 2)
-        if recent_history and (not hits or hits[0].score < self.policy.minimum_score):
+        weak = max(self.policy.minimum_score, WEAK_MATCH_SCORE)
+        if recent_history and (not hits or hits[0].score < weak):
             previous_questions = [
                 item["content"] for item in recent_history if item["role"] == "user"
             ][-2:]
