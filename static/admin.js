@@ -501,12 +501,13 @@
       }
     }
     el("editor-text").value = text;
-    el("knowledge-editor").hidden = false;
+    el("editor-heading").textContent = chunk?.chunk_id ? "編輯知識" : "新增知識";
+    el("editor-modal").hidden = false;
     el("editor-title").focus();
   }
 
   function closeEditor() {
-    el("knowledge-editor").hidden = true;
+    el("editor-modal").hidden = true;
     el("knowledge-editor").reset();
     el("editor-chunk-id").value = "";
   }
@@ -515,6 +516,27 @@
   // 拖檔進來 → 前端讀成文字 → 後端分析成候選知識 → 一塊一塊確認 → 一次存檔。
   // 檔案本身不留，只留萃取出來的知識；每份檔案各自產生自己的知識。
   const UPLOAD_MAX_CHARS = 60000;
+  const UPLOAD_MAX_BYTES = 6 * 1024 * 1024;
+  // 這些直接當文字讀；其他（Word／Excel／PowerPoint／PDF／RTF）送 base64
+  // 給後端用標準庫拆。
+  const TEXT_SUFFIXES = [
+    ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".ndjson",
+    ".log", ".yml", ".yaml", ".xml", ".htm", ".html", ".srt", ".vtt", ".tex",
+  ];
+
+  function isTextFile(name) {
+    return TEXT_SUFFIXES.some((suffix) => name.toLowerCase().endsWith(suffix));
+  }
+
+  // 大檔用 btoa(String.fromCharCode(...bytes)) 會爆堆疊，要分段轉。
+  function toBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
+  }
   let uploadDrafts = [];
 
   function closeUpload() {
@@ -595,12 +617,19 @@
     for (const file of list) {
       setUploadProgress(done, list.length, `分析中… ${file.name}（${done + 1} / ${list.length}）`);
       try {
-        const text = await file.text();
-        if (text.length > UPLOAD_MAX_CHARS) throw new Error(`${file.name} 超過 6 萬字，請先拆開`);
+        let payload;
+        if (isTextFile(file.name)) {
+          const text = await file.text();
+          if (text.length > UPLOAD_MAX_CHARS) throw new Error("超過 6 萬字，請先拆開");
+          payload = { name: file.name, text };
+        } else {
+          if (file.size > UPLOAD_MAX_BYTES) throw new Error("檔案超過 6MB，請先拆開");
+          payload = { name: file.name, data_base64: toBase64(await file.arrayBuffer()) };
+        }
         // 分析要跑模型，給它比一般請求更長的時間。
         const body = await api("/api/admin/knowledge/analyze", {
           method: "POST",
-          body: JSON.stringify({ name: file.name, text }),
+          body: JSON.stringify(payload),
           timeoutMs: 120000,
         });
         (body.items || []).forEach((item) => {
@@ -807,11 +836,15 @@
   el("new-knowledge").addEventListener("click", openUpload);
   el("new-knowledge-manual").addEventListener("click", () => { closeUpload(); openEditor(null); });
   el("editor-cancel").addEventListener("click", closeEditor);
+  el("editor-close").addEventListener("click", closeEditor);
+  el("editor-backdrop").addEventListener("click", closeEditor);
   el("upload-cancel").addEventListener("click", closeUpload);
   el("upload-close").addEventListener("click", closeUpload);
   el("upload-backdrop").addEventListener("click", closeUpload);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !el("upload-modal").hidden) closeUpload();
+    if (event.key !== "Escape") return;
+    if (!el("upload-modal").hidden) closeUpload();
+    if (!el("editor-modal").hidden) closeEditor();
   });
   el("upload-save").addEventListener("click", saveDrafts);
   el("upload-input").addEventListener("change", (event) => analyseFiles(event.target.files));

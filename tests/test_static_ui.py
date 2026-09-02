@@ -166,6 +166,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("overflow-y: auto", css.split(".upload-scroll {", 1)[1].split("}", 1)[0])
         # 三種關法都要有：關閉鈕、點背景、Esc。
         self.assertIn('el("upload-close").addEventListener("click", closeUpload)', script)
+        # 手動輸入走同一套彈窗殼。
+        self.assertIn('id="editor-modal"', html)
+        self.assertIn('el("editor-backdrop").addEventListener("click", closeEditor)', script)
         self.assertIn('el("upload-backdrop").addEventListener("click", closeUpload)', script)
         self.assertIn('event.key === "Escape"', script)
 
