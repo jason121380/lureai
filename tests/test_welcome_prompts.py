@@ -39,6 +39,25 @@ class WelcomePromptTests(unittest.TestCase):
             self.assertTrue(hits, prompt)
             self.assertGreaterEqual(hits[0].score, self.policy.minimum_score, prompt)
 
+    def test_service_mode_openers_are_situations_and_still_answerable(self):
+        """客服模式的開場是狀況句（他描述、我接住），但一樣要撈得到知識。"""
+        import re
+
+        script = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
+        block = script[script.index("SERVICE_WELCOME_PROMPTS = ["):]
+        prompts = re.findall(r'"([^"]+)"', block[: block.index("];")])
+
+        self.assertGreaterEqual(len(prompts), 5)
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                # 狀況句不該是問句，也不該被閒聊或邊界規則攔下來。
+                self.assertNotIn("？", prompt)
+                self.assertIsNone(self.policy.boundary_reply(prompt))
+                self.assertIsNone(self.policy.smalltalk(prompt) or self.policy.emotion_only(prompt))
+                hits = self.retriever.retrieve(prompt, limit=1)
+                self.assertTrue(hits, prompt)
+                self.assertGreaterEqual(hits[0].score, self.policy.minimum_score, prompt)
+
     def test_opening_prompts_are_shuffled_每次不同(self):
         first = welcome_questions(limit=6, rng=random.Random(1), fallback=PROMPTS)
         second = welcome_questions(limit=6, rng=random.Random(2), fallback=PROMPTS)

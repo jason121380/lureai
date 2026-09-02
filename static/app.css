@@ -253,6 +253,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .composer-action svg { width: 17px; height: 17px; }
 .message-status.degraded { color: var(--caution); background: var(--caution-soft); }
 .message-status.boundary { color: var(--ink-soft); background: var(--bubble); }
+/* 「查不到資料」不是錯誤也不是警告，用紅色會讓一句「謝謝」看起來像出事了。 */
+.message-status.escalated.soft { color: var(--caution); background: var(--caution-soft); }
+/* 客服模式的來源收成一顆小鈕，不要把聊天畫面變成報表。 */
+.citation-list.compact { margin-top: 8px; }
+.citation-list.compact .citation-button { color: var(--muted); border-color: var(--line); padding: 3px 10px; }
+.citation-list.compact .citation-button svg { width: 13px; height: 13px; }
+
+/* 觸控裝置的點擊目標要夠大：圓形引用鈕、評分鈕、追問 chip 原本都不到 44px，
+   手指按下去常常按到旁邊。只加大可點範圍，視覺尺寸不變。 */
+@media (hover: none) {
+  .cite-ref { position: relative; }
+  .cite-ref::after { content: ""; position: absolute; inset: -11px; }
+  .feedback-button { position: relative; }
+  .feedback-button::after { content: ""; position: absolute; inset: -8px; }
+  .citation-button { min-height: 34px; }
+  .followup-button { min-height: 44px; }
+  .prompt-suggestion { min-height: 44px; }
+}
 .retrieval-mode { color: var(--muted); font-size: 14px; white-space: nowrap; }
 .send-action { color: #fff; background: var(--ink); }
 .send-action:disabled { color: #a5a5a5; background: #e6e6e6; cursor: default; }
@@ -370,6 +388,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .command-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 18px; color: #fff; background: var(--ink); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-weight: 600; font-size: 15px; }
 .command-button svg { width: 16px; height: 16px; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+/* 回覆品質有五個數字：用 auto-fit 讓它們填滿一列，不要留一格孤零零掉到第二行。 */
+#reply-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .stat-card { min-width: 0; padding: 18px 20px; background: var(--surface); border-right: 1px solid var(--line); }
 .stat-card:last-child { border-right: 0; }
 .stat-card { }

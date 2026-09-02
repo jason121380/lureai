@@ -1,6 +1,6 @@
 {
   "retrieval": {
-    "top_k": 6,
+    "top_k": 4,
     "minimum_score": 0.72
   },
   "limits": {

@@ -622,9 +622,10 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("persistenceSnapshot", script)
         self.assertIn("catch (_)", script)
         self.assertIn("/api/chat", script)
-        self.assertIn("const asked = conversation.messages", script)
-        self.assertIn("const history = asked.map", script)
-        self.assertIn('item.role === "user"', script)
+        self.assertIn("const turns = conversation.messages", script)
+        self.assertIn("const history = turns.map", script)
+        # AI 自己說過的話也要送出去，否則模型每一輪都是失憶的。
+        self.assertIn('item.role === "assistant" && item.status === "answered"', script)
         self.assertIn("conversation_id: conversation.id, history", script)
 
     def test_chat_controller_ignores_ime_confirmation_enter(self):
@@ -663,8 +664,43 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("touchstart", script)
         # 每次進到空白對話都要換一組建議問題。
         self.assertIn("function pickRandom", script)
-        self.assertIn("pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT)", script)
+        self.assertIn("pickRandom(pool, WELCOME_PROMPT_COUNT)", script)
         self.assertIn("WELCOME_PROMPT_COUNT = 5", script)
+        # 客服模式的開場改成狀況句：那個模式要的是「他描述狀況、我接住」。
+        self.assertIn("SERVICE_WELCOME_PROMPTS", script)
+
+    def test_tone_is_bound_to_the_conversation(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        # 一段對話只能有一種人格：切換語氣就開新的一段。
+        self.assertIn("function applyConversationTone", script)
+        self.assertIn("tone: state.tone", script)
+        self.assertIn("newConversation();", script)
+
+    def test_service_mode_hides_the_system_chrome(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 真人聊天下面不會長出「已根據知識庫回答」徽章與一排來源。
+        self.assertIn('item.tone === "service" && item.modelStatus === "used"', script)
+        self.assertIn('citation-list compact', script)
+        self.assertIn(".citation-list.compact", css)
+
+    def test_a_missing_answer_is_not_labelled_as_needing_a_human(self):
+        script = CHAT_JS.read_text(encoding="utf-8")
+        css = CSS.read_text(encoding="utf-8")
+
+        # 這裡沒有人可以轉，對一句「謝謝」回「需要人來判斷」是最傷的一幕。
+        self.assertIn("這題我先不亂答", script)
+        self.assertNotIn("這題需要人來判斷", script)
+        self.assertIn(".message-status.escalated.soft", css)
+
+    def test_touch_targets_are_large_enough(self):
+        css = CSS.read_text(encoding="utf-8")
+
+        touch = css[css.index("@media (hover: none) {", css.index(".citation-list.compact")):]
+        self.assertIn(".cite-ref::after", touch)
+        self.assertIn("min-height: 44px", touch)
 
 
 if __name__ == "__main__":

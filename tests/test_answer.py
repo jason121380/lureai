@@ -99,7 +99,7 @@ class AnswerTests(unittest.TestCase):
 
         payload = json.loads(urlopen.call_args.args[0].data)
         self.assertIn("專家模式", payload["instructions"])
-        self.assertNotIn("客服模式", payload["instructions"])
+        self.assertNotIn("## 語氣設定：客服模式", payload["instructions"])
 
     def test_service_tone_switches_to_chatty_instructions(self):
         hit = SearchHit("chunk-1", "標題", "source.md", "section-1", "段落", "核准內容", "流程", 1.0)
@@ -117,7 +117,7 @@ class AnswerTests(unittest.TestCase):
         payload = json.loads(urlopen.call_args.args[0].data)
         self.assertIn("客服模式", payload["instructions"])
         self.assertIn("一句一句", payload["instructions"])
-        self.assertNotIn("專家模式", payload["instructions"])
+        self.assertNotIn("## 語氣設定：專家模式", payload["instructions"])
 
     def test_service_tone_keeps_an_answer_without_citation_marks(self):
         """客服模式不寫 [n]：編號本來就不顯示，不能因此把整篇丟掉降級。"""

@@ -5,8 +5,9 @@ from typing import Iterator
 from uuid import uuid4
 
 from .answer import AnswerEngine, log_model_failure, normalize_citation_marks, normalize_tone
+from . import quality
 from .followups import FollowupPlanner, welcome_questions
-from .policy import PolicyEngine, speaker_name
+from .policy import COACHING_TERMS, PolicyEngine, speaker_name
 from .retrieval import Retriever
 from .storage import KnowledgeStore
 from .usage import UsagePricing
@@ -46,6 +47,19 @@ def split_followups(text: str) -> tuple[str, list[str]]:
 # 0.80 這條線把兩群分得很開，兩邊都還留著近 0.07 的餘裕。
 WEAK_MATCH_SCORE = 0.80
 
+# AI 自己說過的話最多帶這麼長：夠模型知道上一則講了什麼，又不會讓
+# 前端塞一大段東西進脈絡。
+MAX_ASSISTANT_CONTEXT_CHARS = 600
+
+# 「接話」不是完整的問題，它一定要靠前一題才知道在講什麼。只看分數擋不住：
+# 「為什麼」0.845、「多少錢」0.898、「太長了」0.851 都高於 0.80，於是完全
+# 不補脈絡，撈到的是「客人為什麼會在活動期消費」這種毫不相干的知識（體檢 B9）。
+# 判斷方式是「這句話裡有沒有店裡的名詞」——沒有名詞就無法自己成立。
+FOLLOW_UP_MAX_CHARS = 8
+FOLLOW_UP_OPENERS = re.compile(
+    r"^(?:那|然後|接下來|再|還有|除了|不是|為什麼|怎麼會|可以再|幫我改|換|給我另|第[二三四五六]|舉個|用我)"
+)
+
 CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 
 SENSITIVE_HISTORY_PATTERN = re.compile(
@@ -54,6 +68,28 @@ SENSITIVE_HISTORY_PATTERN = re.compile(
     r"(?:身分證|信用卡|卡號|電話|手機|住址|地址)\s*[:：]?\s*\S+)",
     re.I,
 )
+
+
+def _accepts_kwarg(function, name: str) -> bool:
+    """測試用的假 answerer 常常少幾個參數，多帶會直接 TypeError。"""
+    try:
+        return name in inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def is_follow_up(question: str) -> bool:
+    """這句話是不是「接話」——沒有店裡的名詞，就一定要靠前一題才看得懂。
+
+    「換一個」「為什麼」「再短一點」「用我的口氣」都算；
+    「燙髮後怎麼整理」「客人說太貴」有名詞，自己就撈得準，不算。
+    """
+    text = "".join(str(question or "").split()).rstrip("？?。.！!~～")
+    if not text:
+        return False
+    if any(term in text for term in COACHING_TERMS):
+        return False
+    return len(text) <= FOLLOW_UP_MAX_CHARS or bool(FOLLOW_UP_OPENERS.match(text))
 
 
 class CustomerService:
@@ -85,11 +121,19 @@ class CustomerService:
         return question
 
     def _safe_history(self, history: list[dict] | None) -> list[dict]:
-        return [
-            item for item in self._normalize_history(history)
-            if self.policy.precheck(item["content"]).action != "escalate"
-            and not SENSITIVE_HISTORY_PATTERN.search(item["content"])
-        ]
+        """送進模型的脈絡：使用者的問題與 AI 自己上一則回覆。
+
+        敏感題與 PII 一律不帶；敏感詞的判斷只套在使用者那幾則——AI 的回答
+        本來就會提到醫療、退費這些字，拿同一套去篩會把正常回覆整段刪掉。
+        """
+        safe: list[dict] = []
+        for item in self._normalize_history(history):
+            if SENSITIVE_HISTORY_PATTERN.search(item["content"]):
+                continue
+            if item["role"] == "user" and self.policy.precheck(item["content"]).action == "escalate":
+                continue
+            safe.append(item)
+        return safe
 
     @staticmethod
     def _diversify(hits: list, per_source: int = 2) -> list:
@@ -125,7 +169,9 @@ class CustomerService:
         # 讓「然後呢？」「我想寫得自然一點」這種接話仍然查得到正確主題。
         hits = self.retriever.retrieve(question, limit=self.top_k * 2)
         weak = max(self.policy.minimum_score, WEAK_MATCH_SCORE)
-        if recent_history and (not hits or hits[0].score < weak):
+        if recent_history and (
+            not hits or hits[0].score < weak or is_follow_up(question)
+        ):
             previous_questions = [
                 item["content"] for item in recent_history if item["role"] == "user"
             ][-2:]
@@ -267,6 +313,52 @@ class CustomerService:
             "tone": tone,
         }
 
+    def _enforce_quality(
+        self, question, answer, grounded_hits, recent_history, tone, extra_instruction,
+    ) -> tuple[str, dict, int]:
+        """生成完之後的品質檢查：命中就帶著具體理由重打一次。
+
+        串流路徑原本完全沒有這一段，所以網頁使用者從來沒有享受到守門
+        （體檢 B1）。重打是非串流的，最終 result 會覆蓋前端顯示的串流文字。
+        """
+        empty = {
+            "input_tokens": 0, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 0,
+        }
+        found = quality.problems(question, answer, tone=tone)
+        retry = getattr(self.answerer, "retry_for_quality", None)
+        if not found or not callable(retry):
+            return answer, empty, 0
+        log_model_failure("quality", detail=f"{len(found)} issue(s); retrying | {found[0][:60]}")
+        try:
+            improved, usage = retry(
+                question, grounded_hits, found, history=recent_history, tone=tone,
+                extra_instruction=extra_instruction,
+            )
+        except TypeError:
+            return answer, empty, 0
+        usage = usage or empty
+        # 重打還是不合格就送原本那則：它至少是通順的話，比降級訊息好。
+        return (improved or answer), usage, 1
+
+    def _generate(
+        self, question, grounded_hits, recent_history, allow_model, tone,
+        extra_instruction, want_followups, context_note,
+    ):
+        kwargs = {
+            "history": recent_history,
+            "allow_model": allow_model,
+            "tone": tone,
+            "extra_instruction": extra_instruction + self._speaker_note(recent_history, question),
+            "include_followups": want_followups,
+        }
+        if context_note and _accepts_kwarg(self.answerer.answer, "context_note"):
+            kwargs["context_note"] = context_note
+        return self.answerer.answer(question, grounded_hits, **kwargs)
+
+    def _retry_count(self) -> int:
+        return int(getattr(self.answerer, "last_retries", 0) or 0)
+
     def chat(
         self,
         message: str,
@@ -277,6 +369,7 @@ class CustomerService:
         tone: str | None = None,
         extra_instruction: str = "",
         want_followups: bool = True,
+        context_note: str = "",
     ) -> dict:
         question = self._validated_question(message)
         tone = normalize_tone(tone)
@@ -294,14 +387,15 @@ class CustomerService:
             result = self._escalated_result(trace_id, conversation_id, escalation, hits)
             self._audit(question, result, hits, user_id=user_id)
             return result
-        answer, mode, model_status, usage = self.answerer.answer(
+        answer, mode, model_status, usage = self._generate(
             question,
             grounded_hits,
-            history=recent_history,
+            recent_history,
             allow_model=allow_model,
             tone=tone,
-            extra_instruction=extra_instruction + self._speaker_note(recent_history, question),
-            include_followups=want_followups,
+            extra_instruction=extra_instruction,
+            want_followups=want_followups,
+            context_note=context_note,
         )
         followups: list[str] = []
         if mode == "llm":
@@ -329,6 +423,7 @@ class CustomerService:
             "usage": usage,
             "followups": followups,
             "tone": tone,
+            "retries": self._retry_count(),
         }
         self._audit(question, result, hits, user_id=user_id)
         return result
@@ -341,6 +436,8 @@ class CustomerService:
         user_id: int | None = None,
         allow_model: bool = True,
         tone: str | None = None,
+        extra_instruction: str = "",
+        context_note: str = "",
     ) -> Iterator[dict]:
         """Yield {"type":"delta"} events followed by one authoritative {"type":"result"}."""
         question = self._validated_question(message)
@@ -373,12 +470,19 @@ class CustomerService:
         model_status = "not_configured"
         usage = empty_usage
         followups: list[str] = []
+        retries = 0
         if self.answerer.model_enabled and allow_model:
             partial = ""
             model_status = "used"
+            stream_kwargs = {"history": recent_history, "tone": tone}
+            note = extra_instruction + self._speaker_note(recent_history, question)
+            if note and _accepts_kwarg(self.answerer.stream_answer, "extra_instruction"):
+                stream_kwargs["extra_instruction"] = note
+            if context_note and _accepts_kwarg(self.answerer.stream_answer, "context_note"):
+                stream_kwargs["context_note"] = context_note
             try:
                 for kind, payload in self.answerer.stream_answer(
-                    question, grounded_hits, history=recent_history, tone=tone
+                    question, grounded_hits, **stream_kwargs
                 ):
                     if kind == "delta":
                         partial += payload
@@ -396,6 +500,13 @@ class CustomerService:
             ):
                 answer = candidate
                 mode = "llm"
+                # 品質守門原本只掛在非串流那條路，而網頁聊天全部走串流——
+                # 「我陪你一起拆」這種空話在網頁上是原樣送出的（體檢 B1）。
+                answer, extra_usage, retries = self._enforce_quality(
+                    question, answer, grounded_hits, recent_history, tone, note,
+                )
+                usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
+                answer, followups = split_followups(answer)
             else:
                 if model_status == "used":
                     # 模型有回但沒附引用：加上警語重打一次再放棄。
@@ -433,6 +544,7 @@ class CustomerService:
             "model_status": model_status,
             "usage": usage,
             "tone": tone,
+            "retries": retries,
             "followups": self.followups.plan(
                 grounded_hits,
                 asked=self._asked_questions(history, question),
@@ -470,6 +582,14 @@ class CustomerService:
         return {"title": title, "model_status": model_status}
 
     def _normalize_history(self, history: list[dict] | None) -> list[dict]:
+        """驗證前端／lurebot 送上來的對話脈絡。
+
+        **AI 自己說過的話也要帶**：不帶的話模型每一輪都是失憶的，
+        「然後呢」「再短一點」「你說錯了吧」全部接不上，閒聊指令裡那句
+        「上一則問過就不要再問一次」更是做不到的要求（體檢 R1）。
+        assistant 那幾則以 assistant 角色送出（不是指令），內容另外夾長度，
+        而且不參與檢索、不進稽核——它本來就是這個使用者自己的對話。
+        """
         if history is None:
             return []
         if not isinstance(history, list):
@@ -479,11 +599,13 @@ class CustomerService:
         normalized = []
         # 全部驗過，但只有最後 8 則會進到模型脈絡與檢索。
         for item in history:
-            if not isinstance(item, dict) or item.get("role") != "user":
+            if not isinstance(item, dict) or item.get("role") not in ("user", "assistant"):
                 raise ValueError("對話紀錄格式無效")
             content = str(item.get("content", "")).strip()
             if not content or len(content) > self.max_question_chars:
                 raise ValueError("對話紀錄格式無效")
+            if item["role"] == "assistant":
+                content = content[:MAX_ASSISTANT_CONTEXT_CHARS]
             normalized.append({"role": item["role"], "content": content})
         return normalized[-8:]
 
@@ -515,4 +637,6 @@ class CustomerService:
                 cache_write_input_tokens,
             ),
             "model": self.answerer.model_name,
+            "tone": result.get("tone", ""),
+            "retries": int(result.get("retries", 0)),
         })

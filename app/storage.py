@@ -146,11 +146,48 @@ class KnowledgeStore:
         self._ensure_column("audits", "cache_write_input_tokens", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "output_tokens", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "cost_twd", "REAL NOT NULL DEFAULT 0")
+        # 語氣與品質重打次數：後台總覽要量得到「這個模式好不好」與「重打率」。
+        self._ensure_column("audits", "tone", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column("audits", "retries", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "model", "TEXT NOT NULL DEFAULT ''")
         self.connection.execute(
             "CREATE INDEX IF NOT EXISTS audits_user_created_idx ON audits(user_id, created_at)"
         )
         self.connection.commit()
+
+    def reply_metrics(self, since: str) -> dict:
+        """後台總覽要看得到的三個數字：查不到資料的比例、品質重打率、平均輸入量。
+
+        全部從既有的稽核算，不需要另外埋點。查不到資料的比例是「這個產品
+        什麼時候在裝死」最直接的指標。
+        """
+        with self._lock:
+            row = self.connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN reason IN ('no_results', 'low_confidence') THEN 1 ELSE 0 END) AS fallbacks,
+                    SUM(CASE WHEN retries > 0 THEN 1 ELSE 0 END) AS retried,
+                    AVG(input_tokens) AS avg_input_tokens
+                FROM audits WHERE created_at >= ? AND status <> 'title'
+                """,
+                (since,),
+            ).fetchone()
+            votes = self.connection.execute(
+                "SELECT rating, COUNT(*) AS count FROM feedback GROUP BY rating"
+            ).fetchall()
+        total = int(row["total"] or 0)
+        counted = {str(vote["rating"]): int(vote["count"]) for vote in votes}
+        graded = sum(counted.values())
+        return {
+            "replies": total,
+            "fallback_rate": round(int(row["fallbacks"] or 0) / total, 4) if total else 0.0,
+            "retry_rate": round(int(row["retried"] or 0) / total, 4) if total else 0.0,
+            "avg_input_tokens": int(row["avg_input_tokens"] or 0),
+            "thumbs_up_rate": round(counted.get("up", 0) / graded, 4) if graded else 0.0,
+            "thumbs_down_rate": round(counted.get("down", 0) / graded, 4) if graded else 0.0,
+            "graded": graded,
+        }
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         columns = {
@@ -323,8 +360,8 @@ class KnowledgeStore:
                     trace_id, created_at, conversation_id, question, status,
                     reason, top_score, chunk_ids_json, user_id, input_tokens,
                     cached_input_tokens, cache_write_input_tokens, output_tokens,
-                    cost_twd, model
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cost_twd, model, tone, retries
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["trace_id"], record["created_at"], record.get("conversation_id"),
@@ -334,7 +371,8 @@ class KnowledgeStore:
                     int(record.get("cached_input_tokens", 0)),
                     int(record.get("cache_write_input_tokens", 0)),
                     int(record.get("output_tokens", 0)), float(record.get("cost_twd", 0)),
-                    str(record.get("model", "")),
+                    str(record.get("model", "")), str(record.get("tone", "")),
+                    int(record.get("retries", 0)),
                 ),
             )
 
@@ -532,7 +570,9 @@ class KnowledgeStore:
                 row["review_status"], row.get("reviewer", ""),
                 row.get("reviewed_at", ""), row["search_text"],
                 json.dumps(row, ensure_ascii=False), origin, domain_of(row),
-                " ".join(row.get("aliases") or []) if isinstance(row.get("aliases"), list)
+                # 一個問法一行：問法索引是人工寫的「這句話問的是哪一塊知識」，
+                # 用空白接起來就分不出邊界，也就比不出「整句正好是這個問法」。
+                "\n".join(row.get("aliases") or []) if isinstance(row.get("aliases"), list)
                 else str(row.get("aliases") or ""),
             ),
         )

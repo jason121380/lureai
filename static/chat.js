@@ -13,6 +13,21 @@
   // 一行最多幾個字。只數行數是擋不住的：模型常常回一整行 120 字、一個換行
   // 都沒有，行數檢查看到「1 行」就放行，畫面上就是一大坨。
   const SERVICE_MAX_CHARS = 12;
+  // 客服模式的開場要像設計師自己會丟過來的一句話（他描述狀況、我接住），
+  // 不是一排問句——問句是專家模式的入口。每一句都撈得到知識
+  // （tests/test_welcome_prompts.py 逐句驗證）。
+  const SERVICE_WELCOME_PROMPTS = [
+    "私訊很多但沒人來",
+    "客人問完價格就已讀",
+    "廣告花了 5000 只來 1 個",
+    "客人說太貴",
+    "這個月業績掉了三成",
+    "客人約了沒來",
+    "客人說再想想",
+    "我很久沒發作品了",
+    "客人染壞了要我退錢",
+    "我每天都做到很晚",
+  ];
   const state = {
     conversations: [], activeId: null, controller: null,
     user: null,
@@ -87,9 +102,14 @@
     // 已經有一個還沒開始的空白對話就直接切過去，不要再疊一個。
     const empty = state.conversations.find((conversation) => !(conversation.messages || []).length);
     if (empty) {
+      // 語氣綁在對話上，空白的那段直接改成現在的語氣就好。
+      empty.tone = state.tone;
       state.activeId = empty.id;
     } else {
-      const conversation = { id: makeId(), title: "新對話", createdAt: new Date().toISOString(), messages: [] };
+      const conversation = {
+        id: makeId(), title: "新對話", tone: state.tone,
+        createdAt: new Date().toISOString(), messages: [],
+      };
       state.conversations.unshift(conversation);
       state.activeId = conversation.id;
       persist();
@@ -308,11 +328,12 @@
     const wrapper = document.createElement("div");
     wrapper.className = "welcome";
     wrapper.innerHTML = `
-      <h2>我們該從哪裡開始？</h2>
+      <h2>${state.tone === "service" ? "最近卡在哪裡？" : "我們該從哪裡開始？"}</h2>
       <div class="prompt-list"></div>`;
     const list = wrapper.querySelector(".prompt-list");
-    // 每次進到空白對話都從整個題庫隨機換一組題目。
-    pickRandom(state.welcomePrompts, WELCOME_PROMPT_COUNT).forEach((label) => {
+    // 每次進到空白對話都從整個題庫隨機換一組；客服模式換成狀況句。
+    const pool = state.tone === "service" ? SERVICE_WELCOME_PROMPTS : state.welcomePrompts;
+    pickRandom(pool, WELCOME_PROMPT_COUNT).forEach((label) => {
       const button = document.createElement("button");
       button.className = "prompt-suggestion";
       button.type = "button";
@@ -367,7 +388,10 @@
     }
     content.append(role, text);
 
-    if (item.status) {
+    // 客服模式是「真人在傳訊息」，泡泡下面不該長出系統徽章。
+    // 正常回覆時整個藏起來，只有降級或轉真人時才顯示（那時候要講清楚）。
+    const chatty = item.tone === "service" && item.modelStatus === "used";
+    if (item.status && !(chatty && item.status === "answered")) {
       const status = document.createElement("div");
       const answered = item.status === "answered";
       // 模型沒回應時要講清楚，不然看起來像 AI 亂答。
@@ -377,14 +401,18 @@
       // 內部狀態碼（missing_citations 之類）不外露給使用者，只放進 title 供除錯。
       // 邊界題（離題／不當請求／問身分）是刻意的固定回應，不是知識庫回答。
       const boundary = item.modelStatus === "boundary";
+      // 徽章只講狀態，AI 想說的話留在泡泡裡（不要讓系統替 AI 講話）。
+      // 「查不到資料」不是「需要人來判斷」——這裡沒有人可以轉，
+      // 對一句「謝謝」回這個標籤是這個產品最傷的一幕。
+      const softFallback = !answered && ["no_results", "low_confidence"].includes(item.reason);
       const label = answered
-        ? (degraded ? "這則沒有成功生成，我換個方式再問你"
-          : boundary ? "這題不在輔導範圍" : "已根據知識庫回答")
-        : "這題需要人來判斷";
+        ? (degraded ? "這則沒有成功生成" : boundary ? "這題不在輔導範圍" : "已根據知識庫回答")
+        : (softFallback ? "這題我先不亂答" : "這題要你自己決定");
       if (boundary) status.classList.add("boundary");
+      if (softFallback) status.classList.add("soft");
       const icon = answered
         ? (degraded ? "triangle-alert" : boundary ? "info" : "badge-check")
-        : "user-round-check";
+        : (softFallback ? "message-circle-question" : "user-round-check");
       status.innerHTML = `<i data-lucide="${icon}"></i><span>${label}</span>`;
       if (degraded && item.modelStatus) status.title = `model_status: ${item.modelStatus}`;
       content.append(status);
@@ -448,7 +476,21 @@
       content.append(feedback);
     }
 
-    if (item.citations?.length) {
+    if (item.citations?.length && chatty) {
+      // 客服模式把來源收成一顆小鈕：想查得到，但不會把聊天畫面變成報表。
+      const compact = document.createElement("div");
+      compact.className = "citation-list compact";
+      const button = document.createElement("button");
+      button.className = "citation-button";
+      button.type = "button";
+      button.innerHTML = '<i data-lucide="book-open"></i>';
+      const label = document.createElement("span");
+      label.textContent = `來源 ${item.citations.length}`;
+      button.append(label);
+      button.addEventListener("click", () => openSources(item.citations, 0));
+      compact.append(button);
+      content.append(compact);
+    } else if (item.citations?.length) {
       const citations = document.createElement("div");
       citations.className = "citation-list";
       const citationLabel = document.createElement("span");
@@ -526,7 +568,15 @@
     step();
   }
 
+  function applyConversationTone() {
+    const conversation = activeConversation();
+    // 存起來的語氣是這段對話的一部分：切回舊對話要看到當時的樣子，
+    // 但不要把它寫回個人偏好（那是「下一段新對話用哪一種」）。
+    if (conversation?.tone && conversation.tone !== state.tone) setTone(conversation.tone, false);
+  }
+
   function renderMessages() {
+    applyConversationTone();
     const conversation = activeConversation();
     messages.replaceChildren();
     const isEmpty = !conversation.messages.length;
@@ -715,12 +765,30 @@
   // - 引用編號只給系統核對，句尾不顯示 [1]——來源照樣列在泡泡下方。
   // - 標點一律拿掉，以空白分段，像平常打字（「～」保留）。
   // - 依語意斷句：模型的每一行就是一則訊息，不做字數硬拆（硬拆會把句子切壞）。
+  // 半形的「.」與「:」只有夾在數字中間時才留著（8.5%、10:30）；其餘位置是標點。
+  // 不用 lookbehind 正規表示式，舊版 iOS Safari 不支援。
+  function stripAsciiDots(line) {
+    let out = "";
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      if (char === "." || char === ":") {
+        const inNumber = /\d/.test(line[index - 1] || "") && /\d/.test(line[index + 1] || "");
+        out += inNumber ? char : " ";
+      } else {
+        out += char;
+      }
+    }
+    return out;
+  }
+
   function cleanChatLine(line) {
-    return line
-      .trim()
-      .replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, "")
-      .replace(/\s*\[\d{1,2}\]/g, "")
-      .replace(/[，。、；：！？!?；「」『』（）()]/g, " ")
+    return stripAsciiDots(
+      line
+        .trim()
+        .replace(/^(?:[-*•]|\d{1,2}[.)])\s+/, "")
+        .replace(/\s*\[\d{1,2}\]/g, "")
+        .replace(/[，。、；：？?,;「」『』（）()]/g, " "),
+    )
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -854,7 +922,12 @@
     // 有新訊息的對話排到最上面。
     state.conversations = [conversation, ...state.conversations.filter((item) => item.id !== conversation.id)];
     if (conversation.messages.filter((item) => item.role === "user").length === 1) {
-      conversation.title = value.slice(0, 24) || "新對話";
+      // AI 命名要等回答結束，中間這段時間側欄不能出現一排一模一樣的標題。
+      const base = value.slice(0, 24) || "新對話";
+      const taken = state.conversations.filter(
+        (item) => item.id !== conversation.id && String(item.title || "").startsWith(base),
+      ).length;
+      conversation.title = taken ? `${base}（${taken + 1}）` : base;
     }
     conversation.messages.push({ role: "assistant", content: "", loading: true });
     prompt.value = "";
@@ -867,13 +940,18 @@
     try {
       // 最近 8 題完整送出（模型脈絡與檢索用），更早的只送前 80 字，
       // 讓伺服器知道哪些題目已經問過，建議問題才不會重複。
-      const asked = conversation.messages
+      // 連 AI 自己說過的話一起送：不送的話模型每一輪都是失憶的，
+      // 「然後呢」「再短一點」「你說錯了吧」全部接不上。
+      // 伺服器只拿最後 8 則進模型脈絡，assistant 的內容另外夾長度。
+      const turns = conversation.messages
         .slice(0, -2)
-        .filter((item) => !item.loading && item.role === "user" && item.content)
+        .filter((item) => !item.loading && item.content && (
+          item.role === "user" || (item.role === "assistant" && item.status === "answered")
+        ))
         .slice(-60);
-      const history = asked.map((item, index) => ({
+      const history = turns.map((item, index) => ({
         role: item.role,
-        content: String(item.content).slice(0, index >= asked.length - 8 ? 1200 : 80),
+        content: String(item.content).slice(0, index >= turns.length - 8 ? 1200 : 80),
       }));
       let streamedText = "";
       const tone = state.tone;
@@ -1309,7 +1387,12 @@
   });
   el("stop-button").addEventListener("click", () => state.controller?.abort());
   document.querySelectorAll("#tone-toggle .tone-option").forEach((button) => {
-    button.addEventListener("click", () => setTone(button.dataset.tone));
+    button.addEventListener("click", () => {
+      if (button.dataset.tone === state.tone) return;
+      setTone(button.dataset.tone);
+      newConversation();
+      toggleAccountMenu(false);
+    });
   });
   // 名字區是真正的 <button>，Enter／空白鍵原生就會觸發 click。
   el("user-account").addEventListener("click", () => toggleAccountMenu());
@@ -1329,11 +1412,13 @@
     event.stopPropagation();
     const box = el("tone-confirm");
     if (!box.hidden) { box.hidden = true; return; }
-    el("tone-confirm-text").textContent = `是否切換為${toneLabel(otherTone())}？`;
+    el("tone-confirm-text").textContent = `切換為${toneLabel(otherTone())}並開一段新對話？`;
     box.hidden = false;
   });
   el("tone-confirm-ok").addEventListener("click", () => {
     setTone(otherTone());
+    // 一段對話只能有一種人格：切換就開新的一段，不要讓半段條列半段泡泡。
+    newConversation();
     el("tone-confirm").hidden = true;
   });
   el("tone-confirm-cancel").addEventListener("click", () => { el("tone-confirm").hidden = true; });
