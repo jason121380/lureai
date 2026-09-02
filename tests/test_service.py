@@ -370,6 +370,79 @@ class ServiceTests(unittest.TestCase):
         roles = [item["role"] for item in answerer.history]
         self.assertLessEqual(roles.count("assistant"), 4)
 
+    def test_contact_details_never_reach_any_model_call(self):
+        """遮罩要在「組模型 payload」那一層，不是只有聊天入口。
+
+        自動產生標題走的是另一條路（正常用完第一則就會跑），lurebot 的群組脈絡
+        也是——使用者以為聊天已經遮好了，同一組號碼卻從別的呼叫送了出去。
+        """
+        from app.answer import mask_contacts
+
+        dirty = "客人 0912-345-678 和 vip@example.com 都沒回"
+        clean = mask_contacts(dirty)
+        self.assertNotIn("0912", clean)
+        self.assertNotIn("example.com", clean)
+        # 正常的輔導內容不能被誤傷。
+        self.assertEqual(mask_contacts("客人一直看手機 到店率 20%"), "客人一直看手機 到店率 20%")
+
+    def test_the_title_path_masks_contacts_too(self):
+        answerer = RecordingAnswerer()
+        seen = {}
+
+        def generate_title(question, answer, allow_model=True):
+            seen["question"] = question
+            return "標題", "used", {"input_tokens": 5, "output_tokens": 2}
+
+        answerer.generate_title = generate_title
+        self.service.answerer = answerer
+
+        self.service.summarize_title("客人 0912-345-678 一直沒回，怎麼追？", "先傳一則訊息。")
+
+        self.assertNotIn("0912", seen["question"])
+        self.assertIn("〔已遮罩〕", seen["question"])
+
+    def test_a_citation_that_points_nowhere_is_not_accepted(self):
+        """模型寫 [99] 但這一輪只有幾塊來源時，不能當成「有附引用」。"""
+        from app.retrieval import SearchHit
+
+        hits = [
+            SearchHit("a", "教練手冊", "knowledge/a.md", "coach-17", "評論", "邀請評論。", "教練", 0.95),
+            SearchHit("b", "社群手冊", "knowledge/b.md", "social-04", "廣告", "廣告分工。", "社群", 0.80),
+        ]
+        self.service.retriever = StubRetriever(hits)
+        calls = []
+
+        class BogusCitationAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
+                yield ("delta", "可以先觀察回流率 [99]")
+
+            def retry_with_citations(self, _question, _hits, history=None, tone="expert"):
+                calls.append("citations")
+                return "", {"input_tokens": 0, "output_tokens": 0}
+
+            @staticmethod
+            def requires_citations(_tone):
+                return True
+
+            @staticmethod
+            def has_valid_citation(text, count):
+                from app.answer import AnswerEngine
+
+                return AnswerEngine.has_valid_citation(text, count)
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "模型暫時無法完成生成 [1]"
+
+        self.service.answerer = BogusCitationAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
+
+        self.assertEqual(calls, ["citations"])
+        self.assertEqual(result["model_status"], "missing_citations")
+        self.assertNotIn("[99]", result["answer"])
+
     def test_citations_cap_chunks_per_source_document(self):
         from app.retrieval import SearchHit
 

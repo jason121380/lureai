@@ -25,6 +25,19 @@ DELAY_PATTERNS = (
 # 但這個函式在測試與知識掃描裡是單獨被呼叫的，自己認得出來才不會有死角。
 CITATION_MARK = re.compile(r"[【〔\[（(]\s*[0-9０-９]{1,2}\s*[】〕\]）)]")
 
+# 結尾那幾行「▷ 建議問題」不是回答，是給前端做按鈕用的。它們也絕對不能算進
+# 「這一則有沒有給東西」——那幾行天生就有動詞跟數字（「那我該先改哪一步？」
+# 「我需要多少預算？」），整段一起送檢的話，
+#
+#     我陪你一起拆這個問題 [1]
+#     ▷ 那我該先改哪一步？
+#     ▷ 我需要多少預算？
+#
+# 會被判成沒問題；但服務把追問拆走之後，使用者收到的正文就只剩第一行那句空話，
+# 狀態還是 answered。守門要驗的是「他最後真的看到的東西」。
+# 樣式與 `service.FOLLOWUP_PATTERN` 一致（那邊負責真的拆，這邊只負責不要算進來）。
+FOLLOWUP_LINE = re.compile(r"^[▷›>]\s*.+$")
+
 # 有這些東西才算真的給了內容：數字、可執行的動作、或明確立場。
 NUMBER_PATTERN = re.compile(r"\d")
 # 「問」要排除「問題」：「我陪你拆這個問題」正是要抓的空話，不是動作。
@@ -179,14 +192,27 @@ def wall_of_text(answer: str) -> bool:
     return False
 
 
+def _answer_body(answer: str) -> str:
+    """把結尾那幾行「▷ 建議問題」拿掉，剩下的才是回答本身。"""
+    lines = str(answer or "").rstrip().splitlines()
+    while lines:
+        line = lines[-1].strip()
+        if not line or FOLLOWUP_LINE.match(line):
+            lines.pop()
+        else:
+            break
+    return "\n".join(lines).rstrip()
+
+
 def problems(question: str, answer: str, tone: str = "") -> list[str]:
     """回傳這一則回覆的問題清單；空清單＝可以送出去。
 
     `tone` 是聊天語氣（service／line）時會多檢查長度：那兩種是通訊軟體的
     短句，專家模式本來就該講完講透，不套這條。
     """
-    # 引用編號先剝掉再判斷：它是格式不是內容（見 CITATION_MARK）。
-    text = CITATION_MARK.sub("", str(answer or "")).strip()
+    # 先還原成「使用者最後真的會看到的正文」再判斷：引用編號是格式不是內容
+    # （見 CITATION_MARK），結尾的 ▷ 建議問題會被拆去做按鈕（見 FOLLOWUP_LINE）。
+    text = CITATION_MARK.sub("", _answer_body(answer)).strip()
     if not text:
         return []
     found: list[str] = []

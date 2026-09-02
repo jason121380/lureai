@@ -17,6 +17,7 @@ import re
 import urllib.error
 import urllib.request
 
+from .answer import extract_usage, mask_contacts
 from .domains import COACHING, OPERATIONS, classify
 
 
@@ -192,15 +193,30 @@ def _parse_items(text: str) -> list[dict]:
     return cleaned
 
 
-def propose_chunks(answerer, name: str, text: str, allow_model: bool = True) -> tuple[list[dict], str]:
-    """回傳（候選知識, 用了哪條路徑）。模型不通就用規則切法，不讓後台開天窗。"""
+EMPTY_USAGE = {
+    "input_tokens": 0, "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0, "output_tokens": 0,
+}
+
+
+def propose_chunks(
+    answerer, name: str, text: str, allow_model: bool = True,
+) -> tuple[list[dict], str, dict]:
+    """回傳（候選知識, 用了哪條路徑, 這次的用量）。模型不通就用規則切法，不讓後台開天窗。
+
+    用量一定要回傳並記帳：這條路一次送兩萬多字進模型，是整個系統單次最貴的
+    呼叫，卻曾經完全不進帳本——後台看到的月花費會比實際少。
+    """
     fallback = split_document(name, text)
     if not (allow_model and getattr(answerer, "model_enabled", False)):
-        return fallback, "rules"
+        return fallback, "rules", dict(EMPTY_USAGE)
+    # 上傳的文件裡可能夾著客人的電話與 Email，而萃取出來的東西會存進知識庫。
+    # 走跟聊天同一層遮罩（`answer.mask_contacts`）。
+    body_text = mask_contacts(str(text)[:24000])
     payload = {
         "model": os.environ["LLM_MODEL"],
         "instructions": INSTRUCTION,
-        "input": [{"role": "user", "content": f"檔名：{name}\n\n內容：\n{str(text)[:24000]}"}],
+        "input": [{"role": "user", "content": f"檔名：{name}\n\n內容：\n{body_text}"}],
         "reasoning": {"effort": "low"},
         "max_output_tokens": 16000,
         "store": False,
@@ -218,7 +234,8 @@ def propose_chunks(answerer, name: str, text: str, allow_model: bool = True) -> 
         with urllib.request.urlopen(request, timeout=max(getattr(answerer, "timeout", 60.0), 60.0)) as response:
             body = json.loads(response.read())
     except (OSError, ValueError, KeyError, urllib.error.URLError, TimeoutError):
-        return fallback, "rules"
+        return fallback, "rules", dict(EMPTY_USAGE)
+    usage = extract_usage(body)
     output = body.get("output_text")
     if not isinstance(output, str):
         output = ""
@@ -228,4 +245,5 @@ def propose_chunks(answerer, name: str, text: str, allow_model: bool = True) -> 
                     output = content["text"]
                     break
     items = _parse_items(output)
-    return (items, "model") if items else (fallback, "rules")
+    # 模型有回但解析不出東西時仍然要記帳——錢已經花掉了。
+    return (items, "model", usage) if items else (fallback, "rules", usage)
