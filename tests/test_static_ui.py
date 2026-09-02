@@ -8,6 +8,7 @@ ADMIN = ROOT / "static" / "admin.html"
 CSS = ROOT / "static" / "app.css"
 CHAT_JS = ROOT / "static" / "chat.js"
 ADMIN_JS = ROOT / "static" / "admin.js"
+APP_JS = ROOT / "static" / "app.js"
 LOGO = ROOT / "static" / "logo.png"
 FAVICON = ROOT / "static" / "favicon.png"
 APP_ICON = ROOT / "static" / "app-icon.png"
@@ -559,6 +560,42 @@ class StaticUiTests(unittest.TestCase):
         # navigator.clipboard 在非安全內容下是 undefined，必須留後路。
         self.assertIn("document.execCommand", js)
         self.assertIn(".feedback-button.copied", CSS.read_text(encoding="utf-8"))
+
+    def test_pwa_pages_do_not_zoom(self):
+        """PWA 要像 App：兩指放大、連點兩下放大都關掉。"""
+        for page in (INDEX, ADMIN):
+            html = page.read_text(encoding="utf-8")
+            self.assertIn("user-scalable=no", html, page.name)
+            self.assertIn("maximum-scale=1", html, page.name)
+            self.assertIn('src="app.js"', html, page.name)
+
+        # viewport 的 user-scalable=no 在 iOS Safari 的瀏覽器分頁裡會被忽略，
+        # 捏合手勢要自己擋一次，否則加到主畫面之前仍然放得大。
+        js = APP_JS.read_text(encoding="utf-8")
+        for gesture in ("gesturestart", "gesturechange", "gestureend"):
+            self.assertIn(gesture, js)
+        self.assertIn("touch-action: manipulation", CSS.read_text(encoding="utf-8"))
+
+    def test_loading_states_show_a_moving_bar(self):
+        """單純寫「載入中」看不出來系統還活著，也不知道要不要繼續等。"""
+        css = CSS.read_text(encoding="utf-8")
+        self.assertIn(".loading-state", css)
+        self.assertIn("@keyframes loading-sweep", css)
+
+        html = ADMIN.read_text(encoding="utf-8")
+        # 每個分頁的初始狀態都要是會動的載入條，不能再是靜止的「載入中」文字。
+        self.assertNotIn('<div class="empty-state">載入中</div>', html)
+        self.assertGreaterEqual(html.count('<div class="loading-state"></div>'), 6)
+        self.assertNotIn('載入中…</div>', ADMIN_JS.read_text(encoding="utf-8"))
+
+    def test_a_failed_panel_stops_pretending_to_load(self):
+        """toast 幾秒就消失，畫面還停在「載入中」的話會一直等一個不會來的東西。"""
+        js = ADMIN_JS.read_text(encoding="utf-8")
+        self.assertIn("function showLoadFailure", js)
+        self.assertIn("重新載入", js)
+        for panel in ("tuning-groups", "quality-list", "user-results", "domain-grid"):
+            self.assertIn(f'showLoadFailure("{panel}"', js)
+        self.assertIn(".load-failed", CSS.read_text(encoding="utf-8"))
 
     def test_chat_controller_persists_conversations(self):
         script = CHAT_JS.read_text(encoding="utf-8")

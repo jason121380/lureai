@@ -45,7 +45,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 | `config/question_bank.json` | 問法索引種子：設計師實際會怎麼問，編譯時展開成 1.4 萬筆檢索別名 |
 | `scripts/build_knowledge_index.py` | 唯一的索引編譯器（手冊 → JSONL，含問法展開）|
 | `scripts/coverage_report.py` | 用問法索引量測檢索覆蓋率 |
-| `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` |
+| `static/` | chat（index.html+chat.js）與 admin（admin.html+admin.js），共用 `app.css` 與 `app.js`（兩頁共用的頁面行為，目前是關閉縮放）|
 
 ## 不可破壞的約定
 
@@ -72,6 +72,8 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。
 - **零依賴（一個例外）**：不要引入第三方 Python 套件（Playwright 只用於本機測試）。唯一例外是 `psycopg`：只在 Dockerfile 安裝、只在設定了 Postgres 連線時 import（`app/replica.py` 守門），本機開發不需要它。
 - **持久化走 Postgres 快照，不掛 Volume**（使用者決定）：SQLite 是可拋棄的工作庫；`app/replica.py` 把 users／sessions／audits／feedback／自訂知識壓成 gzip JSON 單列快照存 Postgres，開機還原、定期備份（內容沒變不上傳）。改 durable 資料表 schema 時記得欄位取交集的還原邏輯已涵蓋新增欄位，但刪欄位要同步看 `apply_snapshot`。
+- **PWA 不給縮放**：兩個頁面的 viewport 都帶 `maximum-scale=1, user-scalable=no`，`body` 補 `touch-action: manipulation` 關掉連點兩下放大。**iOS Safari 的瀏覽器分頁會忽略 `user-scalable=no`**（Apple 為了無障礙刻意不理），加到主畫面才生效，所以 `static/app.js` 還會擋掉 `gesturestart/change/end`。
+- **載入中要看得出系統還活著**：`.loading-state` 是會跑的進度條（整個元件只靠一個 class，文字與條都用虛擬元素畫，HTML 的初始狀態與 JS 重填的那份才不會各寫一份）。**載入失敗要停下來**：`showLoadFailure()` 把載入條換成錯誤訊息＋「重新載入」，toast 消失之後畫面不能還停在「載入中」，否則使用者會一直等一個不會來的東西。
 - **health check 標記**：`app/health.py` `_frontend_check` 會驗證前端檔案內含特定字串（如 `.chat-main`、`id="admin-shell"`、`/api/chat`）；改前端時勿移除。
 - **閒聊不進檢索**：打招呼／道謝／應聲、**自我介紹**、抒發情緒、欲言又止這四類在檢索前就被 `app/policy.py` 攔下來（`smalltalk()`／`emotion_only()`），交給 `AnswerEngine.smalltalk()` 讓模型自然接一句，不掛來源。情緒句只承接、不派任務也不要數字；句子裡有「怎麼／該不該／什麼／嗎」這類提問字就讓路給 RAG。`tests/test_smalltalk.py` 守著分流。
 - **規則正本只有一份**：三種語氣的規則住在 `app/tuning.py` 的目錄，`app/answer.py` 的 `TONE_INSTRUCTIONS` 只是用 `compose_tone()` 組出來的衍生值。**不要改 `TONE_INSTRUCTIONS`，改了不會生效**（`tests/test_tuning.py` 會擋）。
