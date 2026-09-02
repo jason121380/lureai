@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import secrets
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -49,6 +50,66 @@ def _trusted_proxies() -> tuple:
 TRUSTED_PROXIES = _trusted_proxies()
 
 # 對話紀錄存伺服器（使用者決定），這幾個上限只是防呆，不讓單一帳號無限長大。
+# LINE 的 reply token 從 webhook 進來算起只有 60 秒，而 lurebot 在打我們之前已經
+# 用掉一些、送出去也還要時間。45 秒是內部的保守目標，不是 LINE 的保證。
+# 同時最多處理幾個請求。串流那條會一直佔著（生成可能要幾十秒），所以要留餘裕；
+# 但也不能無上限，否則慢速連線可以把記憶體與執行緒吃光。
+class BudgetLedger:
+    """把「已經送出去、還沒記到帳」的那幾筆也算進月支出。
+
+    舊版是「先讀餘額 → 呼叫模型 → 事後記帳」，兩個請求同時進來時讀到的是同一個
+    餘額，於是一起穿過上限（實測：上限 NT$1，兩個並行請求都獲准，各記 0.65，
+    最後 1.30）。這裡在呼叫之前先預留一筆估計值，記完帳再釋放。
+
+    只在單一行程內有效，這個服務本來就只有一個 process；真的要跨行程再說。
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: dict[int, list[float]] = {}
+        self._next = itertools.count(1)
+
+    def reserve(self, user_id: int | None, amount: float) -> tuple | None:
+        if user_id is None or amount <= 0:
+            return None
+        token = (user_id, next(self._next), float(amount))
+        with self._lock:
+            self._pending.setdefault(int(user_id), []).append(float(amount))
+        return token
+
+    def release(self, token: tuple | None) -> None:
+        if not token:
+            return
+        user_id, _serial, amount = token
+        with self._lock:
+            amounts = self._pending.get(int(user_id))
+            if not amounts:
+                return
+            try:
+                amounts.remove(amount)
+            except ValueError:
+                amounts.pop()
+            if not amounts:
+                self._pending.pop(int(user_id), None)
+
+    def pending_for(self, user_id: int | None) -> float:
+        if user_id is None:
+            return 0.0
+        with self._lock:
+            return float(sum(self._pending.get(int(user_id), ())))
+
+
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "48") or 48)
+# 滿載時等這麼久還排不到就回 503，不要無限排隊。
+WORKER_WAIT_SECONDS = 5.0
+# 讀完整個 request body 的總時限（socket timeout 管的是「兩次收到資料之間」，
+# 每 25 秒滴一個位元組就能把一條執行緒綁住任意久）。
+BODY_READ_TIMEOUT = 20.0
+
+LINE_TOTAL_BUDGET = 45.0
+# 再怎麼趕也要留這麼多秒，否則連一次生成都跑不完，等於整組關掉。
+MIN_LINE_BUDGET = 10.0
+
 CONVERSATION_KEEP = 100
 CONVERSATION_MAX_MESSAGES = 200
 CONVERSATION_MAX_CHARS = 20000
@@ -68,6 +129,7 @@ from .humanize import (
     MESSAGE_GAP_RANGE,
     message_gaps,
     context_instruction,
+    fit_delays,
     postprocess,
     reply_delay,
     strip_citations,
@@ -189,6 +251,8 @@ class AppContext:
     bot_token: str = ""
     bot_user_id: int | None = None
     chat_limiter: RequestRateLimiter = field(default_factory=RequestRateLimiter)
+    # 併發時的預算把關：呼叫模型之前先預留、記完帳再釋放。
+    budget: BudgetLedger = field(default_factory=BudgetLedger)
     profile: str = "customer_service"
     access_level: str = "customer_service"
     app_name: str = "張副總 AI 客服"
@@ -334,6 +398,26 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self.end_headers()
             self.wfile.write(body)
 
+        def _read_body(self, size: int) -> bytes:
+            """把 body 讀完，但整段有一個總時限。
+
+            `rfile.read(size)` 會一直等到收滿為止，而 socket timeout 是「兩次
+            收到資料之間」的上限——每 25 秒滴一個位元組就能把一條工作執行緒
+            綁住任意久。這裡改成分段讀，總時間到了就放棄。
+            """
+            deadline = time.monotonic() + BODY_READ_TIMEOUT
+            chunks = []
+            remaining = size
+            while remaining > 0:
+                if time.monotonic() > deadline:
+                    raise ValueError("讀取請求內容逾時")
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    raise ValueError("請求內容不完整")
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            return b"".join(chunks)
+
         def _read_json(self, max_bytes: int | None = None) -> dict:
             try:
                 size = int(self.headers.get("Content-Length", "0"))
@@ -342,7 +426,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             if size <= 0 or size > (max_bytes or context.max_request_bytes):
                 raise ValueError("請求內容大小不符合限制")
             try:
-                payload = json.loads(self.rfile.read(size))
+                payload = json.loads(self._read_body(size))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise ValueError("請求必須是有效 JSON") from exc
             if not isinstance(payload, dict):
@@ -382,7 +466,13 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     clean.pop("pendingReveal", None)
                     clean["content"] = str(clean.get("content", ""))[:CONVERSATION_MAX_CHARS]
                     trimmed.append(clean)
-                context.store.save_conversation(
+                try:
+                    rev = max(0, int(item.get("rev") or 0))
+                except (TypeError, ValueError):
+                    rev = 0
+                # 版本比較舊就不寫。這樣兩台裝置同時開著時，這台的舊副本蓋不掉
+                # 另一台剛存的新版本；`saved` 只算真的寫進去的。
+                if context.store.save_conversation(
                     user_id,
                     conversation_id,
                     str(item.get("title", ""))[:CONVERSATION_TITLE_MAX],
@@ -390,8 +480,9 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     trimmed,
                     str(item.get("createdAt") or now),
                     str(item.get("updatedAt") or now),
-                )
-                saved += 1
+                    rev,
+                ):
+                    saved += 1
             if saved:
                 context.store.prune_conversations(user_id, keep=CONVERSATION_KEEP)
             return saved
@@ -541,7 +632,32 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 month_start.astimezone(timezone.utc).isoformat(),
                 next_month.astimezone(timezone.utc).isoformat(),
             )
-            return context.pricing.summary(month=f"{now.year:04d}-{now.month:02d}", **totals)
+            summary = context.pricing.summary(
+                month=f"{now.year:04d}-{now.month:02d}", **totals
+            )
+            # 已經送出去、還沒記到帳的那幾筆也要算進來，否則同時進來的請求
+            # 讀到的是同一個餘額，會一起穿過上限。
+            pending = context.budget.pending_for(user_id)
+            if pending:
+                summary = dict(summary)
+                summary["spend_twd"] = round(summary["spend_twd"] + pending, 4)
+            return summary
+
+        def _reserve_budget(self, user_id: int | None) -> tuple[bool, tuple | None]:
+            """還在預算內嗎，順便先把這一次的估計花費預留起來。
+
+            回傳 `(可以用模型, 預留憑證)`；**憑證一定要在 finally 裡釋放**，
+            不然那筆估計值會一直掛在帳上，之後的請求都會被擋。
+            """
+            summary = self._usage_summary(user_id) if user_id else {}
+            within = (
+                not summary
+                or summary["budget_twd"] <= 0
+                or summary["spend_twd"] < summary["budget_twd"]
+            )
+            if not within:
+                return False, None
+            return True, context.budget.reserve(user_id, context.pricing.typical_cost_twd())
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -751,6 +867,17 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         def _bot_reply(self, payload: dict) -> None:
             """lurebot 的唯一入口：檢索、政策、生成、引用守門、稽核全部照舊，
             只有輸出換成「可以直接送進 LINE 的幾則短訊息」。"""
+            # 這一則的共同截止時間。LINE 的 reply token 從 webhook 進來算起只有
+            # 60 秒，lurebot 在打我們之前已經用掉一些，所以這裡抓得更保守。
+            # 生成、每一次重試與出口的停頓全部從這一份裡扣——舊版是每次呼叫各拿
+            # 一份完整 timeout（25＋25）再加上 8-25 秒停頓，光名義配置就超過窗口。
+            # lurebot 可以用 `budget_seconds` 告訴我們它那邊還剩多少。
+            try:
+                budget = float(payload.get("budget_seconds") or LINE_TOTAL_BUDGET)
+            except (TypeError, ValueError):
+                budget = LINE_TOTAL_BUDGET
+            budget = max(MIN_LINE_BUDGET, min(budget, LINE_TOTAL_BUDGET))
+            deadline = time.monotonic() + budget
             conversation_id = str(payload.get("conversation_id", "")).strip()[:120]
             # 沒帶 conversation_id 時退回群組名稱，再退回發話者；全部共用一個
             # 「unknown」桶的話，一個群組講太快會讓其他群組一起被擋。
@@ -768,22 +895,21 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             history = payload.get("history")
             if isinstance(history, list):
                 history = history[-MAX_BOT_HISTORY:]
-            usage_summary = self._usage_summary(context.bot_user_id) if context.bot_user_id else {}
-            within_budget = (
-                not usage_summary
-                or usage_summary["budget_twd"] <= 0
-                or usage_summary["spend_twd"] < usage_summary["budget_twd"]
-            )
-            result = context.service.chat(
-                payload.get("message", ""),
-                conversation_id or None,
-                history,
-                user_id=context.bot_user_id,
-                allow_model=within_budget,
-                tone="line",
-                context_note=context_instruction(payload.get("context")),
-                want_followups=False,
-            )
+            within_budget, slot = self._reserve_budget(context.bot_user_id)
+            try:
+                result = context.service.chat(
+                    payload.get("message", ""),
+                    conversation_id or None,
+                    history,
+                    user_id=context.bot_user_id,
+                    allow_model=within_budget,
+                    tone="line",
+                    context_note=context_instruction(payload.get("context")),
+                    want_followups=False,
+                    deadline=deadline,
+                )
+            finally:
+                context.budget.release(slot)
             response = {
                 "trace_id": result["trace_id"],
                 "conversation_id": result.get("conversation_id"),
@@ -822,18 +948,23 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             # 走到這裡才是真的會送出去的那則，來源這時候才附上（稽核對照用）。
             response["citations"] = result.get("citations", [])
             rules = context.store.model_rules()
-            response["delay_seconds"] = reply_delay(
+            delay = reply_delay(
                 delay_range=tuning.parse_delay_range(
                     rules.get("delivery-delay", ""), DELAY_RANGE
                 )
             )
             # 每一則之間再等一小段，訊息才會一則一則出現而不是同時跳出來。
-            response["message_gaps"] = message_gaps(
+            gaps = message_gaps(
                 len(response.get("messages") or []),
                 gap_range=tuning.parse_delay_range(
                     rules.get("delivery-gap", ""), MESSAGE_GAP_RANGE
                 ),
             )
+            # 停頓跟生成搶的是同一份時間。生成慢的時候還照原本的秒數等下去，
+            # 等到的是 reply token 過期；剩多少就等多少，回得快一點總比不回好。
+            delay, gaps = fit_delays(delay, gaps, deadline - time.monotonic())
+            response["delay_seconds"] = delay
+            response["message_gaps"] = gaps
             self._json(HTTPStatus.OK, response)
 
         def do_POST(self) -> None:
@@ -910,19 +1041,19 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             {"Retry-After": "30"},
                         )
                         return
-                    usage_summary = self._usage_summary(user["id"])
-                    within_budget = (
-                        usage_summary["budget_twd"] <= 0
-                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
-                    )
-                    result = context.service.chat(
-                        payload.get("message", ""),
-                        payload.get("conversation_id"),
-                        payload.get("history"),
-                        user_id=user["id"],
-                        allow_model=within_budget,
-                        tone=self._web_tone(payload.get("tone")),
-                    )
+                    within_budget, slot = self._reserve_budget(user["id"])
+                    try:
+                        result = context.service.chat(
+                            payload.get("message", ""),
+                            payload.get("conversation_id"),
+                            payload.get("history"),
+                            user_id=user["id"],
+                            allow_model=within_budget,
+                            tone=self._web_tone(payload.get("tone")),
+                        )
+                    finally:
+                        # 記完帳就把預留的釋放掉，否則之後的請求會被自己擋住。
+                        context.budget.release(slot)
                     self._json(HTTPStatus.OK, result)
                     return
                 if parsed.path == "/api/chat/stream":
@@ -936,11 +1067,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             {"Retry-After": "30"},
                         )
                         return
-                    usage_summary = self._usage_summary(user["id"])
-                    within_budget = (
-                        usage_summary["budget_twd"] <= 0
-                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
-                    )
+                    within_budget, slot = self._reserve_budget(user["id"])
                     events = context.service.chat_stream(
                         payload.get("message", ""),
                         payload.get("conversation_id"),
@@ -954,8 +1081,12 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     try:
                         first_event = next(events)
                     except StopIteration:
+                        context.budget.release(slot)
                         self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "message": "服務暫時無法處理請求"})
                         return
+                    except Exception:
+                        context.budget.release(slot)
+                        raise
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
                     self.send_header("Cache-Control", "no-store")
@@ -972,6 +1103,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             self.wfile.flush()
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+                    finally:
+                        context.budget.release(slot)
                     return
                 if parsed.path == "/api/feedback":
                     user = self._require_user()
@@ -1005,18 +1138,17 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                             {"Retry-After": "30"},
                         )
                         return
-                    usage_summary = self._usage_summary(user["id"])
-                    within_budget = (
-                        usage_summary["budget_twd"] <= 0
-                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
-                    )
-                    result = context.service.summarize_title(
-                        payload.get("message", ""),
-                        payload.get("answer", ""),
-                        conversation_id=payload.get("conversation_id"),
-                        user_id=user["id"],
-                        allow_model=within_budget,
-                    )
+                    within_budget, slot = self._reserve_budget(user["id"])
+                    try:
+                        result = context.service.summarize_title(
+                            payload.get("message", ""),
+                            payload.get("answer", ""),
+                            conversation_id=payload.get("conversation_id"),
+                            user_id=user["id"],
+                            allow_model=within_budget,
+                        )
+                    finally:
+                        context.budget.release(slot)
                     self._json(HTTPStatus.OK, result)
                     return
                 if parsed.path == "/api/admin/users":
@@ -1075,15 +1207,13 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         return
                     # 用權杖打進來的沒有 session 使用者，那就不做個人預算檢查。
                     admin = self._current_user()
-                    usage_summary = self._usage_summary(admin["id"]) if admin else {}
-                    within_budget = (
-                        not usage_summary
-                        or usage_summary["budget_twd"] <= 0
-                        or usage_summary["spend_twd"] < usage_summary["budget_twd"]
-                    )
-                    items, source, usage = extract.propose_chunks(
-                        context.service.answerer, name, text, allow_model=within_budget,
-                    )
+                    within_budget, slot = self._reserve_budget(admin["id"] if admin else None)
+                    try:
+                        items, source, usage = extract.propose_chunks(
+                            context.service.answerer, name, text, allow_model=within_budget,
+                        )
+                    finally:
+                        context.budget.release(slot)
                     # 這條路一次送兩萬多字進模型，是單次最貴的呼叫。不記帳的話
                     # 後台看到的月花費會比實際少，預算上限也擋不到它。
                     if usage.get("input_tokens") or usage.get("output_tokens"):
@@ -1222,5 +1352,26 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         request_queue_size = 128
         # 埠還在 TIME_WAIT 時也要能重新綁上，重新部署才不會卡住。
         allow_reuse_address = True
+        # 一條連線一條執行緒，而且沒有上限——慢速連線可以一直開下去，把記憶體
+        # 與執行緒吃光。這個號誌把「同時在處理的請求」夾住；滿了就直接回 503，
+        # 不要無限排隊（排隊只是把爆掉的時間往後延，而且延到沒人知道為什麼慢）。
+        workers = threading.BoundedSemaphore(MAX_WORKERS)
+
+        def process_request_thread(self, request, client_address):
+            if not self.workers.acquire(timeout=WORKER_WAIT_SECONDS):
+                try:
+                    request.sendall(
+                        b"HTTP/1.1 503 Service Unavailable\r\n"
+                        b"Content-Length: 0\r\nConnection: close\r\n"
+                        b"Retry-After: 5\r\n\r\n"
+                    )
+                except OSError:
+                    pass
+                self.shutdown_request(request)
+                return
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                self.workers.release()
 
     return Server((host, port), Handler)

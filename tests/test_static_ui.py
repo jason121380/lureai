@@ -654,7 +654,9 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn("function refreshFromServer", script)
         self.assertIn("keepalive: true", script)
         # 沒有本機改動就不要在關閉分頁時盲推（會蓋掉別台的新版本）。
-        self.assertIn("pendingPush", script)
+        # dirty 要記到「哪一段對話」，共用一個布林值時 A 的 ACK 會清掉 B 的旗標。
+        self.assertIn("const dirty = new Set()", script)
+        self.assertIn("function dirtyConversations", script)
         # 已經同步過之後，伺服器沒有＝在別台刪掉了，不可以再推回去。
         self.assertIn("lastSyncAt", script)
         # 側欄可以下拉更新（手機上最直覺的「我要看最新的」動作）。
@@ -714,10 +716,15 @@ class SyncAndStreamTests(unittest.TestCase):
         self.chat = (ROOT / "static" / "chat.js").read_text(encoding="utf-8")
 
     def test_a_failed_push_does_not_clear_the_pending_flag(self):
-        """只要沒有丟例外就當作存好了的話，500 與 401 都會靜靜地掉資料。"""
+        """只要沒有丟例外就當作存好了的話，500 與 401 都會靜靜地掉資料。
+
+        而且 ACK 只能確認它上傳的那一版：上傳途中又改過的話，rev 已經往前走，
+        這時候清掉 dirty 等於把那一版丟掉（行為驗證見 tests/test_sync_timing.py）。
+        """
         body = self.chat.split("async function pushConversations")[1].split("\n  }")[0]
         self.assertIn("if (!response.ok) return;", body)
-        self.assertLess(body.index("if (!response.ok) return;"), body.index("pendingPush = false"))
+        self.assertLess(body.index("if (!response.ok) return;"), body.index("dirty.delete(id)"))
+        self.assertIn("(current.rev || 0) === rev", body)
 
     def test_a_failed_delete_is_remembered_so_it_cannot_come_back(self):
         body = self.chat.split("async function deleteConversationOnServer")[1].split("\n  }")[0]

@@ -65,17 +65,26 @@ class HumanizeTests(unittest.TestCase):
         self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四")), 3)
         self.assertEqual(len(postprocess("一 [1]\n\n二\n\n三\n\n四\n\n五\n\n六")), 3)
 
-    def test_the_merged_middle_message_cannot_grow_without_a_limit(self):
-        """併中間那則時要夾行數，不然愈長的回答併出來愈像一坨。
+    def test_nothing_is_dropped_when_the_middle_is_merged(self):
+        """併中間那則時一個字都不能掉（使用者決定：保內容，長話術就是會比較長）。
 
-        上限刻意是一般的兩倍（4 行）而不是 2 行：一則貼文範例常常就是四五行，
-        硬砍到 2 行會把範例砍掉一半，那比「中間那則長一點」糟得多。
+        夾過一版行數，實測 8 段收成 3 則時「價格依現場報價」「不要保證一定有效」
+        直接消失——首句、說明與結尾問句都還在，所以畫面看起來是完整的，只有
+        限制與警語不見了。漏掉一句警語會出事，中間那則長一點不會。
         """
-        parts = postprocess("\n\n".join(f"第 {index} 段" for index in range(1, 13)))
+        lines = [
+            "我幫你看一下", "先問他想改哪一段", "再看他的髮況", "價格依現場報價",
+            "不要保證一定有效", "時間抓 2 小時", "你要先問哪一個", "還是我幫你排",
+        ]
+        parts = postprocess("\n\n".join(lines))
 
         self.assertEqual(len(parts), 3)
-        self.assertLessEqual(max(part.count("\n") + 1 for part in parts), 4)
-        self.assertEqual(parts[-1], "第 12 段")
+        self.assertEqual(parts[0], lines[0])
+        self.assertEqual(parts[-1], lines[-1])
+        joined = "\n".join(parts)
+        for line in lines:
+            with self.subTest(line=line):
+                self.assertIn(line, joined)
 
     def test_postprocess_keeps_every_line_when_capping(self):
         """超過 3 則要把中間併起來，不能砍掉尾巴——收尾的問句不能消失。"""

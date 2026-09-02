@@ -36,8 +36,6 @@ class BrainDocTests(unittest.TestCase):
             (f"最多 {humanize.MAX_PARTS} 則", BRAIN, "brain.md 的則數上限"),
             (f"{humanize.MAX_PARTS} 則 × {humanize.MAX_LINES_PER_PART} 行 = "
              f"{humanize.MAX_PARTS * humanize.MAX_LINES_PER_PART} 行", BRAIN, "brain.md 的行數算式"),
-            (f"夾在 **{humanize.MAX_LINES_MERGED} 行**", BRAIN, "brain.md 的併則上限"),
-            (f"`MAX_LINES_MERGED`＝{humanize.MAX_LINES_MERGED}", CLAUDE, "CLAUDE.md 的併則上限"),
         ):
             with self.subTest(where=where):
                 self.assertTrue(needle in doc, f"{where}跟程式不一致")

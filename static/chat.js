@@ -156,9 +156,10 @@
   // ---- 對話紀錄同步到伺服器（換裝置也看得到；localStorage 只當離線快取）----
   let syncTimer = null;
   let syncedOnce = false;
-  // 本機有還沒送出去的修改嗎？沒有就不要在關閉分頁時推——推上去會用這台的舊版本
-  // 蓋掉別台剛存的新版本。
-  let pendingPush = false;
+  // 哪幾段對話有還沒送出去的修改。**要記到「哪一段」而不是一個布林值**：
+  // 共用一個旗標時，A 上傳中、使用者改了 B，A 的成功回覆會把 B 的旗標一起清掉，
+  // B 就再也不會被送出去。每段對話另外帶一個 rev，ACK 只能確認它上傳的那一版。
+  const dirty = new Set();
 
   async function pullConversations() {
     try {
@@ -172,6 +173,9 @@
 
   async function pushConversations(conversations) {
     if (!conversations.length) return;
+    // 記下這一次送出去的是哪一版。回來之後如果本機又改過（rev 已經往前走），
+    // 就不能把 dirty 清掉——那一版還沒上傳。
+    const sent = conversations.map((item) => [item.id, item.rev || 0]);
     try {
       const response = await fetch("/api/conversations", {
         method: "POST",
@@ -179,29 +183,66 @@
         body: JSON.stringify({ conversations }),
       });
       // 一定要看狀態碼。舊版只要沒有丟例外就當作存好了，於是 500、401、
-      // 限流回來的時候一樣把 pendingPush 清掉——這一段對話就只留在這台
-      // 瀏覽器裡，換裝置或重新部署之後就沒了，而且畫面上完全沒有跡象。
+      // 限流回來的時候一樣把旗標清掉——這一段對話就只留在這台瀏覽器裡，
+      // 換裝置或重新部署之後就沒了，而且畫面上完全沒有跡象。
       if (!response.ok) return;
-      pendingPush = false;
+      sent.forEach(([id, rev]) => {
+        const current = state.conversations.find((item) => item.id === id);
+        if (!current || (current.rev || 0) === rev) dirty.delete(id);
+      });
     } catch (_) { /* 下一次編輯會再送一次 */ }
+  }
+
+  function dirtyConversations() {
+    return state.conversations.filter(
+      (item) => dirty.has(item.id) && (item.messages || []).length
+    );
   }
 
   function scheduleSync() {
     if (!syncedOnce) return;
-    pendingPush = true;
+    const conversation = activeConversation();
+    if (conversation) {
+      // 每改一次就往前走一格。伺服器用它擋掉「舊副本蓋新版本」。
+      conversation.rev = (conversation.rev || 0) + 1;
+      dirty.add(conversation.id);
+    }
     clearTimeout(syncTimer);
-    // 打字中不要每個字都送；停下來再存。
+    // 打字中不要每個字都送；停下來再送**全部**還沒送出去的，不只當前這一段。
     syncTimer = setTimeout(() => {
-      const conversation = activeConversation();
-      if (conversation && (conversation.messages || []).length) pushConversations([conversation]);
+      const pending = dirtyConversations();
+      if (pending.length) pushConversations(pending);
     }, 1200);
   }
 
-  // 伺服器端沒刪成功的先記起來。不記的話下一次同步會把它從伺服器合併回來，
-  // 使用者看到的是「明明刪掉的對話自己活過來」——而且刪第二次也還是刪不掉。
-  const pendingDeletes = new Set();
+  // 已經按下刪除、但還不確定伺服器那邊刪掉了的對話（tombstone）。
+  // **要在送出請求之前就記，而且要存進 localStorage**：
+  //  - 只在失敗後才記的話，請求還在路上時剛好同步，就會把它從伺服器合併回來，
+  //    使用者看到「明明刪掉的對話自己活過來」，而且刪第二次還是刪不掉。
+  //  - 只放在記憶體的話，關掉分頁就忘了，下次登入照樣復活。
+  let pendingDeletes = new Set();
+
+  function deletesKey() {
+    return `${STORAGE_PREFIX}-deleted-${state.user?.id || "anonymous"}`;
+  }
+
+  function loadPendingDeletes() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(deletesKey()) || "[]");
+      pendingDeletes = new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch (_) { pendingDeletes = new Set(); }
+  }
+
+  function savePendingDeletes() {
+    try {
+      localStorage.setItem(deletesKey(), JSON.stringify([...pendingDeletes]));
+    } catch (_) { /* 無痕模式：這一輪還是擋得住，只是關掉分頁就忘了 */ }
+  }
 
   async function deleteConversationOnServer(id) {
+    // 先立墓碑再送。中間這段時間的任何一次同步都不會把它合併回來。
+    pendingDeletes.add(id);
+    savePendingDeletes();
     try {
       const response = await fetch("/api/conversations/delete", {
         method: "POST",
@@ -210,10 +251,10 @@
       });
       if (response.ok) {
         pendingDeletes.delete(id);
+        savePendingDeletes();
         return true;
       }
-    } catch (_) { /* 下面補記，下次同步時再刪一次 */ }
-    pendingDeletes.add(id);
+    } catch (_) { /* 墓碑留著，下次同步時再刪一次 */ }
     return false;
   }
 
@@ -1267,7 +1308,12 @@
   function mergeConversations(server) {
     const local = state.conversations.filter((item) => (item.messages || []).length);
     const byId = new Map(server.map((item) => [item.id, item]));
-    local.forEach((item) => { if (!byId.has(item.id)) byId.set(item.id, item); });
+    local.forEach((item) => {
+      const remote = byId.get(item.id);
+      // 伺服器沒有的留著。兩邊都有時比版本：本機還沒送出去的修改（rev 比較大）
+      // 不可以被前景刷新拉回來的舊版本蓋掉——使用者會看到自己剛打的字消失。
+      if (!remote || (item.rev || 0) > (remote.rev || 0)) byId.set(item.id, item);
+    });
     state.conversations = [...byId.values()].sort(
       (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
     );
@@ -1300,6 +1346,8 @@
   }
 
   async function syncWithServer() {
+    // 墓碑是 per 帳號存的，同步前先把這個帳號那份讀進來（重新載入後才記得）。
+    loadPendingDeletes();
     // 上次沒刪成功的先補刪一次，再拉——順序反了的話這一輪又會把它合併回來。
     for (const id of Array.from(pendingDeletes)) await deleteConversationOnServer(id);
     const remote = await pullConversations();
@@ -1340,18 +1388,20 @@
   // 最後幾則訊息會只留在這台裝置上。keepalive 讓請求在分頁關掉後仍然送得出去。
   function flushSync() {
     // 沒有本機改動就什麼都不要送：重新整理時盲推會把別台的新版本蓋掉。
-    if (!syncedOnce || !pendingPush) return;
+    if (!syncedOnce) return;
+    // **要送全部還沒送出去的**，不是只送當前這一段：在 A 打完字、切到 B、
+    // 然後關掉分頁的話，A 那一段就只留在這台裝置上了。
+    const pending = dirtyConversations();
+    if (!pending.length) return;
     clearTimeout(syncTimer);
-    const conversation = activeConversation();
-    if (!conversation || !(conversation.messages || []).length) return;
     try {
       fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversations: [conversation] }),
+        body: JSON.stringify({ conversations: pending }),
         keepalive: true,
       });
-      // 這裡不清 pendingPush：keepalive 的結果看不到，先當作沒送成功，
+      // 這裡不清 dirty：keepalive 的結果看不到，先當作沒送成功，
       // 頁面若從 bfcache 回來還會再送一次（多送一次無害，少送就是掉資料）。
     } catch (_) { /* 送不出去就等下次開啟時再同步 */ }
   }

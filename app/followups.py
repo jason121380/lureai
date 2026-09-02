@@ -18,6 +18,10 @@ QUESTION_BANK_PATH = Path(__file__).resolve().parent.parent / "config" / "questi
 
 # 候選池最前面這幾筆是「同分類」的知識，一定要留在原位——它們才是真的
 # 接得上這一題的追問。再往後的長尾才輪流轉，避免長對話一直繞同幾塊。
+# 判斷「還在同一個主題裡」時，這一題本身撈得到的一圈要放多寬。
+# 太窄會把正當的追問也擋掉，太寬就跟沒擋一樣。
+NEIGHBOURHOOD_LIMIT = 24
+
 RELATED_HEAD = 6
 # 頭部要照顧到答案用到的**每一塊**知識（`top_k` 是 4），不是只有第一塊。
 MAX_SEED_CHUNKS = 4
@@ -126,6 +130,30 @@ class FollowupPlanner:
         hits = self.retriever.retrieve(question, limit=1)
         return bool(hits) and hits[0].score >= self.policy.minimum_score
 
+    def _neighbourhood(self, question: str, hits: list) -> dict[str, int]:
+        """「這一輪在講的事」大概涵蓋哪些知識，以及各排第幾名。
+
+        答案用到的那幾塊，加上這一題本身撈得到的一圈。用來判斷一個建議問題是不是
+        還在同一個主題裡——**只問「答得出來嗎」是不夠的**：知識庫裡每一題都答得
+        出來，所以那個條件形同虛設，問賣產品照樣會被建議「我想自己開店」。
+
+        名次要留著：湊不到頭部、只能從長尾挑的時候，得先給最接近的那幾個。
+        """
+        near = {str(hit.chunk_id): index for index, hit in enumerate(hits or [])}
+        if question:
+            for index, hit in enumerate(
+                self.retriever.retrieve(question, limit=NEIGHBOURHOOD_LIMIT)
+            ):
+                near.setdefault(str(hit.chunk_id), index)
+        return near
+
+    def _on_topic(self, candidate: str, near: dict[str, int]) -> bool:
+        """這個建議問題撈到的知識，還在這一輪的主題裡嗎。"""
+        if not near:
+            return True
+        found = self.retriever.retrieve(candidate, limit=2)
+        return any(str(hit.chunk_id) in near for hit in found)
+
     def _related_head(self, hits: list) -> list[dict]:
         """答案用到的每一塊知識，各給幾筆**同分類**的鄰居，輪流排。
 
@@ -211,10 +239,17 @@ class FollowupPlanner:
              candidates: list[str] | None = None, question: str = "") -> list[str]:
         blocked = {_normalize(item) for item in (asked or set())}
         picked: list[str] = []
+        # 「答得出來」跟「跟這一輪有關」是兩件事，要分開檢查。知識庫裡幾乎每一題
+        # 都答得出來，所以只驗前者等於沒驗——模型寫的三個追問可以全部離題而照樣
+        # 通過（實測問「我不會賣產品要怎麼開口」，「自己開店」「毛髮構造」
+        # 「廣告投多少」三題全被接受）。
+        near = self._neighbourhood(question, hits)
         for candidate in candidates or []:
             cleaned = " ".join(str(candidate or "").split())[:60]
             key = _normalize(cleaned)
             if not key or key in blocked or not self._answerable(cleaned):
+                continue
+            if not self._on_topic(cleaned, near):
                 continue
             blocked.add(key)
             picked.append(cleaned)
@@ -240,7 +275,8 @@ class FollowupPlanner:
             # 相干的東西——寧可只給兩個對的，也不要三個裡有一個離題。
             return picked[:limit]
 
-        # 頭部一個都湊不到才動用長尾，讓一路追問下去永遠有題目可問。
+        # 頭部一個都湊不到才動用長尾，讓一路追問下去永遠有題目可問
+        # （50 輪連續追問不能斷，見 `tests/test_followup_chain.py`）。
         # 每問一輪轉一格，長對話才不會在同幾塊知識之間繞圈。
         used = {str(item.get("chunk_id", "")) for item in head}
         tail = [
@@ -250,6 +286,18 @@ class FollowupPlanner:
         if tail:
             offset = len(blocked) % len(tail)
             tail = tail[offset:] + tail[:offset]
+        # 長尾是「整份語料裡還沒問過的」，本來就可能離題。先把還在這一輪主題裡的
+        # 排到前面——這個分類只有一兩塊知識、而且都被當成來源用掉時（訂金與爽約
+        # 就只有 2 塊），只有這條路救得了它。旋轉留給剩下那些，鏈條才不會斷。
+        if near:
+            inside = sorted(
+                (row for row in tail if str(row.get("chunk_id", "")) in near),
+                key=lambda row: near[str(row["chunk_id"])],
+            )
+            taken_ids = {str(row["chunk_id"]) for row in inside}
+            tail = inside + [
+                row for row in tail if str(row.get("chunk_id", "")) not in taken_ids
+            ]
         picked.extend(self._collect(tail, blocked, limit - len(picked)))
         return picked[:limit]
 

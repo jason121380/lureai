@@ -339,6 +339,54 @@ class RetrievalGuardTests(unittest.TestCase):
             any("推銷" in item or "產品" in item for item in picked), picked
         )
 
+    def test_an_off_topic_candidate_is_rejected_even_when_it_is_answerable(self):
+        """「答得出來」跟「跟這一輪有關」是兩件事。
+
+        知識庫裡幾乎每一題都答得出來，所以只驗前者等於沒驗——實測問
+        「我不會賣產品要怎麼開口」，模型寫的「自己開店」「毛髮構造」
+        「廣告投多少」三題全部通過。
+        """
+        question = "我不會賣產品要怎麼開口"
+        hits = self.retriever.retrieve(question, limit=4)
+        off_topic = [
+            "我想自己開店要準備什麼？",
+            "毛髮構造有哪三種鏈鍵？",
+            "廣告一天要投多少錢？",
+        ]
+        from app.followups import FollowupPlanner
+
+        planner = FollowupPlanner(self.store, self.retriever, self.policy)
+        for candidate in off_topic:
+            with self.subTest(candidate=candidate):
+                # 前提：這些題目本身都答得出來，所以擋掉它們的一定是相關性。
+                self.assertTrue(planner._answerable(candidate), candidate)
+
+        picked = planner.plan(hits, candidates=off_topic, question=question)
+
+        for candidate in off_topic:
+            self.assertNotIn(candidate, picked)
+        self.assertTrue(picked, "擋掉離題的之後仍要給得出建議")
+        joined = " ".join(picked)
+        for banned in ("開店", "毛髮", "鏈鍵"):
+            self.assertNotIn(banned, joined, picked)
+
+    def test_a_thin_topic_still_suggests_the_closest_thing(self):
+        """分類只有一兩塊、又都被當成來源用掉時，長尾要先給最接近的。
+
+        「訂金與爽約」整個分類只有 2 塊知識，兩塊都是這一題的來源，所以同分類
+        鄰居一個都不剩。舊版直接落到整份語料的輪替，冒出「開店損益兩平」。
+        """
+        question = "訂金要收多少"
+        hits = self.retriever.retrieve(question, limit=4)
+
+        from app.followups import FollowupPlanner
+
+        planner = FollowupPlanner(self.store, self.retriever, self.policy)
+        picked = planner.plan(hits, question=question)
+
+        self.assertTrue(picked)
+        self.assertNotIn("開店", " ".join(picked), picked)
+
     def test_follow_ups_do_not_repeat_the_same_chunk(self):
         """三個建議全出自同一塊知識等於只給了一個選擇。"""
         from app.followups import FollowupPlanner

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -273,11 +274,40 @@ class AnswerEngine:
         wants_followups = include_followups and resolved == DEFAULT_TONE
         return policy + tone_text + (FOLLOWUP_INSTRUCTION if wants_followups else "")
 
-    def _timeout_for(self, tone: str) -> float:
-        """LINE 走的是通訊軟體的節奏，等太久等於沒回（reply token 只有 60 秒）。"""
+    # 剩不到這麼多秒就不要再打模型了：打了也來不及送出去，只是把時間用光。
+    MIN_MODEL_SECONDS = 6.0
+
+    @staticmethod
+    def remaining(deadline: float | None) -> float | None:
+        """離共同截止時間還有幾秒。`None`＝這條路沒有時間預算。"""
+        if deadline is None:
+            return None
+        return deadline - time.monotonic()
+
+    def has_time_for_another_call(self, deadline: float | None) -> bool:
+        """還來得及再打一次模型嗎。
+
+        重試不是免費的：每一次都從同一份預算裡扣。舊版每次呼叫各拿一份完整
+        timeout（生成 25 秒＋重試 25 秒），加上出口的停頓，光名義配置就超過
+        LINE reply token 的 60 秒窗口。
+        """
+        left = self.remaining(deadline)
+        return left is None or left >= self.MIN_MODEL_SECONDS
+
+    def _timeout_for(self, tone: str, deadline: float | None = None) -> float:
+        """這一次呼叫可以等多久。
+
+        LINE 走的是通訊軟體的節奏，等太久等於沒回（reply token 只有 60 秒），
+        所以先夾一個單次上限；有共同截止時間時再夾一次「剩下的時間」——
+        單次上限管的是一次呼叫，共同截止時間管的是整條路加起來。
+        """
+        limit = self.timeout
         if normalize_tone(tone) == "line":
-            return min(self.timeout, LINE_TIMEOUT_CEILING)
-        return self.timeout
+            limit = min(limit, LINE_TIMEOUT_CEILING)
+        left = self.remaining(deadline)
+        if left is not None:
+            limit = min(limit, max(self.MIN_MODEL_SECONDS, left))
+        return limit
 
     @property
     def model_enabled(self) -> bool:
@@ -320,6 +350,7 @@ class AnswerEngine:
         extra_instruction: str = "",
         include_followups: bool = True,
         context_note: str = "",
+        deadline: float | None = None,
     ) -> tuple[str, str, str, dict]:
         empty_usage = {
             "input_tokens": 0,
@@ -336,7 +367,7 @@ class AnswerEngine:
                     question, hits, history=history, tone=tone,
                     extra_instruction=extra_instruction,
                     include_followups=include_followups,
-                    context_note=context_note,
+                    context_note=context_note, deadline=deadline,
                 )
                 generated = normalize_citation_marks(generated)
                 if generated and (
@@ -346,6 +377,11 @@ class AnswerEngine:
                     # 診斷完給不出東西是實測扣分最重的一項：只寫「我陪你拆」、
                     # 承諾了成品卻沒給、問到立場卻不表態——帶著具體理由重打一次。
                     found = quality.problems(question, generated, tone=tone)
+                    # 重試從同一份時間預算裡扣。剩不到一次呼叫的時間就直接送出
+                    # 這一則——來不及的重試不會變成更好的回覆，只會變成沒有回覆。
+                    if found and not self.has_time_for_another_call(deadline):
+                        log_model_failure("quality", detail="skipped retry: out of time")
+                        found = []
                     if found:
                         log_model_failure(
                             "quality", detail=f"{len(found)} issue(s); retrying | {found[0][:60]}"
@@ -355,7 +391,7 @@ class AnswerEngine:
                             question, hits, found, history=history, tone=tone,
                             extra_instruction=extra_instruction,
                             include_followups=include_followups,
-                            context_note=context_note,
+                            context_note=context_note, deadline=deadline,
                         )
                         usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                         if improved:
@@ -363,6 +399,9 @@ class AnswerEngine:
                         # 重打還是不合格就送原本那則：它至少是通順的話，
                         # 比降級訊息好。
                     return generated.strip(), "llm", "used", usage
+                if not self.has_time_for_another_call(deadline):
+                    log_model_failure("answer", detail="missing_citations; no time to retry")
+                    return self._extractive_answer(hits, model_failed=True), "extractive", "missing_citations", usage
                 log_model_failure(
                     "answer", detail=f"missing_citations chars={len(generated or '')} model={self.model_name}; retrying"
                 )
@@ -371,7 +410,7 @@ class AnswerEngine:
                     question, hits, history=history, tone=tone,
                     extra_instruction=extra_instruction,
                     include_followups=include_followups,
-                    context_note=context_note,
+                    context_note=context_note, deadline=deadline,
                 )
                 usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                 if retried:
@@ -379,6 +418,9 @@ class AnswerEngine:
                     # 於是「格式修好、內容更空」的重打照樣會出去——品質守門對
                     # 「第一次沒附引用」的那些回覆等於完全沒有作用。
                     found = quality.problems(question, retried, tone=tone)
+                    if found and not self.has_time_for_another_call(deadline):
+                        log_model_failure("quality", detail="skipped retry after citations: out of time")
+                        found = []
                     if found:
                         log_model_failure(
                             "quality", detail=f"after citation retry | {found[0][:60]}"
@@ -388,7 +430,7 @@ class AnswerEngine:
                             question, hits, found, history=history, tone=tone,
                             extra_instruction=extra_instruction,
                             include_followups=include_followups,
-                            context_note=context_note,
+                            context_note=context_note, deadline=deadline,
                         )
                         usage = {
                             key: usage.get(key, 0) + quality_usage.get(key, 0)
@@ -421,7 +463,8 @@ class AnswerEngine:
 
     def smalltalk(self, question: str, history: list[dict] | None = None,
                   allow_model: bool = True, tone: str = DEFAULT_TONE,
-                  kind: str = "smalltalk", speaker: str = "") -> tuple[str, str, str, dict]:
+                  kind: str = "smalltalk", speaker: str = "",
+                  deadline: float | None = None) -> tuple[str, str, str, dict]:
         """閒聊／情緒／欲言又止都不查知識庫、不附來源，只讓模型自然回一句話。"""
         empty_usage = {
             "input_tokens": 0, "cached_input_tokens": 0,
@@ -460,7 +503,7 @@ class AnswerEngine:
             # 閒聊也要吃 LINE 的時間預算。用全域的 60 秒，加上出口那段 8-25 秒
             # 的回覆停頓，最壞會超過 LINE reply token 的 60 秒窗口——設計師在
             # 群組裡打一句「哈囉」，收到的是已讀不回。
-            with urllib.request.urlopen(request, timeout=self._timeout_for(tone)) as response:
+            with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except Exception as exc:  # noqa: BLE001 - 閒聊失敗就用備援句，不要讓對話斷掉
             log_model_failure("smalltalk", exc, f"model={self.model_name}")
@@ -487,7 +530,7 @@ class AnswerEngine:
 
     def retry_for_quality(
         self, question, hits, found, history=None, tone=DEFAULT_TONE,
-        extra_instruction="", include_followups=True, context_note="",
+        extra_instruction="", include_followups=True, context_note="", deadline=None,
     ):
         """品質檢查沒過時，把具體原因寫給模型再打一次；仍不合格就回空字串。"""
         empty_usage = {
@@ -499,6 +542,7 @@ class AnswerEngine:
                 question, hits, history=history,
                 extra_instruction=extra_instruction + quality.retry_note(found),
                 tone=tone, include_followups=include_followups, context_note=context_note,
+                deadline=deadline,
             )
         except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
             log_model_failure("quality-retry", exc, f"model={self.model_name}")
@@ -515,7 +559,7 @@ class AnswerEngine:
 
     def retry_with_citations(
         self, question, hits, history=None, tone=DEFAULT_TONE,
-        extra_instruction="", include_followups=True, context_note="",
+        extra_instruction="", include_followups=True, context_note="", deadline=None,
     ):
         """缺引用時的最後一搏：加上明確警語重打一次，仍失敗就回空字串。"""
         try:
@@ -523,6 +567,7 @@ class AnswerEngine:
                 question, hits, history=history,
                 extra_instruction=extra_instruction + CITATION_RETRY_NOTE,
                 tone=tone, include_followups=include_followups, context_note=context_note,
+                deadline=deadline,
             )
         except (OSError, ValueError, KeyError, TimeoutError, urllib.error.URLError) as exc:
             log_model_failure("citation-retry", exc, f"model={self.model_name}")
@@ -610,13 +655,14 @@ class AnswerEngine:
         tone: str = DEFAULT_TONE,
         extra_instruction: str = "",
         context_note: str = "",
+        deadline: float | None = None,
     ):
         """Yield ("delta", text) chunks and a final ("usage", tokens) event."""
         request = self._model_request(
             question, hits, history, stream=True, tone=tone,
             extra_instruction=extra_instruction, context_note=context_note,
         )
-        with urllib.request.urlopen(request, timeout=self._timeout_for(tone)) as response:
+        with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
@@ -656,12 +702,13 @@ class AnswerEngine:
         tone: str = DEFAULT_TONE,
         include_followups: bool = True,
         context_note: str = "",
+        deadline: float | None = None,
     ) -> tuple[str, dict]:
         request = self._model_request(
             question, hits, history, stream=False, extra_instruction=extra_instruction,
             tone=tone, include_followups=include_followups, context_note=context_note,
         )
-        with urllib.request.urlopen(request, timeout=self._timeout_for(tone)) as response:
+        with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
             body = json.loads(response.read())
         return extract_output_text(body), extract_usage(body)
 
