@@ -21,15 +21,17 @@
         <img class="brand-logo" src="logo.png" alt="lure ai">
       </a>
       <div class="admin-nav-label">知識庫管理</div>
+      <!-- data-short 是手機版底部分頁列的短標籤（用 CSS 的 attr() 顯示）：
+           「AI 模型校調」六個字在 390px 寬的六格分頁列裡放不下。 -->
       <nav class="admin-nav-links">
-        <a href="#overview" class="active"><i data-lucide="gauge"></i><span>總覽</span></a>
-        <a href="#knowledge"><i data-lucide="library"></i><span>知識庫</span></a>
-        <a href="#quality"><i data-lucide="sparkles"></i><span>品質檢查</span></a>
-        <a href="#tuning"><i data-lucide="sliders-horizontal"></i><span>AI 模型校調</span></a>
-        <a href="#users"><i data-lucide="users"></i><span>使用者帳號</span></a>
-        <a href="#health"><i data-lucide="activity"></i><span>系統健康</span></a>
+        <a href="#overview" class="active" data-short="總覽"><i data-lucide="gauge"></i><span>總覽</span></a>
+        <a href="#knowledge" data-short="知識"><i data-lucide="library"></i><span>知識庫</span></a>
+        <a href="#quality" data-short="品質"><i data-lucide="sparkles"></i><span>品質檢查</span></a>
+        <a href="#tuning" data-short="校調"><i data-lucide="sliders-horizontal"></i><span>AI 模型校調</span></a>
+        <a href="#users" data-short="帳號"><i data-lucide="users"></i><span>使用者帳號</span></a>
+        <a href="#health" data-short="健康"><i data-lucide="activity"></i><span>系統健康</span></a>
       </nav>
-      <a class="sidebar-link admin-chat-link" href="/"><i data-lucide="messages-square"></i><span id="admin-chat-label">返回輔導對話</span></a>
+      <a class="sidebar-link admin-chat-link" href="/"><i data-lucide="arrow-left"></i><span id="admin-chat-label">返回輔導對話</span></a>
     </aside>
 
     <main class="admin-main">

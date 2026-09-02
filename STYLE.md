@@ -76,6 +76,14 @@ PWA 沒有瀏覽器的返回手勢，選單的展開與收起都要自己做，�
 - `.active`、`:focus-visible`、`:focus-within` 留在外面——它們代表真的狀態，觸控裝置上也要看得到。
 - 靠 hover 才會出現的東西（例如刪除鈕）要在 `@media (hover: none)` 補一條常駐顯示。
 
+## 手機版後台
+
+App 的形狀：**分頁列固定在底部**（拇指按得到，補 `env(safe-area-inset-bottom)`），**左上角是返回前台**。頂端那一列只放返回鍵。
+
+- 分頁標籤用 `data-short` ＋ CSS `attr()`，完整名稱（「AI 模型校調」）在六格裡放不下。
+- `.admin-main` 要補底部留白，不然最後一段會被分頁列蓋住。
+- 改 `.admin-nav` 的排列時**要明寫 `flex-direction: row`**：桌機版是 `column`，只設 `align-items: center` 在直向排列裡等於水平置中，返回鍵會跑到正中間。
+
 ## 禁止事項
 
 - 不出現連線狀態指示、應用名稱副標等裝飾性雜訊。

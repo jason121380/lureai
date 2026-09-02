@@ -166,6 +166,31 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('(item.length || 0) > 400', script)
         self.assertIn("/api/admin/knowledge/detail?chunk_id=", script)
 
+    def test_mobile_admin_puts_the_tabs_at_the_bottom(self):
+        """手機版後台是 App 的形狀：分頁列在底部、左上角返回前台。
+
+        原本兩者都擠在頂端，光導覽就吃掉快 400px 的高度。
+        """
+        css = CSS.read_text(encoding="utf-8")
+        html = ADMIN.read_text(encoding="utf-8")
+
+        mobile = css.split("手機版後台＝App 的形狀", 1)[1]
+        nav = mobile.split(".admin-nav-links {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: fixed", nav)
+        self.assertIn("bottom: 0", nav)
+        self.assertIn("env(safe-area-inset-bottom)", nav)
+        # 直向排列時只設 align-items: center 會把返回鍵推到正中間。
+        bar = mobile.split(".admin-nav { ", 1)[1].split("}", 1)[0]
+        self.assertIn("flex-direction: row", bar)
+        # 內容不能被底部分頁列蓋住。
+        main = mobile.split(".admin-main {", 1)[1].split("}", 1)[0]
+        self.assertIn("64px", main)
+        # 「AI 模型校調」六個字在六格分頁列裡放不下，用 data-short。
+        self.assertIn('data-short="校調"', html)
+        self.assertIn("content: attr(data-short)", mobile)
+        # 返回前台用左箭頭。
+        self.assertIn('data-lucide="arrow-left"', html)
+
     def test_upload_opens_as_a_modal(self):
         """「上傳檔案」按下去是彈窗，不是頁面裡的一塊。"""
         html = ADMIN.read_text(encoding="utf-8")
