@@ -2,6 +2,8 @@ import hmac
 import hashlib
 import ipaddress
 import itertools
+import base64
+import binascii
 import json
 import mimetypes
 import os
@@ -20,7 +22,7 @@ from zoneinfo import ZoneInfo
 from .answer import SMALLTALK_KINDS, AnswerEngine
 from .auth import AuthManager, LoginRateLimiter, RequestRateLimiter
 from .curation import quality_report
-from . import extract
+from . import documents, extract
 from . import tuning
 from .followups import welcome_questions
 
@@ -79,8 +81,9 @@ CUSTOM_SOURCE_FILE = "knowledge/admin_authored.md"
 MAX_KNOWLEDGE_TEXT = 8000
 # 拖進來的單一檔案上限。再大就該先拆檔，不然一次分析要等太久。
 MAX_UPLOAD_CHARS = 60000
-# 中文一個字 3 個位元組，6 萬字約 180KB；加上 JSON 外殼抓 512KB。
-UPLOAD_REQUEST_BYTES = 512 * 1024
+# 中文一個字 3 個位元組，6 萬字約 180KB；Word／PDF 走 base64 會再放大 4/3，
+# 加上 JSON 外殼抓 8MB（只有這條端點，其他路徑照舊）。
+UPLOAD_REQUEST_BYTES = 8 * 1024 * 1024
 
 
 def build_custom_chunk(payload: dict, access_level: str) -> dict:
@@ -964,7 +967,23 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     # 拖進來的檔案由前端讀成文字再送上來（避免 multipart，也不必存檔）。
                     # 一次只分析一份，前端才能一份一份顯示進度。
                     name = " ".join(str(payload.get("name", "")).split())[:120]
-                    text = str(payload.get("text", ""))
+                    # 純文字檔前端直接讀成字串；Word／Excel／PDF 這種二進位檔
+                    # 用 base64 送上來，在這裡才拆成文字（拆檔要用標準庫的 zipfile）。
+                    if payload.get("data_base64"):
+                        try:
+                            raw = base64.b64decode(str(payload["data_base64"]), validate=True)
+                        except (ValueError, binascii.Error):
+                            self._json(HTTPStatus.BAD_REQUEST, {
+                                "error": "invalid_request", "message": "檔案內容送不上來，請再試一次"})
+                            return
+                        try:
+                            text = documents.extract_text(name, raw)
+                        except documents.UnreadableDocument as exc:
+                            self._json(HTTPStatus.BAD_REQUEST, {
+                                "error": "invalid_request", "message": str(exc)})
+                            return
+                    else:
+                        text = str(payload.get("text", ""))
                     if not text.strip():
                         self._json(HTTPStatus.BAD_REQUEST, {
                             "error": "invalid_request", "message": "這個檔案讀不到文字內容"})

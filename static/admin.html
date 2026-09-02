@@ -78,8 +78,8 @@
                    aria-label="拖曳檔案到這裡，或點擊選擇檔案">
                 <i data-lucide="upload-cloud"></i>
                 <strong>把檔案拖進來</strong>
-                <span>或點這裡選檔案 · 支援 .md .txt .csv .json .jsonl · 單檔 6 萬字以內</span>
-                <input id="upload-input" type="file" multiple accept=".md,.txt,.csv,.json,.jsonl,.markdown,text/*" hidden>
+                <span>或點這裡選檔案 · Word、Excel、PowerPoint、PDF、RTF 與文字檔 · 單檔 6MB 以內</span>
+                <input id="upload-input" type="file" multiple accept=".docx,.xlsx,.pptx,.pdf,.rtf,.md,.markdown,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.log,.yml,.yaml,.xml,.htm,.html,text/*" hidden>
               </div>
               <div id="upload-progress" class="upload-progress" hidden>
                 <div class="upload-bar"><span id="upload-bar-fill"></span></div>
@@ -95,25 +95,39 @@
           </section>
         </div>
 
-        <form id="knowledge-editor" class="knowledge-editor" hidden>
-          <input type="hidden" id="editor-chunk-id">
-          <div class="editor-row">
-            <label>標題<input id="editor-title" maxlength="80" placeholder="例如：新客第一次回流的追蹤節奏" required></label>
-            <label>大主題<select id="editor-domain">
-              <option value="operations">店務營運管理</option>
-              <option value="coaching">設計師一對一行銷輔導</option>
-            </select></label>
-            <label>分類<input id="editor-category" maxlength="20" placeholder="例如：售後與回流"></label>
-          </div>
-          <label class="editor-body">內容
-            <textarea id="editor-text" rows="10" maxlength="8000" placeholder="用完整句子寫，建議包含：判斷標準、步驟、話術範例、常見錯誤、驗收方式。"></textarea>
-          </label>
-          <div class="editor-actions">
-            <span id="editor-hint" class="editor-hint">寫得越像「人講話」，AI 回答就越自然</span>
-            <button type="button" id="editor-cancel" class="command-button ghost-button">取消</button>
-            <button type="submit" class="command-button"><i data-lucide="check"></i><span>儲存知識</span></button>
-          </div>
-        </form>
+        <!-- 手動輸入也走同一套彈窗殼（比照上傳分析）。 -->
+        <div id="editor-modal" class="upload-modal" role="dialog" aria-modal="true"
+             aria-label="手動輸入知識" hidden>
+          <button type="button" id="editor-backdrop" class="account-backdrop" aria-label="關閉"></button>
+          <form id="knowledge-editor" class="upload-panel knowledge-editor">
+            <header class="upload-head">
+              <div>
+                <h3 id="editor-heading">新增知識</h3>
+                <p class="editor-hint">寫得越像「人講話」，AI 回答就越自然</p>
+              </div>
+              <button type="button" id="editor-close" class="icon-button" aria-label="關閉"><i data-lucide="x"></i></button>
+            </header>
+            <div class="upload-scroll">
+              <input type="hidden" id="editor-chunk-id">
+              <div class="editor-row">
+                <label>標題<input id="editor-title" maxlength="80" placeholder="例如：新客第一次回流的追蹤節奏" required></label>
+                <label>大主題<select id="editor-domain">
+                  <option value="operations">店務營運管理</option>
+                  <option value="coaching">設計師一對一行銷輔導</option>
+                </select></label>
+                <label>分類<input id="editor-category" maxlength="20" placeholder="例如：售後與回流"></label>
+              </div>
+              <label class="editor-body">內容
+                <textarea id="editor-text" rows="10" maxlength="8000" placeholder="用完整句子寫，建議包含：判斷標準、步驟、話術範例、常見錯誤、驗收方式。"></textarea>
+              </label>
+              <div class="editor-actions">
+                <span id="editor-hint" class="editor-hint">寫得越像「人講話」，AI 回答就越自然</span>
+                <button type="button" id="editor-cancel" class="command-button ghost-button">取消</button>
+                <button type="submit" class="command-button"><i data-lucide="check"></i><span>儲存知識</span></button>
+              </div>
+            </div>
+          </form>
+        </div>
 
         <form id="knowledge-form" class="admin-search-form compact-search">
           <input id="knowledge-query" type="search" placeholder="搜尋標題、內容或定位點" aria-label="搜尋知識">
