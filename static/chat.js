@@ -695,13 +695,21 @@
     const blocks = [];
     let list = null;
     let paragraph = [];
+    // 編號數到哪了。模型幾乎都會在每個編號底下再寫一段說明，那一段會把清單
+    // 收掉，下一個編號就落在新的 <ol> 裡——瀏覽器預設每個 <ol> 都從 1 開始數，
+    // 畫面上七個步驟全部變成「1.」。所以自己記著，新開的 <ol> 用 start 接上去。
+    // 這也順便修掉「模型自己每一項都寫 1.」的情況。標題代表換一段，才歸零。
+    let orderedNext = 0;
 
     const flushParagraph = () => {
       if (paragraph.length) blocks.push(`<p>${paragraph.join("<br>")}</p>`);
       paragraph = [];
     };
     const flushList = () => {
-      if (list) blocks.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`);
+      if (list) {
+        const start = list.tag === "ol" && list.start > 1 ? ` start="${list.start}"` : "";
+        blocks.push(`<${list.tag}${start}>${list.items.join("")}</${list.tag}>`);
+      }
       list = null;
     };
 
@@ -718,6 +726,7 @@
       if (heading) {
         flushParagraph();
         flushList();
+        orderedNext = 0;
         blocks.push(`<p class="md-heading">${inlineMarkup(heading[1], citationCount)}</p>`);
         continue;
       }
@@ -726,9 +735,11 @@
       if (bullet || ordered) {
         flushParagraph();
         const tag = bullet ? "ul" : "ol";
+        // 第一項用模型自己寫的號碼（他從 3 開始就從 3 開始），之後一律往下數。
+        if (ordered) orderedNext = orderedNext > 0 ? orderedNext + 1 : Number(ordered[1]) || 1;
         if (!list || list.tag !== tag) {
           flushList();
-          list = { tag, items: [] };
+          list = { tag, items: [], start: ordered ? orderedNext : 1 };
         }
         list.items.push(`<li>${inlineMarkup(bullet ? bullet[1] : ordered[2], citationCount)}</li>`);
         continue;
