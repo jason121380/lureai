@@ -40,9 +40,14 @@ NUMBERED = re.compile(r"^\s{0,3}(?:\d{1,2}[.)]|第?[一二三四五六七八九�
 BULLET = re.compile(r"^\s*[-*•]\s+")
 
 
+# 網址不是文句。一行 https://www.taiwan-marketing.com/slides2/22 就有三十幾個
+# 拉丁字母，光數字母的話，只抓到列印頁尾的 PDF 也會被當成有內容。
+URL = re.compile(r"https?://\S+|www\.\S+")
+
+
 def has_prose(text: str) -> bool:
-    """這段裡面有沒有文句。數字不算——日曆整份都是數字。"""
-    return len(LETTERS.findall(str(text or ""))) >= MIN_WORD_CHARS
+    """這段裡面有沒有文句。數字不算（日曆整份都是數字），網址也不算。"""
+    return len(LETTERS.findall(URL.sub("", str(text or "")))) >= MIN_WORD_CHARS
 
 
 def _clean(text: str) -> str:
