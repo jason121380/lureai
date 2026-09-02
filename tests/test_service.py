@@ -282,6 +282,89 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(sources.count("knowledge/sop.md"), 2)
         self.assertIn("source_documents/abc.md", sources)
 
+    def test_only_the_sources_the_answer_cited_are_listed(self):
+        """窄問題常常只有第一塊撈得到的知識能用，模型每點都寫 [1] 是對的；
+        錯的是把沒被引用的另外兩塊也掛成「知識來源 2、3」。"""
+        from app.retrieval import SearchHit
+
+        hits = [
+            SearchHit("a", "教練手冊", "knowledge/a.md", "coach-17", "評論與自然信任", "邀請評論的原則。", "教練", 0.95),
+            SearchHit("b", "社群手冊", "knowledge/b.md", "social-04", "廣告與自然貼文的分工", "廣告與貼文分工。", "社群", 0.80),
+            SearchHit("c", "職涯手冊", "knowledge/c.md", "career-02", "覺得自己不適合這行的時候", "職涯迷惘。", "職涯", 0.75),
+        ]
+        self.service.retriever = StubRetriever(hits)
+
+        class SingleSourceAnswerer(RecordingAnswerer):
+            @staticmethod
+            def requires_citations(_tone):
+                return True
+
+            def answer(self, *args, **kwargs):
+                super().answer(*args, **kwargs)
+                return "先傳關心訊息。[1] 再自然帶到評論邀請。[1]", "llm", "used", {
+                    "input_tokens": 10, "output_tokens": 5,
+                }
+
+        self.service.answerer = SingleSourceAnswerer()
+        result = self.service.chat("事後關懷訊息怎麼寫得自然一點？")
+
+        self.assertEqual(len(result["citations"]), 1)
+        self.assertEqual(result["citations"][0]["section_title"], "評論與自然信任")
+        self.assertNotIn("[2]", result["answer"])
+
+    def test_cited_sources_are_renumbered_to_match_the_list(self):
+        """引用到第 1、3 塊時，列出來的兩則要編成 1、2，答案裡的 [3] 也要跟著變 [2]。"""
+        from app.retrieval import SearchHit
+
+        hits = [
+            SearchHit("a", "手冊", "knowledge/a.md", "l-1", "第一則", "內容一。", "分類", 0.95),
+            SearchHit("b", "手冊", "knowledge/b.md", "l-2", "第二則", "內容二。", "分類", 0.85),
+            SearchHit("c", "手冊", "knowledge/c.md", "l-3", "第三則", "內容三。", "分類", 0.80),
+        ]
+        self.service.retriever = StubRetriever(hits)
+
+        class SkipsTheMiddleAnswerer(RecordingAnswerer):
+            @staticmethod
+            def requires_citations(_tone):
+                return True
+
+            def answer(self, *args, **kwargs):
+                super().answer(*args, **kwargs)
+                return "先做這件事。[1] 再做那件事。[3]", "llm", "used", {
+                    "input_tokens": 10, "output_tokens": 5,
+                }
+
+        self.service.answerer = SkipsTheMiddleAnswerer()
+        result = self.service.chat("燙髮後怎麼整理？")
+
+        titles = [item["section_title"] for item in result["citations"]]
+        self.assertEqual(titles, ["第一則", "第三則"])
+        self.assertEqual(result["answer"], "先做這件事。[1] 再做那件事。[2]")
+
+    def test_service_tone_keeps_every_source_even_though_numbers_are_stripped(self):
+        """客服／LINE 的 [n] 在出口就被剝掉，照樣裁切會讓來源一則不剩。"""
+        from app.retrieval import SearchHit
+
+        hits = [
+            SearchHit("a", "手冊", "knowledge/a.md", "l-1", "第一則", "內容一。", "分類", 0.95),
+            SearchHit("b", "手冊", "knowledge/b.md", "l-2", "第二則", "內容二。", "分類", 0.85),
+        ]
+        self.service.retriever = StubRetriever(hits)
+
+        class NoNumbersAnswerer(RecordingAnswerer):
+            @staticmethod
+            def requires_citations(tone):
+                return tone == "expert"
+
+            def answer(self, *args, **kwargs):
+                super().answer(*args, **kwargs)
+                return "先傳關心訊息", "llm", "used", {"input_tokens": 10, "output_tokens": 5}
+
+        self.service.answerer = NoNumbersAnswerer()
+        result = self.service.chat("燙髮後怎麼整理？", tone="service")
+
+        self.assertEqual(len(result["citations"]), 2)
+
     def test_question_is_always_retrieved_on_its_own_terms_first(self):
         queries = []
 
