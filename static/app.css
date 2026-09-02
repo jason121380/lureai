@@ -585,19 +585,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .category-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: var(--radius-sm); font-size: 15px; }
 .category-card strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 18px; }
 .knowledge-list { display: grid; gap: 10px; margin-top: 16px; }
-/* 知識庫＝QA 式收合清單：一列一則、彼此靠在一起用分隔線隔開，點標題才展開。
-   278 則攤開來是看不完的，收起來才掃得動。 */
-.knowledge-list { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
-.knowledge-row + .knowledge-row { border-top: 1px solid var(--line); }
-.knowledge-row.open { background: var(--sidebar); }
-.knowledge-summary { width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; color: var(--ink); background: transparent; border: 0; cursor: pointer; text-align: left; font: inherit; }
-.knowledge-summary-copy { flex: 1; min-width: 0; }
-.knowledge-summary-title { display: block; font-size: 16px; font-weight: 600; }
+/* 知識庫＝QA 式收合清單：一列一則、彼此靠在一起，點標題才展開。
+   278 則攤開來是看不完的，收起來才掃得動。
+   **不要外框**：`#knowledge-results` 本身就是 `.knowledge-list`，再包一層或
+   再描一個框就會變成框裡有框。列與列之間只用一條分隔線。 */
+.knowledge-list { display: grid; }
+.knowledge-row { border-top: 1px solid var(--line); }
+.knowledge-row:first-of-type { border-top: 0; }
+.knowledge-row.open { background: var(--sidebar); border-radius: var(--radius-sm); }
+/* 一列式：標題、主題、來源、分類、定位點、字數全部排在同一行。
+   標題吃掉剩下的空間並截斷（`flex: 1` ＋ `min-width: 0`，少了 min-width
+   長標題會把後面的東西擠出去），字數靠最右邊，278 列的右緣才會對齊。 */
+.knowledge-summary { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px; color: var(--ink); background: transparent; border: 0; cursor: pointer; text-align: left; font: inherit; }
+.knowledge-summary-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-summary > .domain-badge, .knowledge-summary > .origin-badge { flex: 0 0 auto; }
+.knowledge-category { flex: 0 0 auto; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.knowledge-summary > .source-locator { flex: 0 0 auto; }
 /* 收合時箭頭朝右，展開轉成朝下。 */
-.knowledge-chevron { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 2px; color: var(--muted); transition: transform 140ms ease; }
+.knowledge-chevron { flex: 0 0 16px; width: 16px; height: 16px; color: var(--muted); transition: transform 140ms ease; }
 .knowledge-row.open .knowledge-chevron { transform: rotate(90deg); }
-.knowledge-length { flex: 0 0 auto; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
-.knowledge-detail { padding: 0 18px 16px 48px; }
+.knowledge-length { flex: 0 0 62px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; text-align: right; }
+.knowledge-detail { padding: 0 10px 14px 36px; }
 .knowledge-detail .knowledge-actions { margin-top: 12px; }
 .knowledge-card { padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .knowledge-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -653,7 +661,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
    `.active` 與 `:focus-visible`／`:focus-within` 不在這裡，它們代表真的狀態，
    在觸控裝置上也要看得到。 */
 @media (hover: hover) {
-  .knowledge-summary:hover { background: var(--hover); }
+  .knowledge-summary:hover { background: var(--hover); border-radius: var(--radius-sm); }
   .icon-button:hover { background: var(--hover); }
   .primary-nav-item:hover { background: var(--hover); }
   .conversation-item:hover { background: var(--hover); }

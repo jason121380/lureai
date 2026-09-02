@@ -150,9 +150,14 @@ class StaticUiTests(unittest.TestCase):
         css = CSS.read_text(encoding="utf-8")
         script = ADMIN_JS.read_text(encoding="utf-8")
 
-        # 一列一則、彼此靠在一起用分隔線隔開（不是各自浮著的卡片）。
-        self.assertIn(".knowledge-row + .knowledge-row { border-top:", css)
-        self.assertIn(".knowledge-list {", css)
+        # 一列一則、彼此靠在一起，列與列之間只有一條分隔線。
+        self.assertIn(".knowledge-row { border-top:", css)
+        self.assertIn(".knowledge-row:first-of-type { border-top: 0; }", css)
+        # 不要外框：#knowledge-results 本身就是 .knowledge-list，再描一個框
+        # 就會變成框裡有框。
+        container = css.split(".knowledge-list {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("border:", container)
+        self.assertNotIn("border-radius", container)
         # 預設收合，點標題才展開。
         self.assertIn('class="knowledge-detail" hidden', script)
         self.assertIn('aria-expanded="false"', script)

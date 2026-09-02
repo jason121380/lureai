@@ -423,15 +423,11 @@
     return `<article class="knowledge-row" data-row="${index}">
       <button type="button" class="knowledge-summary" aria-expanded="false" data-toggle="${index}">
         <i data-lucide="chevron-right" class="knowledge-chevron"></i>
-        <span class="knowledge-summary-copy">
-          <span class="knowledge-summary-title">${escapeHtml(title)}</span>
-          <span class="knowledge-meta">
-            <span class="domain-badge">${escapeHtml(domainLabels[item.domain] || "未分主題")}</span>
-            <span class="origin-badge${custom ? " is-custom" : ""}">${custom ? "後台新增" : "匯入知識"}</span>
-            <span>${escapeHtml(item.category || "未分類")}</span>
-            <span class="source-locator">${escapeHtml(item.locator || "")}</span>
-          </span>
-        </span>
+        <span class="knowledge-summary-title">${escapeHtml(title)}</span>
+        <span class="domain-badge">${escapeHtml(domainLabels[item.domain] || "未分主題")}</span>
+        <span class="origin-badge${custom ? " is-custom" : ""}">${custom ? "後台新增" : "匯入知識"}</span>
+        <span class="knowledge-category">${escapeHtml(item.category || "未分類")}</span>
+        <span class="source-locator">${escapeHtml(item.locator || "")}</span>
         <span class="knowledge-length">${item.length || 0} 字</span>
       </button>
       <div class="knowledge-detail" hidden data-detail="${index}">
@@ -504,7 +500,7 @@
       }
       el("knowledge-results").innerHTML = knowledgeCache.length
         ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>`
-          + `<div class="knowledge-list">${knowledgeCache.map(knowledgeCard).join("")}</div>`
+          + knowledgeCache.map(knowledgeCard).join("")
         : '<div class="empty-state">沒有符合的知識</div>';
       el("knowledge-results").querySelectorAll("[data-toggle]").forEach((button) => {
         button.addEventListener("click", () => toggleKnowledgeRow(Number(button.dataset.toggle)));
