@@ -669,13 +669,17 @@ class StaticUiTests(unittest.TestCase):
         # 客服模式的開場改成狀況句：那個模式要的是「他描述狀況、我接住」。
         self.assertIn("SERVICE_WELCOME_PROMPTS", script)
 
-    def test_tone_is_bound_to_the_conversation(self):
+    def test_tone_switches_in_place_and_sticks_to_the_conversation(self):
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 一段對話只能有一種人格：切換語氣就開新的一段。
+        # 就地切換：留在同一段對話（使用者指定），但這一段記下新的語氣，
+        # 切回舊對話時看到的還是當時那一種。
+        self.assertIn("function switchTone", script)
+        self.assertIn("conversation.tone = state.tone", script)
         self.assertIn("function applyConversationTone", script)
         self.assertIn("tone: state.tone", script)
-        self.assertIn("newConversation();", script)
+        switch = script[script.index("function switchTone") : script.index("function applyConversationTone")]
+        self.assertNotIn("newConversation", switch)
 
     def test_service_mode_hides_the_system_chrome(self):
         script = CHAT_JS.read_text(encoding="utf-8")
