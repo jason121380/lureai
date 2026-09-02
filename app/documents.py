@@ -338,11 +338,13 @@ def _pdf_page_text(content: bytes, fonts: dict[bytes, tuple[dict, int]]) -> str:
                 move_to(y)
             except ValueError:
                 pass
-        elif breaker is not None:       # T* 換行、BT/ET 文字區塊
+        elif breaker is not None:
+            # BT 只重設「相對位移」的累加，**不要重設 line_y**：表格的每個
+            # 儲存格常常各自包在一組 BT…ET 裡，重設的話同一列會被拆成好幾行。
+            # ET 也不換行，換不換行一律交給 Y 座標決定。
             if breaker == b"BT":
                 y = None
-                line_y = None
-            else:
+            elif breaker == b"T*":
                 newline()
                 line_y = None
     return "".join(pieces)

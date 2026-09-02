@@ -171,3 +171,41 @@ class UnsupportedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProseTests(unittest.TestCase):
+    """日曆與純數字表格抓得到文字，但那不是知識。"""
+
+    def test_a_calendar_produces_no_candidates(self):
+        from app.extract import split_document
+
+        calendar = "2026 年 9 月\n一二三四五六日\n1 2 3 4 5 6 7\n8 9 10 11 12 13 14"
+
+        self.assertEqual(split_document("日曆.pdf", calendar), [])
+
+    def test_real_content_still_produces_candidates(self):
+        from app.extract import split_document
+
+        text = (
+            "客訴處理原則\n"
+            "客人反映顏色不對時，先確認是光線問題還是真的沒到位。"
+            "不要當場說「其實這樣很好看」，那會讓客人覺得你在唬他。"
+        )
+
+        proposals = split_document("手冊.pdf", text)
+
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["section_title"], "客訴處理原則")
+
+    def test_a_price_table_is_still_knowledge(self):
+        """有中文的表格要留著——價目表是有用的知識，不能跟日曆一起被丟掉。"""
+        from app.extract import split_document
+
+        table = (
+            "項目 ｜ 價格 ｜ 說明\n"
+            "染髮 ｜ 3800 ｜ 含護髮與吹整\n"
+            "燙髮 ｜ 4200 ｜ 長髮另計\n"
+            "接髮 ｜ 依長度報價 ｜ 需先看髮況"
+        )
+
+        self.assertTrue(split_document("價目表.xlsx", table))

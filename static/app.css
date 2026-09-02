@@ -306,7 +306,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-section { width: min(var(--admin-content), 100%); margin: 0 auto; padding: 34px 0 40px; scroll-margin-top: 10px; }
 .admin-section[hidden] { display: none; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-.section-heading h2 { margin: 0; font-size: 23px; font-weight: 600; }
+.section-heading h2 { margin: 0; font-size: 24px; font-weight: 600; }
 .section-heading p { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
 .heading-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 
@@ -316,7 +316,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .upload-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; }
 .upload-panel { position: relative; z-index: 1; width: min(760px, 100%); max-height: min(84vh, 900px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14); }
 .upload-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 14px; border-bottom: 1px solid var(--line); }
-.upload-head h3 { margin: 0; font-size: 18px; font-weight: 650; }
+.upload-head h3 { margin: 0; font-size: 20px; font-weight: 650; }
 .upload-head p { margin: 6px 0 0; }
 .upload-scroll { display: grid; gap: 16px; align-content: start; padding: 20px; overflow-y: auto; }
 .upload-drop { display: grid; justify-items: center; gap: 8px; padding: 34px 20px; color: var(--ink-soft); background: var(--sidebar); border: 2px dashed var(--line-strong); border-radius: var(--radius-sm); text-align: center; cursor: pointer; transition: border-color 140ms ease, background 140ms ease; }
@@ -329,6 +329,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .upload-progress { display: grid; gap: 8px; }
 .upload-bar { height: 6px; overflow: hidden; background: var(--bubble); border-radius: var(--radius-pill); }
 .upload-bar span { display: block; width: 0; height: 100%; background: var(--ink); border-radius: var(--radius-pill); transition: width 220ms ease; }
+/* 分析一份檔案要幾十秒又問不到進度，所以跑不定量的動畫；用百分比的話單檔會
+   整段停在 0%，看起來像當掉。 */
+.upload-bar.working span { width: 40%; animation: upload-sweep 1.1s ease-in-out infinite; transition: none; }
+@keyframes upload-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
 .upload-results { display: grid; gap: 12px; }
 .upload-file { color: var(--muted); font-size: 14px; }
 .upload-card { display: grid; gap: 10px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
@@ -355,7 +362,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .stat-card:last-child { border-right: 0; }
 .stat-card { }
 .stat-card span { display: block; color: var(--muted); font-size: 14px; }
-.stat-card strong { display: block; margin-top: 10px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 30px; line-height: 1.1; }
+.stat-card strong { display: block; margin-top: 10px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 32px; line-height: 1.1; }
 /* 只有真的有待整理的知識才標紅：0 也塗紅會讓人以為出事了。 */
 .alert-stat[data-alert="true"] strong { color: var(--warning); }
 .pipeline-heading { margin: 30px 0 12px; }
@@ -366,14 +373,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .health-state-icon { width: 36px; height: 36px; display: grid; place-items: center; color: var(--muted); background: var(--bubble); border-radius: 50%; }
 .health-state-icon svg { width: 19px; height: 19px; }
 .health-overall-panel > div > span { display: block; color: var(--muted); font-size: 14px; }
-.health-overall-panel strong { display: block; margin-top: 4px; font-size: 21px; }
+.health-overall-panel strong { display: block; margin-top: 4px; font-size: 20px; }
 .health-overview[data-status="ok"] .health-state-icon { color: var(--ok); background: var(--ok-soft); }
 .health-overview[data-status="warning"] .health-state-icon { color: var(--caution); background: var(--caution-soft); }
 .health-overview[data-status="error"] .health-state-icon { color: var(--warning); background: var(--warning-soft); }
 .health-summary { display: grid; grid-template-columns: repeat(3, minmax(76px, 1fr)); border-left: 1px solid var(--line); }
 .health-summary span { min-width: 84px; display: grid; place-items: center; align-content: center; gap: 4px; padding: 14px; color: var(--muted); border-left: 1px solid var(--line); font-size: 14px; }
 .health-summary span:first-child { border-left: 0; }
-.health-summary strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 23px; }
+.health-summary strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 24px; }
 .health-grid { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 /* 兩欄：左邊狀態與說明、右邊數值。原本三欄會把數值推到列的最右端，
    在寬螢幕上跟它的標籤距離超過 1000px，等於看不懂。 */
@@ -385,7 +392,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .health-item[data-status="warning"] .health-item-icon { color: var(--caution); background: var(--caution-soft); }
 .health-item[data-status="error"] .health-item-icon { color: var(--warning); background: var(--warning-soft); }
 .health-item-copy > div { display: flex; align-items: center; gap: 8px; }
-.health-item-copy strong { font-size: 16px; }
+.health-item-copy strong { font-size: 15px; }
 .health-item-copy p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .health-badge { padding: 3px 9px; color: var(--muted); background: var(--bubble); border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; }
 .health-item[data-status="ok"] .health-badge { color: var(--ok); background: var(--ok-soft); }
@@ -445,7 +452,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tuning-rule { display: grid; gap: 12px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .tuning-rule.is-custom { border-color: var(--ink); }
 .tuning-rule-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.tuning-rule-head strong { margin-right: 8px; font-size: 16px; }
+.tuning-rule-head strong { margin-right: 8px; font-size: 15px; }
 .tuning-rule-head p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .tuning-rule textarea { width: 100%; padding: 12px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: 0; resize: vertical; font: inherit; font-size: 15px; line-height: 1.8; }
 .tuning-rule textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
@@ -531,7 +538,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .admin-main { padding: 0 16px max(50px, env(safe-area-inset-bottom)); }
   .admin-section { padding: 22px 0 30px; }
   .section-heading { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .section-heading h2 { font-size: 21px; }
+  .section-heading h2 { font-size: 20px; }
   .health-item { grid-template-columns: 30px minmax(0, 1fr); row-gap: 10px; }
   .health-item-meta { grid-column: 1 / -1; max-width: none; justify-items: start; }
   .health-item-meta > div { justify-content: flex-start; }
@@ -583,7 +590,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
 /* 分類卡改用淡底而不是每格都描一條框：一頁 40 幾格時框線比內容還搶眼。 */
 .category-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: var(--radius-sm); font-size: 15px; }
-.category-card strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 18px; }
+.category-card strong { color: var(--ink); font-family: "SFMono-Regular", Consolas, monospace; font-size: 17px; }
 .knowledge-list { display: grid; gap: 10px; margin-top: 16px; }
 /* 知識庫＝QA 式收合清單：一列一則、彼此靠在一起，點標題才展開。
    278 則攤開來是看不完的，收起來才掃得動。
