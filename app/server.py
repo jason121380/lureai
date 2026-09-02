@@ -10,7 +10,7 @@ import os
 import secrets
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +35,9 @@ CONVERSATION_MAX_MESSAGES = 200
 CONVERSATION_MAX_CHARS = 20000
 CONVERSATION_TITLE_MAX = 120
 
+# 後台總覽的回覆品質指標算最近幾天（太長會被舊資料稀釋，看不出改動有沒有效）。
+REPLY_METRIC_DAYS = 30
+
 # 開場題庫一次全部送給前端，讓每次抽題都從整個池子隨機。
 WELCOME_PROMPT_POOL = 100
 
@@ -51,6 +54,7 @@ from .humanize import (
     strip_citations,
 )
 from .health import build_health_report
+from . import ingest as ingest_module
 from .ingest import ingest_jsonl
 from .policy import BOUNDARY_REPLIES, PolicyEngine
 from .retrieval import Retriever
@@ -206,6 +210,8 @@ class AppContext:
             store.count_chunks() == 0
             or indexed_digest != knowledge_digest
             or indexed_access_level != access_level
+            # 索引欄位的格式改了也要重建：知識檔的雜湊沒變，只靠它偵測不到。
+            or store.get_metadata("index_format") != ingest_module.INDEX_FORMAT
         )
         if knowledge.is_file() and needs_reindex:
             try:
@@ -559,6 +565,10 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     stats["pipeline"] = context.pipeline_stats or {}
                     stats["composition"] = context.store.knowledge_composition()
                     stats["domain_labels"] = DOMAIN_LABELS
+                    stats["replies"] = context.store.reply_metrics(
+                        (datetime.now(timezone.utc) - timedelta(days=REPLY_METRIC_DAYS)).isoformat()
+                    )
+                    stats["replies"]["window_days"] = REPLY_METRIC_DAYS
                     self._json(HTTPStatus.OK, stats)
                 return
             if parsed.path == "/api/admin/knowledge/detail":
@@ -697,7 +707,13 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             """lurebot 的唯一入口：檢索、政策、生成、引用守門、稽核全部照舊，
             只有輸出換成「可以直接送進 LINE 的幾則短訊息」。"""
             conversation_id = str(payload.get("conversation_id", "")).strip()[:120]
-            if not context.chat_limiter.allow(f"bot:{conversation_id or 'unknown'}"):
+            # 沒帶 conversation_id 時退回群組名稱，再退回發話者；全部共用一個
+            # 「unknown」桶的話，一個群組講太快會讓其他群組一起被擋。
+            bot_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+            limiter_key = conversation_id or " ".join(
+                str(bot_context.get("group_name") or bot_context.get("speaker") or "unknown").split()
+            )[:120]
+            if not context.chat_limiter.allow(f"bot:{limiter_key}"):
                 self._json(
                     HTTPStatus.TOO_MANY_REQUESTS,
                     {"error": "rate_limited", "message": "訊息傳送太頻繁，請稍候再試"},
@@ -720,7 +736,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 user_id=context.bot_user_id,
                 allow_model=within_budget,
                 tone="line",
-                extra_instruction=context_instruction(payload.get("context")),
+                context_note=context_instruction(payload.get("context")),
                 want_followups=False,
             )
             response = {

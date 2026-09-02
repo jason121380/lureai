@@ -30,8 +30,16 @@ MAX_LINES_PER_PART = 2
 MAX_CHARS_PER_LINE = 12
 
 CITATION_PATTERN = re.compile(r"\s*\[\d{1,2}\]")
-PUNCTUATION_PATTERN = re.compile(r"[，。、；：！？,.;:!?]+")
+# 半形的「.」與「:」只有在不是夾在數字中間時才是標點。整組剝掉的話
+# 「8.5%」會變成「8 5%」、「10:30」會變成「10 30」，數字直接講錯（體檢 B5）。
+# 「！」不剝：規則明文說「！」和「～」可以用（放在給安心感的短句），
+# 剝掉等於程式在推翻自己寫給模型的規則。
+PUNCTUATION_PATTERN = re.compile(r"[，。、；：？,;?]+|(?<!\d)[.:]|[.:](?!\d)")
 SPLIT_CHARS = " ，。、；：！？,.;:!?"
+# 前端 `cleanChatLine` 會把條列記號與引號拿掉，這裡也要拿掉，兩邊才會一致
+# （體檢 B10：同一段文字兩邊拆出來的結果 10 個樣本有 5 個不同）。
+LIST_MARKER = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)])\s+")
+QUOTE_CHARS = "「」『』（）()"
 
 
 def context_instruction(context) -> str:
@@ -130,7 +138,13 @@ def postprocess(reply_text: str) -> list[str]:
     一則訊息裡面可以有好幾行（LINE 也支援換行），所以**空一行才代表換一則**，
     單純換行只是同一則裡的下一行。
     """
-    text = PUNCTUATION_PATTERN.sub(" ", strip_citations(reply_text))
+    text = strip_citations(reply_text)
+    # 條列記號與引號先拿掉（跟前端 `cleanChatLine` 同一套），再處理標點。
+    text = "\n".join(
+        LIST_MARKER.sub("", line).translate({ord(char): " " for char in QUOTE_CHARS})
+        for line in text.split("\n")
+    )
+    text = PUNCTUATION_PATTERN.sub(" ", text)
     # 保留換行（模型用空行分則），只收斂行內空白。
     text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n"))
     text = text.strip()
@@ -157,17 +171,21 @@ def postprocess(reply_text: str) -> list[str]:
         # 併起來時用換行接，不要接成一長條。
         return [*parts[:MAX_PARTS - 2], "\n".join(parts[MAX_PARTS - 2:-1]), parts[-1]]
     single = parts[0]
-    if len(single) <= 10 or "\n" in single:
-        # 已經自己分行的就照原樣送，不要再切。
+    # 上面的 wrap_line 已經保證每行不超過 12 字，所以剩下的單則要嘛本來就短、
+    # 要嘛是一個切不開的長詞。舊版只要超過 10 字就對半硬切，於是
+    # 「你這個月私訊大概幾則呢～」被切成兩則、中間還隔 3~5 秒送出——收到的人
+    # 會以為對方打到一半按了送出（體檢 B4）。
+    # 現在只有「真的長到一則裝不下」（超過兩行的量）才切，而且一定切在空白處。
+    if "\n" in single or len(single.replace(" ", "")) <= MAX_CHARS_PER_LINE * 2:
         return [single]
-    # 備援：模型沒分行的長句，在最接近中間的空白處切成兩句。
     mid = len(single) // 2
     best = -1
     for index, char in enumerate(single):
-        if char in SPLIT_CHARS and (best == -1 or abs(index - mid) < abs(best - mid)):
+        if char == " " and (best == -1 or abs(index - mid) < abs(best - mid)):
             best = index
     if best <= 0 or best >= len(single) - 1:
-        best = mid
+        # 沒有空白可切就不要硬切在詞中間，整句送出去比切壞好。
+        return [single]
     head = single[:best].strip(SPLIT_CHARS)
     tail = single[best:].strip(SPLIT_CHARS)
     return [part for part in (head, tail) if part] or [single]

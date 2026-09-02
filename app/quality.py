@@ -40,7 +40,20 @@ COUNT_WORDS = {
     "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
     "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
 }
-COUNT_PATTERN = re.compile(r"([一二兩三四五六七八九十]|\d+)\s*(個|則|句|條|項|點|組)")
+# 只有「他真的在要東西」才算數量承諾。舊版抓任何「N 個／N 則」，於是
+# 「健檢要抽哪 20 則對話來看」「私訊 30 則但沒人來」都被當成「要列 20 項」，
+# 每一次都白白重打一次（體檢 B6：開場題庫 100 題中 3 題、問法種子 7 條）。
+# 動詞一定要在數字前面，「這週來了 3 個客人」才不會被誤判。
+REQUEST_COUNT_PATTERN = re.compile(
+    r"(?:給我|給你|幫我|我要|列|寫|想|提供|做|生成|產出|舉)"
+    r"[^。\n]{0,6}?([一二兩三四五六七八九十]|\d{1,2})\s*[個則句條項點組]"
+)
+# 超過這個數量就不是「列清單」而是在講事實（20 則對話、30 則私訊）。
+MAX_REQUESTED_COUNT = 10
+
+# 問到「量」的問句算給了東西：他答不出來也知道下一步要去查什麼。
+# 「你想先從哪邊聊」這種沒有指向的問句不算。
+CONCRETE_QUESTION = re.compile(r"多少|幾個|幾則|幾天|幾次|幾點|幾成|幾位|幾%|百分之")
 
 # 問到立場就要表態，不能第三次複述對方的話。
 STANCE_QUESTION = re.compile(
@@ -91,12 +104,13 @@ def contradictions(answer: str) -> set[str]:
 
 
 def _requested_count(question: str) -> int:
-    """他要幾個？問句裡的數量詞（十個 hashtag）。"""
-    match = COUNT_PATTERN.search(str(question or ""))
+    """他要幾個？只有明確在要東西（給我十個 hashtag）才算。"""
+    match = REQUEST_COUNT_PATTERN.search(str(question or ""))
     if not match:
         return 0
     value = match.group(1)
-    return COUNT_WORDS.get(value, 0) if value in COUNT_WORDS else int(value)
+    wanted = COUNT_WORDS.get(value, 0) if value in COUNT_WORDS else int(value)
+    return wanted if wanted <= MAX_REQUESTED_COUNT else 0
 
 
 def _delivered_count(answer: str) -> int:
@@ -110,13 +124,32 @@ def _delivered_count(answer: str) -> int:
     return len([part for part in re.split(r"[、,，]", text) if part.strip()])
 
 
+# 一行以問號、問句助詞或波浪號收尾就是在問他，不是在給他東西。
+QUESTION_LINE = re.compile(r"(?:[?？～~]|嗎|呢|好不好|可以嗎)\s*$")
+
+
+def _deliverable_body(text: str) -> str:
+    """扣掉純問句的行之後，還剩下多少真的寫給他的內容。"""
+    lines = [line.strip() for line in str(text or "").split("\n")]
+    return "".join(
+        line for line in lines if line and not QUESTION_LINE.search(line)
+    ).strip()
+
+
 def has_substance(answer: str) -> bool:
-    """這一則到底有沒有給東西：數字、動作、或明確立場任一。"""
+    """這一則到底有沒有給東西：數字、動作、明確立場或一個具體的問題。
+
+    「問一件具體的事」也算內容：客服模式的規則要求第一輪先接住再問一件事
+    （「我幫你看一下／你這檔廣告花了多少 有幾個人私訊」），照做卻被判成
+    「只寫了我幫你看」是規則跟守門互相打架（體檢 B7）。
+    只認問到「量」的問句——「你想先從哪邊聊」那種空問句照樣要擋。
+    """
     text = str(answer or "")
     return bool(
         NUMBER_PATTERN.search(text)
         or ACTION_PATTERN.search(text)
         or STANCE_PATTERN.search(text)
+        or CONCRETE_QUESTION.search(text)
     )
 
 
@@ -161,8 +194,10 @@ def problems(question: str, answer: str, tone: str = "") -> list[str]:
     # 用整則長度判斷會誤殺 LINE 那種很短但真的有給的回覆。
     promise = PROMISE_PATTERN.search(text)
     if promise:
-        rest = (text[: promise.start()] + text[promise.end() :]).replace("\n", "").strip()
-        delivered = len(rest) >= 12
+        rest = text[: promise.start()] + text[promise.end() :]
+        # 只剩一句「你想要親切一點 還是專業一點～」不算交付——那是又把球丟回去。
+        # 所以把純問句的行扣掉之後再數字數。
+        delivered = len(_deliverable_body(rest)) >= 12
     else:
         delivered = True
     if promise and not delivered:

@@ -282,6 +282,28 @@
     }
   }
 
+  // 回覆品質三個數字全部從既有稽核算出來，不需要另外埋點。
+  // 目標值寫在 qa/brain_review 的量化指標那一節。
+  const FALLBACK_TARGET = 0.03;
+  const RETRY_TARGET = 0.15;
+
+  function percent(value) {
+    return `${Math.round((Number(value) || 0) * 1000) / 10}%`;
+  }
+
+  function renderReplyMetrics(metrics) {
+    const days = Number(metrics.window_days) || 30;
+    el("reply-metric-title").textContent = `回覆品質（最近 ${days} 天）`;
+    el("stat-replies").textContent = metrics.replies ?? "—";
+    el("stat-fallback").textContent = percent(metrics.fallback_rate);
+    el("stat-retry").textContent = percent(metrics.retry_rate);
+    el("stat-input-tokens").textContent = (metrics.avg_input_tokens || 0).toLocaleString("en-US");
+    el("stat-thumbs-up").textContent = metrics.graded ? percent(metrics.thumbs_up_rate) : "—";
+    // 超過目標值才變色，平常不要一直亮紅字。
+    el("stat-fallback-card").dataset.alert = String(Number(metrics.fallback_rate) > FALLBACK_TARGET);
+    el("stat-retry-card").dataset.alert = String(Number(metrics.retry_rate) > RETRY_TARGET);
+  }
+
   async function loadStats() {
     try {
       const body = await api("/api/admin/stats");
@@ -291,6 +313,7 @@
       el("stat-sources").textContent = composition.source_files ?? "—";
       el("stat-custom").textContent = origins.custom || 0;
       el("admin-status").textContent = `${body.chunks} 個知識區塊 · ${composition.source_files || 0} 份來源`;
+      renderReplyMetrics(body.replies || {});
       const domains = composition.domains || [];
       el("domain-grid").innerHTML = domains.length
         ? domains.map((domain) => `

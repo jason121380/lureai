@@ -45,6 +45,11 @@ def validate_chunk(
     return not errors, errors
 
 
+# 索引欄位的格式版本。改了 aliases 的存法（或 search_text 的組法）就要 +1，
+# 既有部署的 SQLite 才會重建——知識檔的雜湊沒變，只靠它是偵測不到的。
+INDEX_FORMAT = "2"
+
+
 def _search_text(row: dict) -> str:
     aliases = row.get("aliases") or []
     if not isinstance(aliases, list):
@@ -98,6 +103,7 @@ def ingest_jsonl(
     store.replace_chunks(accepted)
     store.set_metadata("knowledge_sha256", hashlib.sha256(raw).hexdigest())
     store.set_metadata("knowledge_access_level", expected_access_level)
+    store.set_metadata("index_format", INDEX_FORMAT)
     # 後台與 lurebot 的大腦頁要顯示「上次建置時間」。
     store.set_metadata("knowledge_indexed_at", datetime.now(timezone.utc).isoformat())
     return IngestReport(imported=len(accepted), rejected=rejected, errors=errors)

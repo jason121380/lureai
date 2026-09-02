@@ -22,14 +22,16 @@ class StubAnswerer:
         self.text = text
         self.mode = mode
         self.extra_instruction = ""
+        self.context_note = ""
         self.include_followups = None
         self.tone = ""
 
     def answer(
         self, _question, _hits, history=None, allow_model=True, tone="expert",
-        extra_instruction="", include_followups=True,
+        extra_instruction="", include_followups=True, context_note="",
     ):
         self.extra_instruction = extra_instruction
+        self.context_note = context_note
         self.include_followups = include_followups
         self.tone = tone
         return self.text, self.mode, "used", {
@@ -206,9 +208,12 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(body["citations"][0]["locator"], "aftercare-1")
         self.assertEqual(stub.tone, "line")
         self.assertFalse(stub.include_followups)
-        self.assertIn("台中一店", stub.extra_instruction)
-        self.assertIn("小美", stub.extra_instruction)
-        self.assertIn("版面弄好了", stub.extra_instruction)
+        # 群組脈絡是別人在群組裡打的字，要當成資料送進使用者訊息，
+        # 不可以接在系統指令後面——接在那裡等於群組裡任何人都能改寫規則。
+        self.assertEqual(stub.extra_instruction, "")
+        self.assertIn("台中一店", stub.context_note)
+        self.assertIn("小美", stub.context_note)
+        self.assertIn("版面弄好了", stub.context_note)
 
     def test_reply_survives_a_missing_citation(self):
         # 引用只給後台核對用，送出前就剝掉；少了編號不該讓 LINE 整則不回。
