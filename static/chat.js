@@ -567,8 +567,10 @@
     for (const rawLine of String(content || "").split("\n")) {
       const line = rawLine.trimEnd();
       if (!line.trim()) {
+        // 空行只收段落，清單要留著。模型常常在每個編號之間空一行，這裡收掉的話
+        // 每一項都會各自變成一個清單，畫面上就全部是「1.」。
+        // 真的該收的時候（下一行是段落或標題）那兩條路自己會收。
         flushParagraph();
-        flushList();
         continue;
       }
       const heading = line.match(HEADING_LINE);
