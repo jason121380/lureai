@@ -22,6 +22,15 @@ class UsagePricing:
             monthly_budget_twd=float(os.getenv("MONTHLY_BUDGET_TWD", "1000")),
         )
 
+    # 一次聊天大概用掉多少 token。用來在呼叫之前預留額度——真正的花費要等
+    # 模型回來才知道，但「先估一筆、記完帳再釋放」擋得住併發一起穿過上限。
+    TYPICAL_INPUT_TOKENS = 4000
+    TYPICAL_OUTPUT_TOKENS = 800
+
+    def typical_cost_twd(self) -> float:
+        """一次呼叫的估計成本；預留額度時用它，不用寫死一個會過期的數字。"""
+        return self.cost_twd(self.TYPICAL_INPUT_TOKENS, self.TYPICAL_OUTPUT_TOKENS)
+
     def cost_twd(
         self,
         input_tokens: int,

@@ -21,6 +21,45 @@ class UnreadableDocument(Exception):
     """讀不出文字，訊息會原樣顯示給使用者。"""
 
 
+# ---- 解壓炸彈防護 ---------------------------------------------------------
+# 限制要在「解壓的時候」做，不能只在最後檢查文字長度：一個 434 bytes 的 docx
+# 可以展開成 26 萬字，那時候記憶體早就吃掉了。三道一起看——總展開量、單一
+# 檔案的展開量、壓縮比——任何一道過不了就整個拒絕。
+MAX_TOTAL_EXPANDED = 32 * 1024 * 1024
+MAX_ENTRY_EXPANDED = 16 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200
+MAX_ZIP_ENTRIES = 512
+# 單一 PDF 內容串流的展開上限。一份 PDF 可以有很多串流，所以這個要抓得比
+# ZIP 的單檔上限小得多。整份文件的文字最後還會被 `MAX_UPLOAD_CHARS` 夾一次。
+MAX_PDF_STREAM = 4 * 1024 * 1024
+BOMB_MESSAGE = "這個檔解開之後太大了，請確認檔案正常，或改成純文字上傳"
+
+
+def _safe_zip_read(archive: zipfile.ZipFile, name: str, budget: list[int]) -> bytes:
+    """讀 ZIP 裡的一個檔案，超過限制就拒絕。
+
+    `budget` 是還可以展開多少 bytes（用 list 當可變的計數器，跨多次呼叫共用）。
+    """
+    try:
+        info = archive.getinfo(name)
+    except KeyError as exc:
+        raise UnreadableDocument("這個檔的內容不完整，請重新輸出一次") from exc
+    compressed = max(1, info.compress_size)
+    if (
+        info.file_size > MAX_ENTRY_EXPANDED
+        or info.file_size > budget[0]
+        or info.file_size / compressed > MAX_COMPRESSION_RATIO
+    ):
+        raise UnreadableDocument(BOMB_MESSAGE)
+    # 宣告的大小可以造假，所以讀的時候再夾一次真正的位元組數。
+    with archive.open(name) as handle:
+        data = handle.read(min(MAX_ENTRY_EXPANDED, budget[0]) + 1)
+    if len(data) > MAX_ENTRY_EXPANDED or len(data) > budget[0]:
+        raise UnreadableDocument(BOMB_MESSAGE)
+    budget[0] -= len(data)
+    return data
+
+
 # 直接當文字讀的副檔名。
 TEXT_SUFFIXES = {
     ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".ndjson",
@@ -58,14 +97,14 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", " ", without_blocks)
 
 
-def _docx_text(archive: zipfile.ZipFile) -> str:
+def _docx_text(archive: zipfile.ZipFile, budget: list[int]) -> str:
     """段落 = <w:p>，換行 = <w:br>／<w:tab>。表格的每個儲存格也是段落。"""
     parts: list[str] = []
     for name in archive.namelist():
         if not (name == "word/document.xml" or name.startswith("word/header")
                 or name.startswith("word/footer")):
             continue
-        root = ET.fromstring(archive.read(name))
+        root = ET.fromstring(_safe_zip_read(archive, name, budget))
         for paragraph in root.iter():
             if _tag(paragraph) != "p":
                 continue
@@ -82,11 +121,11 @@ def _docx_text(archive: zipfile.ZipFile) -> str:
     return "\n".join(parts)
 
 
-def _xlsx_text(archive: zipfile.ZipFile) -> str:
+def _xlsx_text(archive: zipfile.ZipFile, budget: list[int]) -> str:
     """每一列變成一行、儲存格用「｜」隔開，表格結構才看得出來。"""
     shared: list[str] = []
     if "xl/sharedStrings.xml" in archive.namelist():
-        root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+        root = ET.fromstring(_safe_zip_read(archive, "xl/sharedStrings.xml", budget))
         for item in root:
             if _tag(item) != "si":
                 continue
@@ -94,7 +133,7 @@ def _xlsx_text(archive: zipfile.ZipFile) -> str:
     lines: list[str] = []
     sheets = sorted(n for n in archive.namelist() if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
     for name in sheets:
-        root = ET.fromstring(archive.read(name))
+        root = ET.fromstring(_safe_zip_read(archive, name, budget))
         for row in root.iter():
             if _tag(row) != "row":
                 continue
@@ -119,7 +158,7 @@ def _xlsx_text(archive: zipfile.ZipFile) -> str:
     return "\n".join(lines)
 
 
-def _pptx_text(archive: zipfile.ZipFile) -> str:
+def _pptx_text(archive: zipfile.ZipFile, budget: list[int]) -> str:
     """一張投影片一段，投影片之間空一行。"""
     slides = sorted(
         (n for n in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
@@ -127,7 +166,7 @@ def _pptx_text(archive: zipfile.ZipFile) -> str:
     )
     blocks: list[str] = []
     for name in slides:
-        root = ET.fromstring(archive.read(name))
+        root = ET.fromstring(_safe_zip_read(archive, name, budget))
         lines: list[str] = []
         for paragraph in root.iter():
             if _tag(paragraph) != "p":
@@ -146,11 +185,19 @@ def _ooxml_text(suffix: str, data: bytes) -> str:
     except zipfile.BadZipFile as exc:
         raise UnreadableDocument("這個檔打不開，可能已經損毀或不是真的 Office 檔") from exc
     with archive:
+        # 進到任何一個讀取函式之前先看清單：條目太多、或宣告的總展開量就已經
+        # 超過上限時，連讀都不要讀。
+        entries = archive.infolist()
+        if len(entries) > MAX_ZIP_ENTRIES:
+            raise UnreadableDocument(BOMB_MESSAGE)
+        if sum(item.file_size for item in entries) > MAX_TOTAL_EXPANDED:
+            raise UnreadableDocument(BOMB_MESSAGE)
+        budget = [MAX_TOTAL_EXPANDED]
         if suffix == ".docx":
-            return _docx_text(archive)
+            return _docx_text(archive, budget)
         if suffix == ".xlsx":
-            return _xlsx_text(archive)
-        return _pptx_text(archive)
+            return _xlsx_text(archive, budget)
+        return _pptx_text(archive, budget)
 
 
 # ---- PDF ------------------------------------------------------------------
@@ -218,7 +265,15 @@ def _pdf_stream(body: bytes) -> bytes:
         return b""
     raw = match.group(1)
     try:
-        return zlib.decompress(raw)
+        # `zlib.decompress` 沒有上限：278 bytes 可以展開成 26 萬 bytes，而一份
+        # PDF 可以塞很多這種串流。用 decompressobj 才能一邊解一邊夾住輸出量，
+        # 而且要同時看壓縮比——單看絕對大小擋不掉「很多個中等大小的串流」。
+        cap = min(MAX_PDF_STREAM, max(1, len(raw)) * MAX_COMPRESSION_RATIO)
+        decompressor = zlib.decompressobj()
+        out = decompressor.decompress(raw, cap)
+        if decompressor.unconsumed_tail:
+            raise UnreadableDocument(BOMB_MESSAGE)
+        return out
     except zlib.error:
         return raw
 

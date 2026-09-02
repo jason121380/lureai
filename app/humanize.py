@@ -23,8 +23,6 @@ MAX_PARTS = 3
 
 # 一則最多幾行；模型忘了空行時這裡自己重排。
 MAX_LINES_PER_PART = 2
-# 併中間那則時的行數上限（見 postprocess）。
-MAX_LINES_MERGED = MAX_LINES_PER_PART * 2
 
 # 一行最多幾個字。跟 `line`／`service` 語氣裡寫的 12 字規則一致。
 # 只數行數是擋不住的：模型常常回一整行 120 字、一個換行都沒有，
@@ -170,16 +168,13 @@ def postprocess(reply_text: str) -> list[str]:
             return parts
         # 超過上限就把中間併成一則，不要直接砍掉尾巴——砍掉會連收尾的問句
         # 和範例正文一起消失，設計師收到的就是一段沒講完的話。
-        # 併起來時用換行接，不要接成一長條，而且要夾一次行數：舊版沒有夾，
-        # 六個單行段落會併成一則四行、八個會併成六行，愈長愈像一坨。
-        # 這裡的上限刻意放寬到一般的兩倍：一則貼文範例常常就是四五行，
-        # 硬砍到 2 行會把範例砍掉一半，那比「中間那則長一點」糟得多。
+        # **併起來的那一則不夾行數**（使用者決定：保內容，長話術就是會比較長）。
+        # 夾過一版，實測 8 段收成 3 則時「價格依現場報價」「不要保證一定有效」
+        # 這兩句直接消失——首句、說明與結尾問句都還在，所以畫面看起來是完整的，
+        # 只有限制與警語不見了。那是語意損失，不是排版偏好；漏掉一句警語會出事，
+        # 中間那則長一點不會。前端 `serviceSentences` 本來就沒有夾，這樣兩邊也一致。
         middle = [line for part in parts[MAX_PARTS - 2:-1] for line in part.split("\n")]
-        return [
-            *parts[:MAX_PARTS - 2],
-            "\n".join(middle[:MAX_LINES_MERGED]),
-            parts[-1],
-        ]
+        return [*parts[:MAX_PARTS - 2], "\n".join(middle), parts[-1]]
     single = parts[0]
     # 上面的 wrap_line 已經保證每行不超過 12 字，所以剩下的單則要嘛本來就短、
     # 要嘛是一個切不開的長詞。舊版只要超過 10 字就對半硬切，於是
@@ -215,6 +210,29 @@ def message_gaps(count: int, rng: random.Random | None = None,
     if high <= low:
         return [round(max(0.0, low), 1)] * (count - 1)
     return [round(picker.uniform(low, high), 1) for _ in range(count - 1)]
+
+
+# 送出去本身也要時間（網路＋LINE 收下）。排停頓時要留這麼多秒不能用。
+SEND_BUFFER_SECONDS = 3.0
+
+
+def fit_delays(delay: float, gaps: list[float], budget: float | None) -> tuple[float, list[float]]:
+    """把首則停頓與每則之間的間隔壓進剩下的時間裡。
+
+    停頓是為了「像真人在打字」，但它跟生成搶的是同一份時間。生成慢的時候還
+    照原本的秒數等下去，等到的是 reply token 過期——設計師那邊就是已讀不回。
+    等比例縮短，寧可回得快一點也不要不回。
+    """
+    if budget is None:
+        return delay, gaps
+    usable = max(0.0, budget - SEND_BUFFER_SECONDS)
+    planned = delay + sum(gaps)
+    if planned <= usable:
+        return delay, gaps
+    if planned <= 0:
+        return 0.0, [0.0] * len(gaps)
+    scale = usable / planned
+    return round(delay * scale, 1), [round(gap * scale, 1) for gap in gaps]
 
 
 def reply_delay(rng: random.Random | None = None,

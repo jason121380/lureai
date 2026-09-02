@@ -121,7 +121,8 @@ class KnowledgeStore:
                 tone TEXT NOT NULL DEFAULT '',
                 messages_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                rev INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_conversations_user
@@ -140,6 +141,9 @@ class KnowledgeStore:
         self._ensure_column("chunks", "domain", f"TEXT NOT NULL DEFAULT '{DEFAULT_DOMAIN}'")
         self._ensure_column("chunks", "aliases", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("users", "role", "TEXT NOT NULL DEFAULT 'user'")
+        # 對話的版本號：舊版只由「最後一個寫入的人」決定，於是一台裝置的舊副本
+        # 可以覆蓋另一台剛存的新版本，而且畫面上完全看不出來。
+        self._ensure_column("conversations", "rev", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "cached_input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -254,7 +258,7 @@ class KnowledgeStore:
     def list_conversations(self, user_id: int, limit: int = 100) -> list[dict]:
         with self._lock:
             rows = self.connection.execute(
-                "SELECT conversation_id, title, tone, messages_json, created_at, updated_at "
+                "SELECT conversation_id, title, tone, messages_json, created_at, updated_at, rev "
                 "FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
@@ -271,26 +275,38 @@ class KnowledgeStore:
                 "messages": messages if isinstance(messages, list) else [],
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
+                "rev": int(row["rev"] or 0),
             })
         return conversations
 
     def save_conversation(
         self, user_id: int, conversation_id: str, title: str, tone: str,
-        messages: list, created_at: str, updated_at: str,
-    ) -> None:
+        messages: list, created_at: str, updated_at: str, rev: int = 0,
+    ) -> bool:
+        """寫入一段對話；只有版本不比現有的舊才會蓋過去。
+
+        回傳有沒有真的寫進去。舊版是「最後一個寫入的人贏」，於是同一個帳號在
+        兩台裝置上開著時，這台的舊副本可以覆蓋另一台剛存的新版本——訊息就這樣
+        不見了，而且畫面上完全看不出來。
+        """
         payload = json.dumps(messages, ensure_ascii=False)
         with self._lock, self.connection:
-            self.connection.execute(
+            cursor = self.connection.execute(
                 "INSERT INTO conversations"
-                "(conversation_id, user_id, title, tone, messages_json, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(conversation_id, user_id, title, tone, messages_json, created_at, updated_at, rev) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(conversation_id) DO UPDATE SET "
                 "title = excluded.title, tone = excluded.tone, "
-                "messages_json = excluded.messages_json, updated_at = excluded.updated_at "
+                "messages_json = excluded.messages_json, updated_at = excluded.updated_at, "
+                "rev = excluded.rev "
                 # 別人的對話不會被蓋掉：user_id 對不上就不動。
-                "WHERE conversations.user_id = excluded.user_id",
-                (conversation_id, user_id, title, tone, payload, created_at, updated_at),
+                # 版本比較舊的也不動（相等時放行：同一版重送要能成功，
+                # 網路重試與關頁補送都會送同一版）。
+                "WHERE conversations.user_id = excluded.user_id"
+                " AND excluded.rev >= conversations.rev",
+                (conversation_id, user_id, title, tone, payload, created_at, updated_at, int(rev)),
             )
+        return cursor.rowcount > 0
 
     def delete_conversation(self, user_id: int, conversation_id: str) -> None:
         with self._lock, self.connection:

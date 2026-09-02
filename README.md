@@ -84,6 +84,8 @@ python3 run.py --port 8765
 
 `ADMIN_TOKEN` 僅用於 API（`X-Admin-Token` header，供 curl、測試與緊急操作）；本機綁 127.0.0.1 時預設 `local-admin`，正式部署建議設成長且不可猜測的值。正式環境未設定時不會啟動失敗，而是自動產生隨機權杖並在 stderr 警告——此時 header 管理 API 等同停用，管理後台仍可用管理者帳號登入。
 
+`MAX_WORKERS`（選填，預設 48）：同時最多處理幾個請求。串流那條會一直佔著（生成可能要幾十秒），所以要留餘裕；但也不能無上限，否則慢速連線可以把記憶體與執行緒吃光。滿載時新請求會直接收到 503。
+
 `TRUSTED_PROXY_IPS`（選填）：逗號分隔的 IP 或 CIDR，指定哪幾台反向 proxy 送來的 `X-Forwarded-For` 可以採信，用來決定限流的來源 IP。沒設定時退回「內網或本機來的才信」——雲端平台一律是內網 proxy 連進來，如果全部不信，所有使用者會共用同一個 IP，一個人打錯密碼就會把整間店鎖在外面。登入限流另有一把「只看帳號」的鑰匙，那把偽造不掉，所以就算 `X-Forwarded-For` 被偽造，針對單一帳號硬猜密碼仍然擋得住。
 
 ## 串接 OpenAI GPT-5.6 Luna
@@ -236,7 +238,7 @@ LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設
 
 | 端點 | 說明 |
 | --- | --- |
-| `POST /api/bot/reply` | 產生 LINE 回覆。body：`{"message","conversation_id","history":[{"role":"user","content":"…"}],"context":{"group_name","speaker","stage","summary","recent":[…]}}` |
+| `POST /api/bot/reply` | 產生 LINE 回覆。body：`{"message","conversation_id","history":[{"role":"user","content":"…"}],"context":{"group_name","speaker","stage","summary","recent":[…]},"budget_seconds":45}` |
 | `GET /api/bot/health` | 知識塊數、模型、上次索引時間、本月用量、目前回覆設定 |
 
 `/api/bot/reply` 回傳 `{"status","messages":[…],"delay_seconds","answer","citations","trace_id"}`：
@@ -246,6 +248,8 @@ LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設
 - `status=unavailable`：模型不可用而降級成抽取式回答，知識原文不會送進 LINE。
 
 兩條路的用量與稽核都記在 `lurebot` 服務帳號底下，後台看得到。回覆的語氣與長短由 `line` 語氣決定、送出前的去標點／拆則／停頓（8-25 秒）寫死在 `app/humanize.py`——**沒有設定面板，也沒有設定 API**，要調整就改那兩處。
+
+**時間預算**：LINE 的 reply token 從 webhook 進來算起只有 60 秒。`/api/bot/reply` 收到請求時就開始算一個共同的截止時間（預設 45 秒），檢索、生成、每一次重試與回傳的停頓全部從同一份裡扣；剩不到一次呼叫的時間就不再重試，`delay_seconds` 與 `message_gaps` 也會等比例縮短。lurebot 可以用 `budget_seconds` 告訴我們它那邊還剩多少秒（會被夾在 10~45 之間），這樣它在 webhook 到呼叫我們之間花掉的時間才算得進去。
 
 ## 設定
 

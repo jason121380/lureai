@@ -317,14 +317,19 @@ class CustomerService:
         allow_model: bool = True,
         tone: str = "expert",
         kind: str = "smalltalk",
+        deadline: float | None = None,
     ) -> dict:
         """閒聊／情緒／欲言又止：不查知識庫、不掛來源，但照樣記帳與稽核。"""
-        answer, mode, model_status, usage = self.answerer.smalltalk(
-            question, history=recent_history, allow_model=allow_model, tone=tone, kind=kind,
-            speaker=self._speaker(recent_history, question),
-        ) if _accepts_speaker(self.answerer) else self.answerer.smalltalk(
-            question, history=recent_history, allow_model=allow_model, tone=tone, kind=kind,
-        )
+        kwargs = {
+            "history": recent_history, "allow_model": allow_model,
+            "tone": tone, "kind": kind,
+        }
+        if _accepts_speaker(self.answerer):
+            kwargs["speaker"] = self._speaker(recent_history, question)
+        # 閒聊也吃同一份時間預算：群組裡一句「哈囉」拖到 reply token 過期最傷。
+        if deadline is not None and _accepts_kwarg(self.answerer.smalltalk, "deadline"):
+            kwargs["deadline"] = deadline
+        answer, mode, model_status, usage = self.answerer.smalltalk(question, **kwargs)
         return {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -343,6 +348,7 @@ class CustomerService:
 
     def _enforce_quality(
         self, question, answer, grounded_hits, recent_history, tone, extra_instruction,
+        deadline=None,
     ) -> tuple[str, dict, int]:
         """生成完之後的品質檢查：命中就帶著具體理由重打一次。
 
@@ -359,10 +365,13 @@ class CustomerService:
             return answer, empty, 0
         log_model_failure("quality", detail=f"{len(found)} issue(s); retrying | {found[0][:60]}")
         try:
-            improved, usage = retry(
-                question, grounded_hits, found, history=recent_history, tone=tone,
-                extra_instruction=extra_instruction,
-            )
+            retry_kwargs = {
+                "history": recent_history, "tone": tone,
+                "extra_instruction": extra_instruction,
+            }
+            if deadline is not None and _accepts_kwarg(retry, "deadline"):
+                retry_kwargs["deadline"] = deadline
+            improved, usage = retry(question, grounded_hits, found, **retry_kwargs)
         except TypeError:
             return answer, empty, 0
         usage = usage or empty
@@ -371,7 +380,7 @@ class CustomerService:
 
     def _generate(
         self, question, grounded_hits, recent_history, allow_model, tone,
-        extra_instruction, want_followups, context_note,
+        extra_instruction, want_followups, context_note, deadline=None,
     ):
         kwargs = {
             "history": recent_history,
@@ -382,6 +391,9 @@ class CustomerService:
         }
         if context_note and _accepts_kwarg(self.answerer.answer, "context_note"):
             kwargs["context_note"] = context_note
+        # 共同截止時間：測試替身不一定收，收的才傳。
+        if deadline is not None and _accepts_kwarg(self.answerer.answer, "deadline"):
+            kwargs["deadline"] = deadline
         return self.answerer.answer(question, grounded_hits, **kwargs)
 
     def _retry_count(self) -> int:
@@ -398,6 +410,7 @@ class CustomerService:
         extra_instruction: str = "",
         want_followups: bool = True,
         context_note: str = "",
+        deadline: float | None = None,
     ) -> dict:
         question = self._validated_question(message)
         tone = normalize_tone(tone)
@@ -408,6 +421,7 @@ class CustomerService:
             result = self._smalltalk_result(
                 trace_id, conversation_id, question, recent_history,
                 allow_model=allow_model, tone=tone, kind=escalation.reason,
+                deadline=deadline,
             )
             self._audit(question, result, [], user_id=user_id)
             return result
@@ -424,6 +438,7 @@ class CustomerService:
             extra_instruction=extra_instruction,
             want_followups=want_followups,
             context_note=context_note,
+            deadline=deadline,
         )
         followups: list[str] = []
         if mode == "llm":
@@ -467,6 +482,7 @@ class CustomerService:
         tone: str | None = None,
         extra_instruction: str = "",
         context_note: str = "",
+        deadline: float | None = None,
     ) -> Iterator[dict]:
         """Yield {"type":"delta"} events followed by one authoritative {"type":"result"}."""
         question = self._validated_question(message)
@@ -481,6 +497,7 @@ class CustomerService:
             result = self._smalltalk_result(
                 trace_id, conversation_id, question, recent_history,
                 allow_model=allow_model, tone=tone, kind=escalation.reason,
+                deadline=deadline,
             )
             self._audit(question, result, [], user_id=user_id)
             yield {"type": "result", **result}
@@ -509,6 +526,8 @@ class CustomerService:
                 stream_kwargs["extra_instruction"] = note
             if context_note and _accepts_kwarg(self.answerer.stream_answer, "context_note"):
                 stream_kwargs["context_note"] = context_note
+            if deadline is not None and _accepts_kwarg(self.answerer.stream_answer, "deadline"):
+                stream_kwargs["deadline"] = deadline
             try:
                 for kind, payload in self.answerer.stream_answer(
                     question, grounded_hits, **stream_kwargs
@@ -541,8 +560,11 @@ class CustomerService:
                         detail=f"missing_citations chars={len(candidate or '')} model={self.answerer.model_name}; retrying",
                     )
                     retry = getattr(self.answerer, "retry_with_citations", None)
+                    citation_kwargs = {"history": recent_history, "tone": tone}
+                    if deadline is not None and retry and _accepts_kwarg(retry, "deadline"):
+                        citation_kwargs["deadline"] = deadline
                     retried, retry_usage = retry(
-                        question, grounded_hits, history=recent_history, tone=tone
+                        question, grounded_hits, **citation_kwargs
                     ) if retry else ("", empty_usage)
                     usage = {key: usage.get(key, 0) + retry_usage.get(key, 0) for key in empty_usage}
                     if retried:
@@ -561,7 +583,7 @@ class CustomerService:
                 # 舊版重打補回 `[n]` 之後就直接送出，內容空不空完全沒查。
                 before_quality = answer
                 answer, extra_usage, retries = self._enforce_quality(
-                    question, answer, grounded_hits, recent_history, tone, note,
+                    question, answer, grounded_hits, recent_history, tone, note, deadline,
                 )
                 usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
                 if answer != before_quality:

@@ -236,6 +236,47 @@ class LineTimeoutTests(unittest.TestCase):
             call(AnswerEngine())
         return seen.get("timeout")
 
+    def test_a_shared_deadline_shrinks_every_later_call(self):
+        """重試不是免費的：每一次都從同一份預算裡扣。
+
+        舊版每次呼叫各拿一份完整 timeout（生成 25 秒＋重試 25 秒），加上出口
+        8-25 秒的停頓，光名義配置就超過 LINE reply token 的 60 秒窗口。
+        """
+        import time
+
+        from app.answer import AnswerEngine
+
+        engine = AnswerEngine()
+        # 還剩 12 秒時，這一次呼叫最多只能等 12 秒（不是 25）。
+        soon = time.monotonic() + 12
+        self.assertLessEqual(engine._timeout_for("line", soon), 12.0)
+        # 沒有共同截止時間時維持原本的單次上限。
+        self.assertEqual(engine._timeout_for("line"), 25.0)
+
+    def test_no_retry_when_there_is_no_time_left(self):
+        import time
+
+        from app.answer import AnswerEngine
+
+        engine = AnswerEngine()
+        self.assertTrue(engine.has_time_for_another_call(None))
+        self.assertTrue(engine.has_time_for_another_call(time.monotonic() + 30))
+        self.assertFalse(engine.has_time_for_another_call(time.monotonic() + 1))
+        self.assertFalse(engine.has_time_for_another_call(time.monotonic() - 5))
+
+    def test_delivery_pauses_are_squeezed_into_what_is_left(self):
+        """停頓跟生成搶同一份時間；生成慢的時候要縮短，不能照原本的秒數等。"""
+        from app.humanize import fit_delays
+
+        # 時間夠就照原本的節奏。
+        self.assertEqual(fit_delays(20.0, [4.0, 4.0], 45.0), (20.0, [4.0, 4.0]))
+        # 只剩 12 秒：扣掉送出的緩衝之後等比例縮短，總和不能超過剩下的時間。
+        delay, gaps = fit_delays(20.0, [4.0, 4.0], 12.0)
+        self.assertLessEqual(delay + sum(gaps), 12.0)
+        self.assertGreater(delay, 0)
+        # 幾乎沒時間了就不要再等。
+        self.assertEqual(fit_delays(20.0, [4.0, 4.0], 2.0), (0.0, [0.0, 0.0]))
+
     def test_smalltalk_uses_the_line_ceiling_like_every_other_call(self):
         """閒聊原本走全域的 60 秒。加上出口那段 8-25 秒的停頓，最壞會超過
         reply token 的窗口——設計師在群組裡打一句「哈囉」，收到的是已讀不回。

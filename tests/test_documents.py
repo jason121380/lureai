@@ -8,7 +8,7 @@ import unittest
 import zipfile
 import zlib
 
-from app.documents import UnreadableDocument, extract_text
+from app.documents import UnreadableDocument, _pdf_stream, extract_text
 
 
 def zip_bytes(files: dict) -> bytes:
@@ -219,6 +219,48 @@ class UnsupportedTests(unittest.TestCase):
     def test_an_empty_file_is_rejected(self):
         with self.assertRaises(UnreadableDocument):
             extract_text("empty.txt", b"   \n  ")
+
+
+class DecompressionBombTests(unittest.TestCase):
+    """限制要在解壓的時候做，不能只在最後檢查文字長度——那時候記憶體早就吃掉了。"""
+
+    @staticmethod
+    def _docx(payload: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            archive.writestr("word/document.xml", payload)
+        return buffer.getvalue()
+
+    def test_a_tiny_docx_that_expands_enormously_is_rejected(self):
+        body = (
+            "<?xml version='1.0'?><w:document "
+            "xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
+            "<w:p><w:r><w:t>" + "A" * 262144 + "</w:t></w:r></w:p></w:document>"
+        ).encode()
+        data = self._docx(body)
+        self.assertLess(len(data), 5000, "測試前提：壓縮後應該很小")
+
+        with self.assertRaises(UnreadableDocument):
+            extract_text("bomb.docx", data)
+
+    def test_a_normal_docx_still_reads(self):
+        body = (
+            "<?xml version='1.0'?><w:document "
+            "xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
+            "<w:p><w:r><w:t>客訴處理流程第一步先聽完</w:t></w:r></w:p></w:document>"
+        ).encode()
+
+        self.assertIn("客訴處理流程", extract_text("ok.docx", self._docx(body)))
+
+    def test_a_pdf_stream_with_an_absurd_ratio_is_rejected(self):
+        raw = zlib.compress(b"B" * 262144, 9)
+        with self.assertRaises(UnreadableDocument):
+            _pdf_stream(b"stream\n" + raw + b"\nendstream")
+
+    def test_a_normal_pdf_stream_still_decompresses(self):
+        raw = zlib.compress(b"BT /F1 12 Tf (hello this is a page) Tj ET" * 20)
+
+        self.assertTrue(_pdf_stream(b"stream\n" + raw + b"\nendstream"))
 
 
 if __name__ == "__main__":
