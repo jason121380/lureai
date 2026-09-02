@@ -210,8 +210,11 @@ class StaticUiTests(unittest.TestCase):
         mobile = css.split("手機版後台＝App 的形狀", 1)[1].split("@media", 1)[0]
         # 按鈕要看得到字（只有底部分頁列例外，它用 data-short）。
         self.assertNotIn(".admin-search-form .command-button span { display: none; }", css)
-        # 帳號表單的下拉要跟輸入框一樣寬。
-        self.assertIn(".user-form .select-field, .user-form .select-button, .user-form select { width: 100%", mobile)
+        # 帳號表單已經搬進彈窗，欄位一律滿版。
+        field = css.split(".modal-field input, .modal-field select {", 1)[1].split("}", 1)[0]
+        self.assertIn("width: 100%", field)
+        # 帳號表格在手機上不要斷字（原本「jason」被拆成兩行）。
+        self.assertIn(".data-table td:first-child, .data-table td:nth-child(3) { white-space: nowrap; }", mobile)
         # 校調卡的標題列維持橫排，不然還原鍵會變成滿版的空盒子。
         self.assertIn(".tuning-rule-head { flex-direction: row;", mobile)
 

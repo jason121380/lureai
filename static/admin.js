@@ -811,6 +811,17 @@
     }
   }
 
+  function openUserModal() {
+    el("user-form").reset();
+    el("user-modal").hidden = false;
+    el("user-username").focus();
+  }
+
+  function closeUserModal() {
+    el("user-modal").hidden = true;
+    el("user-form").reset();
+  }
+
   async function saveUser(event) {
     event.preventDefault();
     const button = event.currentTarget.querySelector("button[type=submit]");
@@ -824,9 +835,7 @@
           role: el("user-role").value,
         }),
       });
-      el("user-username").value = "";
-      el("user-password").value = "";
-      el("user-role").value = "user";
+      closeUserModal();
       toast(`帳號 ${body.user.username} 已建立或重設（${body.user.role === "admin" ? "管理者" : "一般用戶"}）`);
       await loadUsers();
     } catch (error) {
@@ -877,6 +886,7 @@
     if (event.key !== "Escape") return;
     if (!el("upload-modal").hidden) closeUpload();
     if (!el("editor-modal").hidden) closeEditor();
+    if (!el("user-modal").hidden) closeUserModal();
   });
   el("upload-save").addEventListener("click", saveDrafts);
   el("upload-input").addEventListener("change", (event) => analyseFiles(event.target.files));
@@ -949,6 +959,10 @@
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   el("user-form").addEventListener("submit", saveUser);
+  el("new-user").addEventListener("click", openUserModal);
+  el("user-cancel").addEventListener("click", closeUserModal);
+  el("user-close").addEventListener("click", closeUserModal);
+  el("user-backdrop").addEventListener("click", closeUserModal);
   window.addEventListener("hashchange", () => {
     if (!el("admin-shell").hidden) showSection(location.hash.replace("#", ""));
   });

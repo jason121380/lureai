@@ -188,16 +188,44 @@
       </div>
 
       <section id="users" class="admin-section" hidden>
-        <div class="section-heading"><div><h2>使用者帳號</h2><p>建立登入帳號；輸入既有帳號可重設密碼並登出其舊 session</p></div></div>
-        <form id="user-form" class="admin-search-form user-form">
-          <input id="user-username" autocomplete="off" placeholder="帳號（至少 2 個字）" aria-label="使用者帳號" required>
-          <input id="user-password" type="password" autocomplete="new-password" placeholder="新密碼（至少 4 個字）" aria-label="使用者密碼" required>
-          <select id="user-role" aria-label="使用者權限">
-            <option value="user" selected>一般用戶</option>
-            <option value="admin">管理者</option>
-          </select>
-          <button class="command-button" type="submit"><i data-lucide="user-plus"></i><span>建立或重設</span></button>
-        </form>
+        <div class="section-heading">
+          <div><h2>使用者帳號</h2><p>建立登入帳號；輸入既有帳號可重設密碼並登出其舊 session</p></div>
+          <button id="new-user" class="command-button" type="button"><i data-lucide="user-plus"></i><span>新增帳號</span></button>
+        </div>
+
+        <!-- 表單搬進彈窗（比照上傳與手動輸入）：原本攤在清單上面，手機上
+             光表單就吃掉半頁，帳號表格被擠到只剩一半寬。 -->
+        <div id="user-modal" class="upload-modal" role="dialog" aria-modal="true"
+             aria-label="新增或重設帳號" hidden>
+          <button type="button" id="user-backdrop" class="account-backdrop" aria-label="關閉"></button>
+          <form id="user-form" class="upload-panel">
+            <header class="upload-head">
+              <div>
+                <h3>新增帳號</h3>
+                <p class="editor-hint">輸入既有帳號可重設密碼，並登出他原本的 session</p>
+              </div>
+              <button type="button" id="user-close" class="icon-button" aria-label="關閉"><i data-lucide="x"></i></button>
+            </header>
+            <div class="upload-scroll">
+              <label class="modal-field">帳號
+                <input id="user-username" autocomplete="off" placeholder="至少 2 個字" required>
+              </label>
+              <label class="modal-field">新密碼
+                <input id="user-password" type="password" autocomplete="new-password" placeholder="至少 4 個字" required>
+              </label>
+              <label class="modal-field">權限
+                <select id="user-role">
+                  <option value="user" selected>一般用戶</option>
+                  <option value="admin">管理者</option>
+                </select>
+              </label>
+              <div class="editor-actions">
+                <button type="button" id="user-cancel" class="command-button ghost-button">取消</button>
+                <button class="command-button" type="submit"><i data-lucide="check"></i><span>建立或重設</span></button>
+              </div>
+            </div>
+          </form>
+        </div>
         <div id="user-results" class="table-shell"><div class="empty-state">載入中</div></div>
       </section>
 
