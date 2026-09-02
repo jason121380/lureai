@@ -183,7 +183,8 @@ PDF_TOKEN = re.compile(
     rb"|(\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>)\s*(?:Tj|'|\")"
     rb"|/([^\s/<>\[\]]+)\s+[\d.]+\s+Tf"
     rb"|(-?[\d.]+)\s+(-?[\d.]+)\s+(?:Td|TD)"
-    rb"|\b(T\*|ET)\b",
+    rb"|(?:-?[\d.]+\s+){4}(-?[\d.]+)\s+(-?[\d.]+)\s+Tm"
+    rb"|\b(T\*|BT|ET)\b",
     re.DOTALL,
 )
 PDF_TJ_PART = re.compile(rb"(\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>)|(-?[\d.]+)")
@@ -255,23 +256,74 @@ def _decode_show(token: bytes, cmap: dict[int, str] | None, width: int) -> str:
     return "".join(out)
 
 
+# 同一列的兩段文字 Y 座標會有一點點差（下標、不同字級），差這麼多以內算同一行。
+SAME_LINE = 2.0
+CJK = re.compile(r"[一-鿿　-〿＀-￯]")
+
+
+def _needs_space(before: str, after: str) -> bool:
+    """兩段之間要不要補空格。
+
+    中日韓文字本來就不用空格——PDF 常常一個字一次定位（字距微調），
+    每次都補的話「客訴處理原則」會變成「客 訴 處 理 原 則」。
+    """
+    if not before or not after:
+        return False
+    if CJK.match(before[-1]) or CJK.match(after[0]):
+        return False
+    return before[-1] not in " \n" and after[0] not in " \n"
+
+
 def _pdf_page_text(content: bytes, fonts: dict[bytes, tuple[dict, int]]) -> str:
+    """把一頁的內容串流變成文字。
+
+    **要追 Y 座標**：表格／日曆型的 PDF 每個儲存格都各自定位，只看「有沒有
+    移動」的話會變成一個字一行。同一列的儲存格 Y 一樣，要接在同一行。
+    """
     pieces: list[str] = []
     cmap: dict[int, str] | None = None
     width = 1
+    y = None          # 目前這段文字的基線位置
+    line_y = None     # 現在這一行的基線位置
+    pending_space = False
 
     def newline() -> None:
         if pieces and pieces[-1] != "\n":
             pieces.append("\n")
 
+    def move_to(new_y: float) -> None:
+        nonlocal line_y, pending_space
+        if line_y is not None and abs(new_y - line_y) > SAME_LINE:
+            newline()
+            pending_space = False
+        elif line_y is not None:
+            # 同一行的下一段：是不是要空一格，等看到下一段的第一個字再決定。
+            pending_space = True
+        line_y = new_y
+
+    def push(text: str) -> None:
+        nonlocal pending_space
+        if not text:
+            return
+        if pending_space and _needs_space("".join(pieces[-1:]), text):
+            pieces.append(" ")
+        pending_space = False
+        pieces.append(text)
+
     for match in PDF_TOKEN.finditer(content):
-        array, single, font, _tx, ty, breaker = match.groups()
+        array, single, font, _tx, ty, _tm_x, tm_y, breaker = match.groups()
         if font is not None:
             cmap, width = fonts.get(font, (None, 1))
+        elif tm_y is not None:          # a b c d e f Tm ——絕對位置
+            try:
+                y = float(tm_y)
+                move_to(y)
+            except ValueError:
+                pass
         elif array is not None:
             for part in PDF_TJ_PART.finditer(array):
                 if part.group(1):
-                    pieces.append(_decode_show(part.group(1), cmap, width))
+                    push(_decode_show(part.group(1), cmap, width))
                 else:
                     try:
                         if float(part.group(2)) <= -TJ_SPACE and pieces and pieces[-1] != " ":
@@ -279,15 +331,20 @@ def _pdf_page_text(content: bytes, fonts: dict[bytes, tuple[dict, int]]) -> str:
                     except ValueError:
                         pass
         elif single is not None:
-            pieces.append(_decode_show(single, cmap, width))
-        elif ty is not None:
+            push(_decode_show(single, cmap, width))
+        elif ty is not None:            # tx ty Td ——相對位移
             try:
-                if float(ty) != 0:
-                    newline()
+                y = (y or 0.0) + float(ty)
+                move_to(y)
             except ValueError:
                 pass
-        elif breaker is not None:
-            newline()
+        elif breaker is not None:       # T* 換行、BT/ET 文字區塊
+            if breaker == b"BT":
+                y = None
+                line_y = None
+            else:
+                newline()
+                line_y = None
     return "".join(pieces)
 
 
