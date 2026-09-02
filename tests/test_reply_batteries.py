@@ -313,6 +313,48 @@ class RetrievalGuardTests(unittest.TestCase):
                 top = hits[0].score if hits else 0.0
                 self.assertLess(top, self.policy.minimum_score, f"{question} -> {top}")
 
+    def test_follow_ups_stay_on_the_topic_that_was_just_answered(self):
+        """使用者回報：問「我不會賣產品要怎麼開口」，三個建議全在問開店。
+
+        原因是相鄰知識的候選池每一輪都整份轉一格，把唯一那筆同分類的
+        產品銷售知識轉走，第一個候選就掉到職涯手冊開頭的開店評估。
+        """
+        from app.followups import FollowupPlanner
+
+        planner = FollowupPlanner(self.store, self.retriever, self.policy)
+        question = "我不會賣產品要怎麼開口？"
+        hits = [
+            hit for hit in self.retriever.retrieve(question, limit=8)
+            if hit.score >= self.policy.minimum_score
+        ][:4]
+
+        picked = planner.plan(hits, asked={question}, question=question)
+
+        self.assertTrue(picked)
+        for suggestion in picked:
+            with self.subTest(suggestion=suggestion):
+                self.assertNotIn("開店", suggestion)
+                self.assertNotIn("毛髮構造", suggestion)
+        self.assertTrue(
+            any("推銷" in item or "產品" in item for item in picked), picked
+        )
+
+    def test_follow_ups_do_not_repeat_the_same_chunk(self):
+        """三個建議全出自同一塊知識等於只給了一個選擇。"""
+        from app.followups import FollowupPlanner
+
+        planner = FollowupPlanner(self.store, self.retriever, self.policy)
+        question = "廣告一天要投多少錢才夠？"
+        hits = [
+            hit for hit in self.retriever.retrieve(question, limit=8)
+            if hit.score >= self.policy.minimum_score
+        ][:4]
+
+        picked = planner.plan(hits, asked={question}, question=question)
+
+        self.assertEqual(len(picked), len(set(picked)))
+        self.assertGreaterEqual(len(picked), 2)
+
     def test_the_alias_index_is_stored_one_phrase_per_line(self):
         """整句比對靠換行分隔；用空白接起來就分不出問法的邊界。"""
         row = self.store.connection.execute(

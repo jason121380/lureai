@@ -16,6 +16,16 @@ from pathlib import Path
 
 QUESTION_BANK_PATH = Path(__file__).resolve().parent.parent / "config" / "question_bank.json"
 
+# 候選池最前面這幾筆是「同分類」的知識，一定要留在原位——它們才是真的
+# 接得上這一題的追問。再往後的長尾才輪流轉，避免長對話一直繞同幾塊。
+RELATED_HEAD = 6
+# 頭部要照顧到答案用到的**每一塊**知識（`top_k` 是 4），不是只有第一塊。
+MAX_SEED_CHUNKS = 4
+# 「差一點也撈到」是相對於第一名說的：低於第一名九成的就只是字面沾到邊。
+NEARBY_SCORE_RATIO = 0.90
+# 分數再低也至少留兩塊來源當種子，否則常常只湊得出一個建議。
+MIN_SEED_CHUNKS = 2
+
 # 標題已經像問句時直接用，否則補一個口語的問法。
 QUESTION_SUFFIXES = ("嗎", "呢", "什麼", "哪裡", "幾次", "多久", "怎麼辦", "怎麼做", "怎麼開", "怎麼算")
 
@@ -116,52 +126,151 @@ class FollowupPlanner:
         hits = self.retriever.retrieve(question, limit=1)
         return bool(hits) and hits[0].score >= self.policy.minimum_score
 
-    def _neighbours(self, hits: list, limit: int = 400) -> list[dict]:
-        """同分類優先，其次同一本手冊，再其次同主題，最後才是其他知識。
+    def _related_head(self, hits: list) -> list[dict]:
+        """答案用到的每一塊知識，各給幾筆**同分類**的鄰居，輪流排。
 
-        取整個語料當候選池，這樣一路追問下去永遠找得到還沒問過的題目。
+        只看第一塊會失準：「我不會賣產品要怎麼開口」同時用到產品銷售、話術與
+        店販三塊，只看第一塊時同分類只剩一筆，第二個建議就掉到別的主題。
+        同分類用完就少給一個建議，不要拿別的主題硬湊。
         """
         if not hits:
             return []
         seen = {hit.chunk_id for hit in hits}
+        # 只讓「分數夠接近第一名」的來源去衍生建議。第 4 名常常只是勉強被撈進來
+        # 陪襯（賣產品那題的第 4 名是 0.858 對 0.964），拿它的同分類鄰居當建議
+        # 會整個換一個主題——實際踩到的是 ops-63「店販開發」被歸在「美髮技術」，
+        # 於是建議變成「毛髮構造與三種鏈鍵」。至少留兩個，免得只剩一個建議。
+        floor = hits[0].score * NEARBY_SCORE_RATIO
+        seeds = [hit for hit in hits[:MAX_SEED_CHUNKS] if hit.score >= floor]
+        if len(seeds) < MIN_SEED_CHUNKS:
+            seeds = hits[:MIN_SEED_CHUNKS]
+        primaries = [
+            chunk for chunk in (self.store.get_chunk(hit.chunk_id) for hit in seeds) if chunk
+        ]
+        heads = []
+        for chunk in primaries:
+            category = str(chunk.get("category", ""))
+            rows = self.store.related_chunks(
+                category=category,
+                domain=str(chunk.get("domain", "")),
+                source_file=str(chunk.get("source_file", "")),
+                exclude_ids=seen,
+                limit=RELATED_HEAD,
+            )
+            # **只留同分類的**。`related_chunks` 是排序不是過濾，同分類用完之後
+            # 會接上同一本手冊照 locator 排的其他知識——問賣產品就會冒出
+            # 「毛髮構造與三種鏈鍵」。
+            heads.append([row for row in rows if str(row.get("category", "")) == category])
+        ordered: list[dict] = []
+        taken: set[str] = set()
+        for index in range(RELATED_HEAD):
+            for rows in heads:
+                if index >= len(rows):
+                    continue
+                chunk_id = str(rows[index].get("chunk_id", ""))
+                if chunk_id and chunk_id not in taken:
+                    taken.add(chunk_id)
+                    ordered.append(rows[index])
+        return ordered
+
+    def _related_tail(self, hits: list, limit: int = 400) -> list[dict]:
+        """整個語料當備胎，讓一路追問下去永遠找得到還沒問過的題目。"""
+        if not hits:
+            return []
         primary = self.store.get_chunk(hits[0].chunk_id) or {}
         return self.store.related_chunks(
             category=str(primary.get("category", "")),
             domain=str(primary.get("domain", "")),
             source_file=str(primary.get("source_file", "")),
-            exclude_ids=seen,
+            exclude_ids={hit.chunk_id for hit in hits},
             limit=limit,
         )
 
-    def plan(self, hits: list, asked: set[str] | None = None, limit: int = 3,
-             candidates: list[str] | None = None) -> list[str]:
-        blocked = {_normalize(question) for question in (asked or set())}
-        picked: list[str] = []
+    def _nearby_by_question(self, question: str, hits: list, limit: int = 14) -> list[dict]:
+        """這一題「差一點也撈到」的知識，就是他接下來最可能問的東西。
 
-        def add(question: str) -> bool:
-            cleaned = " ".join(str(question or "").split())[:60]
+        門檻要看**跟第一名差多少**，不能用固定的 0.72：分數被壓縮在
+        [0.5, 1.0) 裡，一題隨便都有十幾塊過 0.72，照收就變成
+        「用生成式 AI 幫忙」「清潔督導與衛生檢查」這種完全不相干的建議。
+        跟第一名差超過一成的就是只沾到字面，不要。
+        """
+        if not question:
+            return []
+        found = self.retriever.retrieve(question, limit=limit)
+        if not found:
+            return []
+        floor = max(self.policy.minimum_score, found[0].score * NEARBY_SCORE_RATIO)
+        used = {hit.chunk_id for hit in hits}
+        return [
+            {"chunk_id": hit.chunk_id, "locator": hit.locator, "section_title": hit.section_title}
+            for hit in found
+            if hit.chunk_id not in used and hit.score >= floor
+        ]
+
+    def plan(self, hits: list, asked: set[str] | None = None, limit: int = 3,
+             candidates: list[str] | None = None, question: str = "") -> list[str]:
+        blocked = {_normalize(item) for item in (asked or set())}
+        picked: list[str] = []
+        for candidate in candidates or []:
+            cleaned = " ".join(str(candidate or "").split())[:60]
             key = _normalize(cleaned)
-            if not key or key in blocked:
-                return False
+            if not key or key in blocked or not self._answerable(cleaned):
+                continue
             blocked.add(key)
             picked.append(cleaned)
-            return len(picked) >= limit
-
-        for question in candidates or []:
-            if self._answerable(question) and add(question):
+            if len(picked) >= limit:
                 return picked
 
+        # 頭部是真的接得上這一題的知識：先看「這一題附近還有什麼」，
+        # 再補上答案用到的每一塊知識的同分類鄰居。
+        # 順序是量出來的：先給「這一題附近還有什麼」（檢索器說的，最貼題），
+        # 不夠再補「答案用到的那幾塊知識的同分類鄰居」（分類說的）。
+        # 兩者交錯排過，實測反而變差——同分類名單是照 locator 排的，
+        # 每次都讓手冊的第一塊（例如 script-01）搶到第一個位置。
+        nearby = self._nearby_by_question(question, hits)
+        taken = {str(item["chunk_id"]) for item in nearby}
+        head = nearby + [
+            row for row in self._related_head(hits)
+            if str(row.get("chunk_id", "")) not in taken
+        ]
+        picked.extend(self._collect(head, blocked, limit - len(picked)))
+        if picked:
+            # 頭部湊得到就不要再往下拿。後面那條長尾只是「還沒問過的題目」，
+            # 拿它湊第三個建議會冒出「毛髮構造」「我想自己開店」這種完全不
+            # 相干的東西——寧可只給兩個對的，也不要三個裡有一個離題。
+            return picked[:limit]
 
-        rows = self._neighbours(hits)
-        # 每問一輪就把候選池轉一格，追問才會一直往新的主題走，而不是在同幾塊
-        # 知識之間繞圈（前端只會帶最近幾則對話，光靠去重不夠）。
-        if rows:
-            offset = len(blocked) % len(rows)
-            rows = rows[offset:] + rows[:offset]
+        # 頭部一個都湊不到才動用長尾，讓一路追問下去永遠有題目可問。
+        # 每問一輪轉一格，長對話才不會在同幾塊知識之間繞圈。
+        used = {str(item.get("chunk_id", "")) for item in head}
+        tail = [
+            row for row in self._related_tail(hits)
+            if str(row.get("chunk_id", "")) not in used
+        ]
+        if tail:
+            offset = len(blocked) % len(tail)
+            tail = tail[offset:] + tail[:offset]
+        picked.extend(self._collect(tail, blocked, limit - len(picked)))
+        return picked[:limit]
+
+    def _collect(self, rows: list[dict], blocked: set[str], limit: int) -> list[str]:
+        """從候選知識挑出接得下去、而且還沒問過的問法。"""
+        picked: list[str] = []
+        if limit <= 0:
+            return picked
         for row in rows:
-            for question in questions_for(str(row.get("locator", "")), str(row.get("section_title", "")), limit=3):
-                if _normalize(question) in blocked or not self._answerable(question):
+            for question in questions_for(
+                str(row.get("locator", "")), str(row.get("section_title", "")), limit=3
+            ):
+                key = _normalize(question)
+                if not key or key in blocked or not self._answerable(question):
                     continue
-                if add(question):
-                    return picked
+                blocked.add(key)
+                picked.append(" ".join(question.split())[:60])
+                # 同一塊知識只取一個問法：一塊知識的問法都是同一件事的不同說法
+                # （「不喜歡推銷」「推產品會不會很硬」「推銷讓我覺得很像騙錢」），
+                # 三個建議全出自同一塊等於只給了一個選擇。
+                break
+            if len(picked) >= limit:
+                break
         return picked
