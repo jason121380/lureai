@@ -1237,27 +1237,41 @@
   el("source-close").addEventListener("click", closeSources);
   el("drawer-overlay").addEventListener("click", () => { closeSources(); closeSidebar(); });
   el("menu-button").addEventListener("click", openSidebar);
-  // 手機版手勢：從螢幕左緣往右滑展開選單（PWA 裡沒有瀏覽器的返回手勢）。
-  let edgeSwipe = null;
+  // 手機版手勢（PWA 裡沒有瀏覽器的返回手勢，所以兩個方向都要自己做）：
+  // - 選單關著：只有從螢幕左緣 24px 內往右滑才展開。限制在邊緣，才不會跟
+  //   內容的橫向捲動、或訊息上的左右滑動作打架。
+  // - 選單開著：畫面上任何地方往左滑都收起來——選單佔了 75%，要求使用者
+  //   一定要滑到右邊那一小截才收得掉並不合理。
+  const SWIPE_EDGE = 24;      // 展開時的起手邊緣寬度
+  const SWIPE_DISTANCE = 50;  // 橫向要滑超過這麼多才算數
+  const SWIPE_DRIFT = 40;     // 直向偏移超過這麼多就當成在捲動，取消手勢
+  let swipe = null;
   document.addEventListener("touchstart", (event) => {
     if (event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    if (touch.clientX > 24) return;
     if (!window.matchMedia("(max-width: 760px)").matches) return;
-    if (el("sidebar").classList.contains("open")) return;
-    edgeSwipe = { x: touch.clientX, y: touch.clientY };
+    const touch = event.touches[0];
+    const open = el("sidebar").classList.contains("open");
+    if (!open && touch.clientX > SWIPE_EDGE) return;
+    swipe = { x: touch.clientX, y: touch.clientY, open };
   }, { passive: true });
   document.addEventListener("touchmove", (event) => {
-    if (!edgeSwipe) return;
+    if (!swipe) return;
     const touch = event.touches[0];
-    const deltaX = touch.clientX - edgeSwipe.x;
-    const deltaY = Math.abs(touch.clientY - edgeSwipe.y);
-    if (deltaX > 50 && deltaY < 40) {
+    const deltaX = touch.clientX - swipe.x;
+    // 直向先超過門檻就是在捲動，直接放棄這次手勢，不然捲清單會誤收選單。
+    if (Math.abs(touch.clientY - swipe.y) > SWIPE_DRIFT) {
+      swipe = null;
+      return;
+    }
+    if (!swipe.open && deltaX > SWIPE_DISTANCE) {
       openSidebar();
-      edgeSwipe = null;
+      swipe = null;
+    } else if (swipe.open && deltaX < -SWIPE_DISTANCE) {
+      closeSidebar();
+      swipe = null;
     }
   }, { passive: true });
-  document.addEventListener("touchend", () => { edgeSwipe = null; }, { passive: true });
+  document.addEventListener("touchend", () => { swipe = null; }, { passive: true });
   el("sidebar-close").addEventListener("click", closeSidebar);
   el("login-form").addEventListener("submit", login);
   el("logout-button").addEventListener("click", logout);
