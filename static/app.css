@@ -60,7 +60,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-close { display: none; }
 .sidebar-search, .sidebar-panel { flex: 0 0 34px; }
 .icon-button { width: 34px; height: 34px; display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-decoration: none; }
-.icon-button:hover { background: var(--hover); }
 .icon-button svg { width: 19px; height: 19px; stroke-width: 1.8; }
 .sidebar-close { display: none; }
 .conversation-search { height: 40px; display: flex; align-items: center; gap: 8px; margin: 4px 4px 7px; padding: 0 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); }
@@ -68,7 +67,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; }
 .primary-nav { display: grid; gap: 2px; margin: 12px 0 25px; }
 .primary-nav-item { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 12px; padding: 8px 10px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-decoration: none; text-align: left; cursor: pointer; font-size: 16px; }
-.primary-nav-item:hover, .primary-nav-item.active { background: var(--hover); }
+.primary-nav-item.active { background: var(--hover); }
 .primary-nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; stroke-width: 1.8; }
 .sidebar-label { margin: 0 10px 8px; color: var(--muted); font-size: 14px; font-weight: 500; }
 .conversation-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
@@ -82,7 +81,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pull-refresh.ready span::before { content: "放開更新"; }
 .pull-refresh.loading span::before { content: "更新中"; }
 .conversation-item { width: 100%; min-height: 52px; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; margin-bottom: 2px; color: var(--ink); background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; font-size: 17px; }
-.conversation-item:hover, .conversation-item.active { background: var(--hover); }
+.conversation-item.active { background: var(--hover); }
 /* 編號要跟標題同一列（不是夾在標題與時間中間），而且靠左。固定寬度讓兩位數
    也不會把標題推歪；`align-self: flex-start` ＋ 跟標題一樣的行高才對得齊。 */
 .conversation-order { flex: 0 0 28px; align-self: flex-start; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 15px; line-height: 24px; text-align: left; }
@@ -93,8 +92,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .conversation-time { color: var(--muted); font-size: 14px; font-family: "SFMono-Regular", Consolas, monospace; }
 .conversation-delete { width: 28px; height: 28px; flex: 0 0 28px; display: inline-grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 120ms ease; }
 .conversation-delete svg { width: 15px; height: 15px; }
-.conversation-item:hover .conversation-delete, .conversation-item:focus-within .conversation-delete { opacity: 1; }
-.conversation-delete:hover { color: var(--warning); background: #e4e4e4; }
+.conversation-item:focus-within .conversation-delete { opacity: 1; }
 /* 刪除不用瀏覽器原生視窗：第一下變成「確定刪除」，再按一下才刪 */
 .conversation-delete.confirming { width: auto; flex-basis: auto; padding: 0 8px; opacity: 1; color: var(--warning); background: var(--warning-soft); }
 .confirm-delete { font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -108,7 +106,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .account-card { position: relative; z-index: 1; width: min(560px, 100%); min-height: 300px; display: grid; grid-template-columns: 132px minmax(0, 1fr); overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14); }
 .account-side { display: flex; flex-direction: column; gap: 4px; padding: 14px 10px; background: var(--sidebar); border-right: 1px solid var(--line); }
 .account-tab { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 8px 10px; color: var(--ink-soft); background: transparent; border: 1px solid transparent; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600; text-align: left; }
-.account-tab:hover { background: var(--hover); }
 .account-tab.active { color: var(--ink); background: var(--surface); border-color: var(--line); }
 .account-tab svg { width: 15px; height: 15px; flex: 0 0 15px; }
 .account-content { position: relative; padding: 18px 20px; }
@@ -128,7 +125,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* 帳號列分三區 hover：名字（開彈窗）、設定、登出各自獨立 */
 .user-account { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .account-trigger { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px 6px; color: inherit; background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-align: left; }
-.account-trigger:hover { background: var(--hover); }
 .user-account .icon-button { flex: 0 0 30px; width: 30px; height: 30px; color: var(--muted); }
 .profile-avatar { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; color: #fff; background: var(--ink); border-radius: 50%; font-size: 15px; font-weight: 700; }
 .profile-copy { min-width: 0; flex: 1; }
@@ -155,7 +151,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .is-empty .topbar-title { opacity: 0; pointer-events: none; }
 /* 右上角常駐的回覆模式標示（點擊跳出切換確認） */
 .tone-indicator { margin-left: auto; min-height: 28px; padding: 4px 13px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap; }
-.tone-indicator:hover { color: var(--ink); background: var(--hover); }
 .tone-confirm { position: absolute; top: calc(100% - 4px); right: 13px; z-index: 70; width: 208px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10); }
 .tone-confirm p { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
 .tone-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -164,7 +159,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tone-confirm-actions .tone-cancel,
 .tone-confirm-actions .tone-ok { min-height: 34px; padding: 0 14px; border-radius: var(--radius-pill); font-size: 14px; font-weight: 600; }
 .tone-confirm-actions .tone-cancel { color: var(--ink); background: var(--surface); border: 1px solid var(--ink); cursor: pointer; }
-.tone-confirm-actions .tone-cancel:hover { background: var(--bubble); }
 .topbar-title { min-width: 0; display: flex; align-items: center; gap: 2px; margin-right: auto; }
 .rename-button { width: 30px; height: 30px; color: var(--muted); flex: 0 0 30px; }
 .rename-button svg { width: 15px; height: 15px; }
@@ -196,7 +190,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* 上緣留出「間距＋輸入框＋間距」，輸入框正好浮在標題與建議題目中間。 */
 .prompt-list { width: min(680px, 100%); display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: calc(var(--welcome-gap) * 2 + var(--welcome-composer-h)) auto 0; }
 .prompt-suggestion { min-height: 42px; display: inline-flex; align-items: center; gap: 9px; padding: 8px 16px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); text-align: left; cursor: pointer; font-size: 15px; }
-.prompt-suggestion:hover { color: var(--ink); background: var(--bubble); }
 .prompt-suggestion svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--ink); fill: none; stroke-width: 1.8; }
 
 .message-row { width: min(760px, 100%); display: flex; margin: 26px auto 0; }
@@ -219,7 +212,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .message-text.rich li::marker { color: var(--muted); }
 .message-text .md-heading { font-weight: 700; font-size: 18px; }
 .cite-ref { display: inline-grid; place-items: center; min-width: 22px; height: 22px; margin: 0 1px; padding: 0 4px; color: var(--ink-soft); background: var(--bubble); border: 0; border-radius: 50%; cursor: pointer; vertical-align: 2px; font-size: 13px; font-weight: 700; }
-.cite-ref:hover { color: #fff; background: var(--ink); }
 .message-status { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; margin-top: 13px; padding: 4px 10px; color: var(--ok); background: var(--ok-soft); border: 0; border-radius: var(--radius-pill); font-size: 13px; font-weight: 600; }
 .message-status.escalated { color: var(--warning); background: var(--warning-soft); }
 .message-status svg { width: 13px; height: 13px; }
@@ -229,7 +221,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* 回答評分：👍👎 回饋，供之後加強知識 */
 .feedback-row { display: flex; gap: 2px; margin-top: 8px; }
 .feedback-button { width: 28px; height: 28px; display: inline-grid; place-items: center; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
-.feedback-button:hover { color: var(--ink); background: var(--hover); }
 .feedback-button.selected[data-rating="up"] { color: var(--ok); background: var(--ok-soft); }
 .feedback-button.selected[data-rating="down"] { color: var(--warning); background: var(--warning-soft); }
 .feedback-button svg { width: 15px; height: 15px; }
@@ -237,7 +228,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .citation-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
 .citation-label { color: var(--muted); font-size: 13px; }
 .citation-button { min-height: 25px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: 13px; }
-.citation-button:hover { color: var(--ink); background: var(--bubble); }
 .citation-number { display: grid; place-items: center; width: 18px; height: 18px; color: #fff; background: var(--ink); border-radius: 50%; font-size: 12px; font-weight: 700; }
 .typing { display: flex; gap: 5px; padding: 8px 0; }
 .typing span { width: 6px; height: 6px; background: var(--muted); border-radius: 50%; animation: pulse 900ms ease-in-out infinite; }
@@ -255,14 +245,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .composer textarea::placeholder { color: var(--muted); }
 .composer-tool, .composer-action { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
 .composer-tool { color: var(--ink-soft); background: transparent; }
-.composer-tool:hover { background: var(--hover); }
 .composer-tool svg { width: 23px; height: 23px; }
 .composer-action svg { width: 17px; height: 17px; }
 .message-status.degraded { color: var(--caution); background: var(--caution-soft); }
 .message-status.boundary { color: var(--ink-soft); background: var(--bubble); }
 .retrieval-mode { color: var(--muted); font-size: 14px; white-space: nowrap; }
 .send-action { color: #fff; background: var(--ink); }
-.send-action:hover { background: #3d3d3d; }
 .send-action:disabled { color: #a5a5a5; background: #e6e6e6; cursor: default; }
 .stop-action { color: #fff; background: var(--ink); }
 
@@ -306,13 +294,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .admin-nav-links { display: grid; gap: 2px; margin-top: 0; }
 .admin-nav-links a { min-height: 40px; display: flex; align-items: center; gap: 12px; padding: 8px 10px; color: var(--ink); border-radius: 10px; text-decoration: none; font-size: 15px; }
 .admin-nav-links a.active { font-weight: 600; }
-.admin-nav-links a:hover, .admin-nav-links a.active { background: var(--hover); }
+.admin-nav-links a.active { background: var(--hover); }
 .admin-nav-links svg { width: 17px; }
 /* 底部返回鍵：分隔線用 ::before 畫在項目上方 18px 處，項目本身維持 10px 圓角的
    hover。直接在項目上加 border-top 會讓線緊貼文字，下緣也頂到視窗，看起來很擠。 */
 .admin-chat-link { position: relative; min-height: 42px; display: flex; align-items: center; gap: 12px; margin-top: auto; padding: 10px; color: var(--ink-soft); border-radius: 10px; text-decoration: none; font-size: 15px; }
 .admin-chat-link::before { content: ""; position: absolute; top: -18px; right: 0; left: 0; height: 1px; background: var(--line); }
-.admin-chat-link:hover { color: var(--ink); background: var(--hover); }
 /* 後台內容給寬度上限並置中：放到 1440px 以上滿版時，健康檢查右側的數值會被
    推到離標籤一千多 px 遠，讀不起來。 */
 .admin-main { min-width: 0; padding: 0 32px 72px; }
@@ -333,7 +320,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .upload-head p { margin: 6px 0 0; }
 .upload-scroll { display: grid; gap: 16px; align-content: start; padding: 20px; overflow-y: auto; }
 .upload-drop { display: grid; justify-items: center; gap: 8px; padding: 34px 20px; color: var(--ink-soft); background: var(--sidebar); border: 2px dashed var(--line-strong); border-radius: var(--radius-sm); text-align: center; cursor: pointer; transition: border-color 140ms ease, background 140ms ease; }
-.upload-drop:hover, .upload-drop:focus-visible { border-color: var(--ink); }
+.upload-drop:focus-visible { border-color: var(--ink); }
 /* 拖到上面時要看得出來放開會生效，不然使用者不知道能不能放。 */
 .upload-drop.dragging { color: var(--ink); background: var(--bubble); border-color: var(--ink); border-style: solid; }
 .upload-drop strong { font-size: 17px; }
@@ -362,7 +349,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .upload-scroll .editor-actions { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
 }
 .command-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 18px; color: #fff; background: var(--ink); border: 0; border-radius: var(--radius-pill); cursor: pointer; font-weight: 600; font-size: 15px; }
-.command-button:hover { background: #3d3d3d; }
 .command-button svg { width: 16px; height: 16px; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .stat-card { min-width: 0; padding: 18px 20px; background: var(--surface); border-right: 1px solid var(--line); }
@@ -450,7 +436,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tuning-layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 26px; align-items: start; }
 .tuning-menu { position: sticky; top: 16px; display: grid; gap: 2px; }
 .tuning-menu button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 12px; color: var(--ink-soft); background: transparent; border: 0; border-radius: 10px; cursor: pointer; text-align: left; font-size: 15px; }
-.tuning-menu button:hover { background: var(--hover); }
 .tuning-menu button.active { color: var(--ink); background: var(--bubble); font-weight: 600; }
 .tuning-menu em { flex: 0 0 auto; color: var(--muted); font-style: normal; font-size: 13px; }
 .tuning-menu button.active em { color: var(--ink-soft); }
@@ -584,13 +569,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .followup-list { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 14px; }
 .followup-button { min-height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); cursor: pointer; text-align: left; font-size: 15px; }
-.followup-button:hover { color: var(--ink); background: var(--bubble); }
 .followup-button svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--muted); }
 
 /* Knowledge curation views */
 .heading-actions { display: flex; align-items: center; gap: 8px; }
 .ghost-button { color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); text-decoration: none; }
-.ghost-button:hover { background: var(--bubble); }
 .domain-grid { display: grid; gap: 14px; }
 .domain-block { padding: 18px 20px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .domain-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
@@ -638,16 +621,46 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .select-field { position: relative; display: inline-flex; }
 .select-field > select { display: none; }
 .select-button { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 148px; height: 42px; padding: 0 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 15px; cursor: pointer; }
-.select-button:hover { border-color: var(--ink-soft); }
 .select-field.is-open .select-button { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .select-button i { width: 16px; height: 16px; color: var(--muted); flex: 0 0 auto; }
 .select-field.is-open .select-button i { transform: rotate(180deg); }
 .select-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 100%; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 12px 32px rgba(15, 15, 15, 0.12); display: grid; gap: 2px; }
 .select-menu button { padding: 9px 10px; color: var(--ink); background: none; border: 0; border-radius: 6px; font: inherit; font-size: 15px; text-align: left; white-space: nowrap; cursor: pointer; }
-.select-menu button:hover { background: var(--bubble); }
 .select-menu button.is-selected { background: var(--bubble); font-weight: 600; }
 .knowledge-editor .select-field, .knowledge-editor .select-button { width: 100%; }
 
 /* Search row controls share one height so the icon button lines up. */
 .admin-search-form .bordered-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--radius-sm); }
 .compact-search { align-items: center; }
+
+/* 觸控裝置沒有滑鼠，但點過之後 `:hover` 會黏在最後點到的那個元素上——側欄會
+   同時出現兩個灰底（一個是真的選中的，一個是上次點過的殘留）。所以 hover 的
+   視覺一律關在 `hover: hover` 裡，只有真的有滑鼠時才生效。
+   `.active` 與 `:focus-visible`／`:focus-within` 不在這裡，它們代表真的狀態，
+   在觸控裝置上也要看得到。 */
+@media (hover: hover) {
+  .icon-button:hover { background: var(--hover); }
+  .primary-nav-item:hover { background: var(--hover); }
+  .conversation-item:hover { background: var(--hover); }
+  .conversation-item:hover .conversation-delete { opacity: 1; }
+  .conversation-delete:hover { color: var(--warning); background: #e4e4e4; }
+  .account-tab:hover { background: var(--hover); }
+  .account-trigger:hover { background: var(--hover); }
+  .tone-indicator:hover { color: var(--ink); background: var(--hover); }
+  .tone-confirm-actions .tone-cancel:hover { background: var(--bubble); }
+  .prompt-suggestion:hover { color: var(--ink); background: var(--bubble); }
+  .cite-ref:hover { color: #fff; background: var(--ink); }
+  .feedback-button:hover { color: var(--ink); background: var(--hover); }
+  .citation-button:hover { color: var(--ink); background: var(--bubble); }
+  .composer-tool:hover { background: var(--hover); }
+  .send-action:hover { background: #3d3d3d; }
+  .admin-nav-links a:hover { background: var(--hover); }
+  .admin-chat-link:hover { color: var(--ink); background: var(--hover); }
+  .upload-drop:hover { border-color: var(--ink); }
+  .command-button:hover { background: #3d3d3d; }
+  .tuning-menu button:hover { background: var(--hover); }
+  .followup-button:hover { color: var(--ink); background: var(--bubble); }
+  .ghost-button:hover { background: var(--bubble); }
+  .select-button:hover { border-color: var(--ink-soft); }
+  .select-menu button:hover { background: var(--bubble); }
+}
