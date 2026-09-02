@@ -60,6 +60,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **客訴與退費不是敏感題**：`legal_refund_or_compensation` 只擋「提告／訴訟／法律責任／律師／求償／保證效果」。染壞要退費、客人要留負評這種每天都會遇到的現場題一律走檢索，擋掉等於這個產品最需要陪伴的時刻反而不說話。
 - **語氣設定**：chat API 的 `tone`（`expert` 預設／`service`／`line`）只切換輸出格式指令（`app/answer.py` `TONE_INSTRUCTIONS`）與前端渲染（客服模式逐行泡泡）；未知值一律當 expert，追問規劃不受影響。
 - **引用守門**：模型回答每點都要附 `[n]` 引用；全形引用（【1】（1）〔１〕）會被正規化成 `[1]`，仍缺引用就自動帶警語重試一次（串流與非串流路徑都有，用量兩次都記帳）。**守門只套用在專家模式**：客服模式的編號前端本來就會剝掉、LINE 模式在出口剝掉，硬要求會讓正常回覆被丟掉（客服看到降級訊息，LINE 直接不回話），因此由 `AnswerEngine.requires_citations(tone)` 放行這兩種。改 `app/answer.py` 時勿拆掉 `normalize_citation_marks`、`retry_with_citations` 與 `requires_citations`。
+- **知識來源只列答案引用到的**：檢索一次撈三塊，但窄問題常常只有第一塊能用——模型每點都寫 `[1]` 是對的，錯的是把沒被引用的兩塊也掛成「知識來源 2、3」。`app/service.py` 的 `_fit_citations` 在回傳前砍掉沒被引用的來源，並把 `[n]` 重編成連號（引用 1、3 → 列兩則、答案裡的 `[3]` 變 `[2]`）。**只在會顯示編號的語氣做**（`requires_citations`）：客服／LINE 的編號在出口就被剝掉，照樣裁切會一則來源都不剩；一個都沒引用時也不裁，那是引用守門的問題。串流路徑改的是最終 result（前端以 result 為準覆蓋串流文字），所以重編號安全。
 - **開場題庫**：`run.py` 的歡迎題庫共 100 題，每題都必須答得出來且不重複，`tests/test_welcome_prompts.py` 逐題驗證；`/api/health` 回傳整份打散的題庫、前端每次抽 5 題（`WELCOME_PROMPT_COUNT`）。加題目前先用檢索驗過分數有沒有過 0.72。
 - **ADMIN_TOKEN 可以不設**：未設定時自動改用隨機權杖（stderr 有警語），等於停用 header 管理 API，後台仍走 admin 帳號登入——這是部署韌性設計，不要改回缺少就 exit。
 - **知識即重點整理**：索引只收人工整理過的手冊內容，不放 OCR 原文或表單傾印。要新增知識就改 `knowledge/*.md` 再用 `scripts/build_knowledge_index.py` 編譯，原始 OCR 語料封存在 `knowledge/archive/legacy_source_documents.jsonl.gz`。

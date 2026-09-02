@@ -40,6 +40,8 @@ def split_followups(text: str) -> tuple[str, list[str]]:
     return "\n".join(lines).rstrip(), followups[:3]
 
 
+CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
+
 SENSITIVE_HISTORY_PATTERN = re.compile(
     r"(?:09\d{2}[- ]?\d{3}[- ]?\d{3}|(?:\+?886[- ]?)?9\d{8}|"
     r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|"
@@ -145,6 +147,35 @@ class CustomerService:
         if mode != "llm" and model_status not in ("not_configured", "budget_exhausted"):
             return []
         return [hit.citation() for hit in grounded_hits]
+
+    def _fit_citations(
+        self, answer: str, grounded_hits: list, mode: str, model_status: str, tone: str
+    ) -> tuple[str, list[dict]]:
+        """只列答案真的引用到的來源，並把編號重編成 1..n。
+
+        檢索一次撈三塊，但窄問題常常只有第一塊能用——模型每點都寫 [1] 是對的，
+        錯的是我們仍把沒被引用的兩塊掛成「知識來源 2、3」，看起來像編號壞掉。
+        只在會把 [n] 顯示出來的語氣做（客服／LINE 的編號在出口就被剝掉，
+        照樣裁切會讓那兩種模式一個來源都不剩）。
+        """
+        citations = self._citations(grounded_hits, mode, model_status)
+        shows_numbers = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
+        if not citations or not shows_numbers:
+            return answer, citations
+        used = sorted({
+            int(number) for number in CITATION_REF_PATTERN.findall(answer or "")
+            if 1 <= int(number) <= len(citations)
+        })
+        # 一個都沒引用時不裁：那是引用守門的問題，把來源全砍掉只會更難查。
+        if not used or len(used) == len(citations):
+            return answer, citations
+        renumber = {old: new for new, old in enumerate(used, start=1)}
+        rewritten = CITATION_REF_PATTERN.sub(
+            lambda match: f"[{renumber[int(match.group(1))]}]"
+            if int(match.group(1)) in renumber else match.group(0),
+            answer,
+        )
+        return rewritten, [citations[old - 1] for old in used]
 
     @staticmethod
     def _asked_questions(history: list[dict] | None, question: str) -> set[str]:
@@ -278,13 +309,14 @@ class CustomerService:
             )
         else:
             followups = []
+        answer, citations = self._fit_citations(answer, grounded_hits, mode, model_status, tone)
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
             "status": "answered",
             "reason": "grounded",
             "answer": answer,
-            "citations": self._citations(grounded_hits, mode, model_status),
+            "citations": citations,
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
@@ -382,13 +414,14 @@ class CustomerService:
             answer, mode, model_status, usage = self.answerer.answer(
                 question, grounded_hits, history=recent_history, allow_model=allow_model, tone=tone
             )
+        answer, citations = self._fit_citations(answer, grounded_hits, mode, model_status, tone)
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
             "status": "answered",
             "reason": "grounded",
             "answer": answer,
-            "citations": self._citations(grounded_hits, mode, model_status),
+            "citations": citations,
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
