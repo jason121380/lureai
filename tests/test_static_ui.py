@@ -169,13 +169,21 @@ class StaticUiTests(unittest.TestCase):
         self.assertIn('el("upload-backdrop").addEventListener("click", closeUpload)', script)
         self.assertIn('event.key === "Escape"', script)
 
-    def test_mobile_edge_swipe_opens_the_sidebar(self):
+    def test_mobile_swipe_opens_and_closes_the_sidebar(self):
+        """PWA 沒有瀏覽器的返回手勢，兩個方向都要自己做。"""
         script = CHAT_JS.read_text(encoding="utf-8")
 
-        # 手機版從左緣往右滑展開選單。
         self.assertIn('addEventListener("touchstart"', script)
-        self.assertIn("touch.clientX > 24", script)
-        self.assertIn("deltaX > 50", script)
+        # 關著時只認左緣起手，才不會跟內容的橫向捲動打架。
+        self.assertIn("if (!open && touch.clientX > SWIPE_EDGE) return;", script)
+        self.assertIn("const SWIPE_EDGE = 24;", script)
+        # 開著時畫面任何地方往左滑都收起來。
+        self.assertIn("!swipe.open && deltaX > SWIPE_DISTANCE", script)
+        self.assertIn("swipe.open && deltaX < -SWIPE_DISTANCE", script)
+        self.assertIn("openSidebar();", script)
+        self.assertIn("closeSidebar();", script)
+        # 直向偏移過大就是在捲動，要取消手勢。
+        self.assertIn("> SWIPE_DRIFT", script)
 
     def test_bootstrap_never_spins_for_ever(self):
         script = CHAT_JS.read_text(encoding="utf-8")
