@@ -191,6 +191,50 @@ class StaticUiTests(unittest.TestCase):
         # 返回前台用左箭頭。
         self.assertIn('data-lucide="arrow-left"', html)
 
+    def test_badges_never_outsize_the_title(self):
+        """標籤沒設字級會繼承瀏覽器預設的 16px，比 15px 的標題還大。"""
+        css = CSS.read_text(encoding="utf-8")
+
+        for selector in (".domain-badge", ".origin-badge"):
+            # 只看行首那一條——「.knowledge-summary > .origin-badge」是另一條規則。
+            rule = next(
+                line for line in css.splitlines()
+                if line.startswith(selector + " {")
+            )
+            self.assertIn("font-size: 13px", rule, selector)
+
+    def test_mobile_admin_keeps_the_desktop_forms(self):
+        """手機版不要把按鈕的字藏起來，也不要把表單拆成怪形狀。"""
+        css = CSS.read_text(encoding="utf-8")
+
+        mobile = css.split("手機版後台＝App 的形狀", 1)[1].split("@media", 1)[0]
+        # 按鈕要看得到字（只有底部分頁列例外，它用 data-short）。
+        self.assertNotIn(".admin-search-form .command-button span { display: none; }", css)
+        # 帳號表單的下拉要跟輸入框一樣寬。
+        self.assertIn(".user-form .select-field, .user-form .select-button, .user-form select { width: 100%", mobile)
+        # 校調卡的標題列維持橫排，不然還原鍵會變成滿版的空盒子。
+        self.assertIn(".tuning-rule-head { flex-direction: row;", mobile)
+
+    def test_mobile_knowledge_rows_wrap_into_two_lines(self):
+        """390px 放不下一列六個欄位，改成標題＋字數一行、定位點一行。"""
+        css = CSS.read_text(encoding="utf-8")
+
+        # **這個 media query 一定要在桌機規則後面**：media query 不加權重，
+        # 同分時後者勝，寫在前面會被蓋掉（實測標題被擠成一個字）。
+        desktop_at = css.index(".knowledge-summary-title { flex:")
+        mobile_at = css.index("知識庫的手機版")
+        self.assertGreater(mobile_at, desktop_at)
+
+        mobile = css.split("知識庫的手機版", 1)[1].split("\n}", 1)[0]
+        self.assertIn("flex-wrap: wrap", mobile)
+        # 定位點要真的換行，而且排在字數後面。
+        locator = mobile.split(".knowledge-summary > .source-locator {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 100%", locator)
+        self.assertIn("order: 3", locator)
+        # 縮排用 padding：margin 會加在 100% 之外，右緣會溢出。
+        self.assertIn("padding-left", locator)
+        self.assertNotIn("margin-left", locator)
+
     def test_upload_opens_as_a_modal(self):
         """「上傳檔案」按下去是彈窗，不是頁面裡的一塊。"""
         html = ADMIN.read_text(encoding="utf-8")
