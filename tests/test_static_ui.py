@@ -127,6 +127,24 @@ class StaticUiTests(unittest.TestCase):
         opener = script.split("function openSidebar()", 1)[1].split("\n  }", 1)[0]
         self.assertIn('classList.add("clear")', opener)
 
+    def test_a_blank_line_does_not_restart_the_numbering(self):
+        """模型常在每個編號之間空一行；空行不能把清單收掉。
+
+        收掉的話每一項都各自變成一個 <ol>，畫面上就全部是「1.」。
+        """
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        renderer = script.split("function renderAssistantMarkup", 1)[1].split("\n  }", 1)[0]
+        blank_branch = renderer.split("if (!line.trim()) {", 1)[1].split("\n      }", 1)[0]
+        # 註解裡會提到 flushList，比對前先把註解拿掉。
+        code = "\n".join(
+            line for line in blank_branch.splitlines() if not line.strip().startswith("//")
+        )
+        # 空行只收段落，清單留著；段落與標題那兩條路自己會先 flushList()。
+        self.assertIn("flushParagraph();", code)
+        self.assertNotIn("flushList", code)
+        self.assertIn("flushList();\n      paragraph.push(", renderer)
+
     def test_upload_opens_as_a_modal(self):
         """「上傳檔案」按下去是彈窗，不是頁面裡的一塊。"""
         html = ADMIN.read_text(encoding="utf-8")
