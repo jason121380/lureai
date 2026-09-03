@@ -19,8 +19,8 @@ def approved_chunk(**overrides):
         "source_file": "curated/燙髮後照護.md",
         "source_sha256": "abc123",
         "category": "顧客服務",
-        "access_level": "customer_service",
-        "customer_service_allowed": True,
+        "access_level": "internal_coaching",
+        "rag_allowed": True,
         "review_status": "approved",
     }
     row.update(overrides)
@@ -60,27 +60,29 @@ class IngestTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertIn("locator", " ".join(errors))
 
-    def test_internal_coaching_chunk_requires_explicit_profile(self):
-        row = approved_chunk(
-            access_level="internal_coaching",
-            customer_service_allowed=False,
-            rag_allowed=True,
-        )
+    def test_validate_chunk_rejects_mismatched_access_level(self):
+        row = approved_chunk(access_level="restricted")
 
-        default_valid, _ = validate_chunk(row)
-        coaching_valid, errors = validate_chunk(row, expected_access_level="internal_coaching")
+        valid, errors = validate_chunk(row)
 
-        self.assertFalse(default_valid)
-        self.assertTrue(coaching_valid, errors)
+        self.assertFalse(valid)
+        self.assertIn("access_level must be internal_coaching", " ".join(errors))
+
+    def test_rag_allowed_is_required_and_legacy_approval_is_not_a_substitute(self):
+        """客服版（2026-08-31 移除）曾允許 customer_service_allowed=True 代替
+        rag_allowed。橋接拆掉之後，匯入契約只有一條：rag_allowed 必須為 true。"""
+        row = approved_chunk()
+        row.pop("rag_allowed")
+        row["customer_service_allowed"] = True
+
+        valid, errors = validate_chunk(row)
+
+        self.assertFalse(valid)
+        self.assertIn("rag_allowed must be true", " ".join(errors))
 
     def test_ingest_accepts_only_matching_internal_coaching_chunks(self):
         path = self.write_jsonl([
-            approved_chunk(
-                chunk_id="coach-1",
-                access_level="internal_coaching",
-                customer_service_allowed=False,
-                rag_allowed=True,
-            ),
+            approved_chunk(chunk_id="coach-1"),
         ])
 
         report = ingest_jsonl(self.store, path, expected_access_level="internal_coaching")

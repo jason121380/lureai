@@ -1491,7 +1491,7 @@
   }
 
   function applyProfile(body) {
-    state.profile = body.profile || "customer_service";
+    state.profile = body.profile || "designer_coach";
     state.assistantName = body.assistant_name || "AI 輔導教練";
     state.welcomePrompts = Array.isArray(body.welcome_prompts) && body.welcome_prompts.length
       ? body.welcome_prompts.slice(0, WELCOME_PROMPT_POOL)

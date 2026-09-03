@@ -275,10 +275,10 @@ class AppContext:
     chat_limiter: RequestRateLimiter = field(default_factory=RequestRateLimiter)
     # 併發時的預算把關：呼叫模型之前先預留、記完帳再釋放。
     budget: BudgetLedger = field(default_factory=BudgetLedger)
-    profile: str = "customer_service"
-    access_level: str = "customer_service"
-    app_name: str = "張副總 AI 客服"
-    assistant_name: str = "AI 客服"
+    profile: str = "designer_coach"
+    access_level: str = "internal_coaching"
+    app_name: str = "LUREAI 你的智慧大腦中心"
+    assistant_name: str = "AI 輔導教練"
     welcome_prompts: tuple[str, ...] = ()
     pipeline_stats: dict | None = None
     max_request_bytes: int = 65536
@@ -298,10 +298,10 @@ class AppContext:
         policy_path: str | Path | None = None,
         minimum_score: float = 0.72,
         top_k: int = 6,
-        profile: str = "customer_service",
-        access_level: str = "customer_service",
-        app_name: str = "張副總 AI 客服",
-        assistant_name: str = "AI 客服",
+        profile: str = "designer_coach",
+        access_level: str = "internal_coaching",
+        app_name: str = "LUREAI 你的智慧大腦中心",
+        assistant_name: str = "AI 輔導教練",
         welcome_prompts: tuple[str, ...] = (),
         blocked_topics: dict | None = None,
         fallback_message: str | None = None,

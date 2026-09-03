@@ -40,7 +40,6 @@ class KnowledgeStore:
                 source_sha256 TEXT,
                 category TEXT,
                 access_level TEXT NOT NULL,
-                customer_service_allowed INTEGER NOT NULL,
                 review_status TEXT NOT NULL,
                 reviewer TEXT,
                 reviewed_at TEXT,
@@ -161,7 +160,23 @@ class KnowledgeStore:
         self.connection.execute(
             "CREATE INDEX IF NOT EXISTS audits_user_created_idx ON audits(user_id, created_at)"
         )
+        # 客服版（2026-08-31 移除）留下的欄位：全 repo 沒有任何讀取者，純寫入
+        # 殭屍欄位。新資料庫不再建立；既有資料庫開機時砍掉。舊 SQLite（<3.35
+        # 沒有 DROP COLUMN）砍不動時保留相容寫入（NOT NULL 又沒有 default，
+        # 不寫的話 replace_chunks 會炸），本機舊資料庫照常運作。
+        if self._has_column("chunks", "customer_service_allowed"):
+            try:
+                self.connection.execute("ALTER TABLE chunks DROP COLUMN customer_service_allowed")
+            except sqlite3.OperationalError:
+                pass
+        self._legacy_csa_column = self._has_column("chunks", "customer_service_allowed")
         self.connection.commit()
+
+    def _has_column(self, table: str, column: str) -> bool:
+        return any(
+            str(row["name"]) == column
+            for row in self.connection.execute(f"PRAGMA table_info({table})")
+        )
 
     def reply_metrics(self, since: str) -> dict:
         """後台總覽要看得到的三個數字：查不到資料的比例、品質重打率、平均輸入量。
@@ -616,29 +631,32 @@ class KnowledgeStore:
         return [dict(row) for row in rows]
 
     def _insert_chunk(self, row: dict, origin: str) -> None:
+        columns = [
+            "chunk_id", "doc_id", "locator", "section_title", "text", "title",
+            "source_file", "source_sha256", "category", "access_level",
+            "review_status", "reviewer", "reviewed_at", "search_text",
+            "metadata_json", "origin", "domain", "aliases",
+        ]
+        values = [
+            row["chunk_id"], row.get("doc_id"), row["locator"],
+            row.get("section_title", ""), row["text"], row["title"],
+            row["source_file"], row.get("source_sha256", ""),
+            row.get("category", ""), row["access_level"],
+            row["review_status"], row.get("reviewer", ""),
+            row.get("reviewed_at", ""), row["search_text"],
+            json.dumps(row, ensure_ascii=False), origin, domain_of(row),
+            # 一個問法一行：問法索引是人工寫的「這句話問的是哪一塊知識」，
+            # 用空白接起來就分不出邊界，也就比不出「整句正好是這個問法」。
+            "\n".join(row.get("aliases") or []) if isinstance(row.get("aliases"), list)
+            else str(row.get("aliases") or ""),
+        ]
+        if self._legacy_csa_column:
+            # 舊 SQLite 砍不掉的客服版欄位（NOT NULL 無 default），補 0 讓寫入不炸。
+            columns.append("customer_service_allowed")
+            values.append(0)
         cursor = self.connection.execute(
-            """
-            INSERT INTO chunks (
-                chunk_id, doc_id, locator, section_title, text, title,
-                source_file, source_sha256, category, access_level,
-                customer_service_allowed, review_status, reviewer,
-                reviewed_at, search_text, metadata_json, origin, domain, aliases
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row["chunk_id"], row.get("doc_id"), row["locator"],
-                row.get("section_title", ""), row["text"], row["title"],
-                row["source_file"], row.get("source_sha256", ""),
-                row.get("category", ""), row["access_level"],
-                int(row.get("customer_service_allowed") is True),
-                row["review_status"], row.get("reviewer", ""),
-                row.get("reviewed_at", ""), row["search_text"],
-                json.dumps(row, ensure_ascii=False), origin, domain_of(row),
-                # 一個問法一行：問法索引是人工寫的「這句話問的是哪一塊知識」，
-                # 用空白接起來就分不出邊界，也就比不出「整句正好是這個問法」。
-                "\n".join(row.get("aliases") or []) if isinstance(row.get("aliases"), list)
-                else str(row.get("aliases") or ""),
-            ),
+            f"INSERT INTO chunks ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+            values,
         )
         self.connection.execute(
             "INSERT INTO chunks_fts(rowid, chunk_id, title, section_title, search_text) VALUES (?, ?, ?, ?, ?)",

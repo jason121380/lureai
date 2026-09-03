@@ -119,11 +119,7 @@ class RuntimeTests(unittest.TestCase):
             database = root / "knowledge.db"
             static = root / "static"
             static.mkdir()
-            internal = approved_chunk(
-                access_level="internal_coaching",
-                customer_service_allowed=False,
-                rag_allowed=True,
-            )
+            internal = approved_chunk()
             source.write_text(json.dumps(internal, ensure_ascii=False), encoding="utf-8")
             first = AppContext.create(
                 database, source, static, "token", access_level="internal_coaching"
@@ -132,7 +128,7 @@ class RuntimeTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 AppContext.create(
-                    database, source, static, "token", access_level="customer_service"
+                    database, source, static, "token", access_level="restricted"
                 )
 
 

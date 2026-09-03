@@ -1,1 +1,1 @@
-"""張副總 AI 客服 RAG application package."""
+"""lure ai 私有 RAG application package（designer_coach 輔導大腦）。"""
