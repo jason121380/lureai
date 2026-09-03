@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VECTORS = json.loads((Path(__file__).parent / "split_vectors.json").read_text(encoding="utf-8"))
 CHAT_JS = ROOT / "static" / "chat.js"
 # chat.js 裡要抽出來在 node 執行的那幾個函式（依相依順序）。
-JS_FUNCTIONS = ("stripAsciiDots", "cleanChatLine", "glueFragments", "wrapLine", "serviceSentences")
+JS_FUNCTIONS = ("stripAsciiDots", "cleanChatLine", "glueFragments", "wrapLine", "softenQuestions", "serviceSentences")
 
 
 def _extract(source: str, name: str) -> str:
@@ -58,6 +58,16 @@ class SplitVectorTests(unittest.TestCase):
     def test_the_allowed_exclamation_mark_survives(self):
         # service-12／line 語氣明文允許「！」與「～」，程式不可以再剝掉。
         self.assertIn("！", " ".join(postprocess("沒關係！我來幫你分析看看～")))
+
+    def test_a_bare_question_keeps_a_tilde_instead_of_reading_like_a_statement(self):
+        """問號不能整顆吃掉（使用者決定用「～」）。
+
+        「你想先調哪一段？」剝掉問號、又沒有語助詞收尾，畫面上就是一句
+        冷冷的陳述句；句尾本來就有「嗎」「呢」的問句聽得出來在問，照舊拿掉。"""
+        self.assertTrue(postprocess("我該怎麼接？")[0].endswith("～"))
+        self.assertTrue(postprocess("這樣可以嗎？")[0].endswith("嗎"))
+        # 已經有「～」的不要疊出「～～」。
+        self.assertTrue(postprocess("有幾個真的來店～？")[0].endswith("店～"))
 
 
 @unittest.skipUnless(shutil.which("node"), "需要 node 才能執行 chat.js 的函式")

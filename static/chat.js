@@ -922,8 +922,20 @@
     return lines;
   }
 
+  // 「？」不能整顆吃掉：問句剝掉問號、又沒有語助詞收尾，讀起來像冷冷的
+  // 陳述句。句尾已有「嗎」「呢」這類字的照舊拿掉；沒有的把「？」換成「～」
+  // （使用者決定）。app/humanize.py 的 soften_questions 是同一份實作，
+  // 改一邊要改兩邊（tests/split_vectors.json 有共用向量守著）。
+  function softenQuestions(text) {
+    const endings = "嗎呢吧嘛麼么～唷呀啦喔哦欸！!";
+    return String(text || "").replace(/[？?]+/g, (match, offset, source) => {
+      const previous = offset ? source[offset - 1] : "";
+      return endings.includes(previous) ? " " : "～ ";
+    });
+  }
+
   function serviceSentences(content) {
-    const bubbles = String(content || "")
+    const bubbles = softenQuestions(String(content || ""))
       .split(/\n[ \t]*\n+/)
       .map((block) => block.split("\n").map(cleanChatLine).filter(Boolean).join("\n"))
       .filter(Boolean);
