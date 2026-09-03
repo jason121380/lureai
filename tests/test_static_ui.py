@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -737,6 +738,38 @@ class SyncAndStreamTests(unittest.TestCase):
         """A 還在生成、人切到 B，A 的字不可以一個一個打進 B 的泡泡裡。"""
         self.assertIn("const streamingId = conversation.id;", self.chat)
         self.assertIn("if (state.activeId !== streamingId) return;", self.chat)
+
+    def test_browser_smoke_selectors_match_the_real_frontend(self):
+        """browser_smoke.py 的 docstring 自己寫著：對不上實作的煙霧測試比沒有
+        更危險——而它已經漂移過兩次（#gate-token、.message.assistant）。這裡
+        把腳本裡引用的每個 #id 與 .class 抓出來，對照 static/ 檔案裡出現過的
+        字串 token；再漂移會在單元測試就被擋下，不用等到有人手動跑 E2E。"""
+        smoke = (ROOT / "tests" / "browser_smoke.py").read_text(encoding="utf-8")
+        selectors = re.findall(
+            r"(?:wait_for_selector|locator|click|fill|querySelector(?:All)?|closest)"
+            r"\(\s*['\"]([^'\"]+)['\"]",
+            smoke,
+        )
+        self.assertGreater(len(selectors), 10, "抓不到選擇器＝這個守門自己壞了")
+        # DOM 裡的 id 與 class 一定經過某個字串常值（HTML 屬性、className、
+        # classList、`message-row ${role}` 模板的固定半邊、role 常值字串），
+        # 所以把所有引號字串拆成 token 當作「前端真的有」的集合。
+        dom_sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (INDEX, ADMIN, CHAT_JS, ADMIN_JS, APP_JS)
+        )
+        tokens = set()
+        for match in re.finditer(r'"([^"\n]*)"|\'([^\'\n]*)\'|`([^`\n]*)`', dom_sources):
+            for value in match.groups():
+                if value:
+                    # `${error.message}` 這種插值不是 DOM 字串，剝掉再取 token，
+                    # 不然 "message" 會混進集合，.message 這種漂移就抓不到了。
+                    tokens.update(re.findall(r"[\w-]+", re.sub(r"\$\{[^}]*\}", " ", value)))
+        for selector in selectors:
+            for id_token in re.findall(r"#([A-Za-z][\w-]*)", selector):
+                self.assertIn(id_token, tokens, f"煙霧測試引用的 #{id_token} 不在前端裡（{selector}）")
+            for class_token in re.findall(r"\.([A-Za-z][\w-]*)", selector):
+                self.assertIn(class_token, tokens, f"煙霧測試引用的 .{class_token} 不在前端裡（{selector}）")
 
 if __name__ == "__main__":
     unittest.main()
