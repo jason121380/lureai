@@ -4,6 +4,8 @@
 這裡只負責送出前的固定動作：剝掉引用編號、去標點、拆則、給一個像真人的停頓秒數。
 lurebot 收到之後就是等秒數、照順序送出。
 """
+from __future__ import annotations
+
 
 import random
 import re

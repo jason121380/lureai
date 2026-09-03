@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import secrets
 import sys
 from pathlib import Path
+
+# 版本檢查要在 import app 之前：程式碼用了 3.10 的型別語法，舊直譯器
+# （例如 macOS 內建的 3.9）會在 import 階段就丟一句看不懂的 TypeError，
+# 使用者根本不知道是版本問題。
+if sys.version_info < (3, 10):
+    sys.exit(
+        f"lure ai 需要 Python 3.10 以上（目前是 {sys.version.split()[0]}）。"
+        "macOS 可用 python3.12 指令或從 python.org 安裝新版。"
+    )
 
 from app.ingest import ingest_jsonl
 from app.policy import SENSITIVE_TOPICS

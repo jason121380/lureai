@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hmac
 import hashlib
 import ipaddress
@@ -77,6 +79,28 @@ class BudgetLedger:
             self._pending.setdefault(int(user_id), []).append(float(amount))
         return token
 
+    def check_and_reserve(
+        self, user_id: int | None, amount: float, spend_twd: float, budget_twd: float,
+    ) -> tuple[bool, tuple | None]:
+        """「還在預算內嗎」與「預留」要在同一次取鎖裡做完。
+
+        分開做的話（先讀含 pending 的餘額、再 reserve），兩個同時到的請求
+        會在彼此 reserve 之前都讀到同一份 pending，一起判定沒超額——預算
+        照樣被穿過。spend_twd 是資料庫裡已結算的花費，由呼叫端先讀好帶進來
+        （已結算的部分只增不減，不需要跟 pending 同一把鎖）。
+        """
+        if user_id is None:
+            return True, None
+        with self._lock:
+            pending = float(sum(self._pending.get(int(user_id), ())))
+            if budget_twd > 0 and spend_twd + pending >= budget_twd:
+                return False, None
+            if amount <= 0:
+                return True, None
+            token = (user_id, next(self._next), float(amount))
+            self._pending.setdefault(int(user_id), []).append(float(amount))
+        return True, token
+
     def release(self, token: tuple | None) -> None:
         if not token:
             return
@@ -100,8 +124,6 @@ class BudgetLedger:
 
 
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "48") or 48)
-# 滿載時等這麼久還排不到就回 503，不要無限排隊。
-WORKER_WAIT_SECONDS = 5.0
 # 讀完整個 request body 的總時限（socket timeout 管的是「兩次收到資料之間」，
 # 每 25 秒滴一個位元組就能把一條執行緒綁住任意久）。
 BODY_READ_TIMEOUT = 20.0
@@ -620,7 +642,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 parts.append("Secure")
             return "; ".join(parts)
 
-        def _usage_summary(self, user_id: int) -> dict:
+        def _usage_summary(self, user_id: int, include_pending: bool = True) -> dict:
             now = datetime.now(ZoneInfo("Asia/Taipei"))
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             if month_start.month == 12:
@@ -636,11 +658,13 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 month=f"{now.year:04d}-{now.month:02d}", **totals
             )
             # 已經送出去、還沒記到帳的那幾筆也要算進來，否則同時進來的請求
-            # 讀到的是同一個餘額，會一起穿過上限。
-            pending = context.budget.pending_for(user_id)
-            if pending:
-                summary = dict(summary)
-                summary["spend_twd"] = round(summary["spend_twd"] + pending, 4)
+            # 讀到的是同一個餘額，會一起穿過上限。（_reserve_budget 走
+            # check_and_reserve，pending 由那把鎖自己加，這裡就不要重複算。）
+            if include_pending:
+                pending = context.budget.pending_for(user_id)
+                if pending:
+                    summary = dict(summary)
+                    summary["spend_twd"] = round(summary["spend_twd"] + pending, 4)
             return summary
 
         def _reserve_budget(self, user_id: int | None) -> tuple[bool, tuple | None]:
@@ -648,16 +672,18 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
 
             回傳 `(可以用模型, 預留憑證)`；**憑證一定要在 finally 裡釋放**，
             不然那筆估計值會一直掛在帳上，之後的請求都會被擋。
+            檢查與預留在 check_and_reserve 的同一把鎖裡做完：分開做的話，
+            同一微秒到的兩個請求會都讀到「還沒超額」再各自預留，一起穿過上限。
             """
-            summary = self._usage_summary(user_id) if user_id else {}
-            within = (
-                not summary
-                or summary["budget_twd"] <= 0
-                or summary["spend_twd"] < summary["budget_twd"]
+            if not user_id:
+                return True, None
+            summary = self._usage_summary(user_id, include_pending=False)
+            return context.budget.check_and_reserve(
+                user_id,
+                context.pricing.typical_cost_twd(),
+                summary["spend_twd"],
+                summary["budget_twd"],
             )
-            if not within:
-                return False, None
-            return True, context.budget.reserve(user_id, context.pricing.typical_cost_twd())
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -1357,9 +1383,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         # 不要無限排隊（排隊只是把爆掉的時間往後延，而且延到沒人知道為什麼慢）。
         workers = threading.BoundedSemaphore(MAX_WORKERS)
 
-        def process_request_thread(self, request, client_address):
-            if not self.workers.acquire(timeout=WORKER_WAIT_SECONDS):
+        # 號誌一定要在「建執行緒之前」拿：process_request_thread 是在新執行緒
+        # 裡面才跑的，在那裡面等號誌等於執行緒已經開出去了——一千條慢速連線
+        # 就是一千條執行緒各卡五秒，記憶體照樣被吃光。這裡在 accept 迴圈裡
+        # 非阻塞地拿，拿不到直接回 503（accept 迴圈不能等，等了所有連線都進不來）。
+        def process_request(self, request, client_address):
+            if not self.workers.acquire(blocking=False):
                 try:
+                    # 回絕訊息也不能被塞住的 socket 綁住 accept 迴圈。
+                    request.settimeout(2.0)
                     request.sendall(
                         b"HTTP/1.1 503 Service Unavailable\r\n"
                         b"Content-Length: 0\r\nConnection: close\r\n"
@@ -1369,6 +1401,14 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     pass
                 self.shutdown_request(request)
                 return
+            try:
+                super().process_request(request, client_address)
+            except Exception:
+                # 執行緒沒開起來就要自己還，否則名額永遠少一個。
+                self.workers.release()
+                raise
+
+        def process_request_thread(self, request, client_address):
             try:
                 super().process_request_thread(request, client_address)
             finally:

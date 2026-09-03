@@ -4,6 +4,8 @@ The assistant can only answer as well as its sources read, so these checks
 surface chunks that are fragments, mostly redaction markers, or carry a
 meaningless title (an OCR'd slide filename, say).
 """
+from __future__ import annotations
+
 
 import re
 

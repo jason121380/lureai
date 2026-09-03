@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import json
 import os
 import sqlite3
 import tempfile
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -16,6 +19,7 @@ class KnowledgeStore:
         self.connection = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
         self.connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._audit_writes = 0
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA busy_timeout=30000")
         self.connection.execute("PRAGMA foreign_keys=ON")
@@ -372,8 +376,30 @@ class KnowledgeStore:
         size_bytes = self.db_path.stat().st_size if self.db_path.is_file() else 0
         return {"integrity": integrity, "writable": writable, "size_bytes": size_bytes}
 
+    # 稽核只保留這麼多天：月預算看當月、後台指標看 30 天，都用不到更舊的。
+    # 不清的話 audits 只進不出，Postgres 快照每 120 秒都要把整張表讀出來
+    # 上傳，幾個月後就是幾十萬列的鎖競爭。每 512 筆順手掃一次（開機後第一筆
+    # 也掃，重新部署還原快照之後才輪得到清理）。
+    AUDIT_RETENTION_DAYS = 180
+    _AUDIT_SWEEP_EVERY = 512
+
+    def _sweep_audits(self) -> None:
+        """caller 持鎖並在交易內。刪過期稽核，連同指向它們的回饋一起。"""
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=self.AUDIT_RETENTION_DAYS)
+        ).isoformat()
+        self.connection.execute(
+            "DELETE FROM feedback WHERE trace_id IN "
+            "(SELECT trace_id FROM audits WHERE created_at < ?)",
+            (cutoff,),
+        )
+        self.connection.execute("DELETE FROM audits WHERE created_at < ?", (cutoff,))
+
     def add_audit(self, record: dict) -> None:
         with self._lock, self.connection:
+            if self._audit_writes % self._AUDIT_SWEEP_EVERY == 0:
+                self._sweep_audits()
+            self._audit_writes += 1
             self.connection.execute(
                 """
                 INSERT INTO audits (
@@ -644,6 +670,12 @@ class KnowledgeStore:
         with self._lock, self.connection:
             self._delete_chunk_rows("chunk_id = ?", (row["chunk_id"],))
             self._insert_chunk(row, "custom")
+
+    def clear_custom_chunks(self) -> None:
+        """還原快照前用：快照是自訂知識的全量真相，先清空才不會讓
+        「在別台刪掉的那幾則」留在資料庫裡復活。"""
+        with self._lock, self.connection:
+            self._delete_chunk_rows("origin = ?", ("custom",))
 
     def delete_custom_chunk(self, chunk_id: str) -> bool:
         with self._lock, self.connection:

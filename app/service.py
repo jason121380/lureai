@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import re
 from datetime import datetime, timezone
@@ -348,7 +350,7 @@ class CustomerService:
 
     def _enforce_quality(
         self, question, answer, grounded_hits, recent_history, tone, extra_instruction,
-        deadline=None,
+        deadline=None, found=None,
     ) -> tuple[str, dict, int]:
         """生成完之後的品質檢查：命中就帶著具體理由重打一次。
 
@@ -359,7 +361,9 @@ class CustomerService:
             "input_tokens": 0, "cached_input_tokens": 0,
             "cache_write_input_tokens": 0, "output_tokens": 0,
         }
-        found = quality.problems(question, answer, tone=tone)
+        # 串流那條路會先自己檢查一次（要在重打前吐 status 事件），檢查過的
+        # 就帶進來，不要再算一遍。
+        found = quality.problems(question, answer, tone=tone) if found is None else found
         retry = getattr(self.answerer, "retry_for_quality", None)
         if not found or not callable(retry):
             return answer, empty, 0
@@ -582,8 +586,14 @@ class CustomerService:
                 # 這裡放在兩條分支之外，是為了連「引用重試」補回來的那則也查：
                 # 舊版重打補回 `[n]` 之後就直接送出，內容空不空完全沒查。
                 before_quality = answer
+                # 重打要 5~15 秒，而前端收到第一個字就把等待提示停了——不先
+                # 說一聲，畫面會完全靜止、然後整段文字在使用者眼前突然換掉。
+                found = quality.problems(question, answer, tone=tone)
+                if found and callable(getattr(self.answerer, "retry_for_quality", None)):
+                    yield {"type": "status", "stage": "refining"}
                 answer, extra_usage, retries = self._enforce_quality(
                     question, answer, grounded_hits, recent_history, tone, note, deadline,
+                    found=found,
                 )
                 usage = {key: usage.get(key, 0) + extra_usage.get(key, 0) for key in empty_usage}
                 if answer != before_quality:

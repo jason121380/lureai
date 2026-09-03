@@ -136,6 +136,9 @@ class PostgresReplica:
                     )
                 counts[table] = len(rows)
         custom_rows = [row for row in (payload.get("custom_chunks") or []) if isinstance(row, dict)]
+        # 快照是自訂知識的全量真相：跟 DURABLE_TABLES 一樣先清空再寫回。
+        # 只 upsert 的話，資料庫裡快照沒有的那幾則（在別台刪掉的）會留著復活。
+        store.clear_custom_chunks()
         for row in custom_rows:
             try:
                 store.upsert_custom_chunk(row)

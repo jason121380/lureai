@@ -2,6 +2,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.auth import AuthManager, LoginRateLimiter, SCRYPT_N
 from app.storage import KnowledgeStore
@@ -88,6 +89,21 @@ class AuthTests(unittest.TestCase):
         self.assertFalse(limiter.allowed("client"))
         limiter.succeeded("client")
         self.assertTrue(limiter.allowed("client"))
+
+    def test_login_rate_limiter_sweeps_keys_that_are_never_queried_again(self):
+        """撞庫攻擊每次換一個 XFF 或帳號就是一把新鑰匙，只出現一次的 key
+        永遠不會再被 _prune 查到——不整份掃的話，字典只進不出直到記憶體吃光。"""
+        limiter = LoginRateLimiter(max_failures=3, window_seconds=60)
+        limiter.SWEEP_EVERY = 4
+        with patch("app.auth.time.monotonic") as clock:
+            clock.return_value = 0.0
+            for n in range(3):
+                limiter.failed(f"ip|10.0.0.{n}|user-{n}")
+            # 視窗過了之後來的下一次失敗要順手把上面三把清掉。
+            clock.return_value = 120.0
+            limiter.failed("ip|10.9.9.9|fresh")
+
+        self.assertEqual(set(limiter._failures), {"ip|10.9.9.9|fresh"})
 
     def test_password_reset_cannot_leave_old_password_session(self):
         self.auth.create_or_reset_user("designer", "first-password")

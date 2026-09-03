@@ -116,6 +116,35 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(len(target.list_chunks(limit=1000, origin="file")), 1)
         target.close()
 
+    def test_restore_does_not_resurrect_custom_chunks_deleted_elsewhere(self):
+        """快照是自訂知識的全量真相：目標庫裡快照沒有的那幾則（在別台刪掉的）
+        還原後必須消失，只 upsert 不清空會讓刪掉的知識復活。"""
+        driver = FakeDriver()
+        source = make_store(self.root, "source.db")
+        source.upsert_custom_chunk(build_custom_chunk({
+            "section_title": "留下來的知識",
+            "category": "自訂",
+            "domain": "coaching",
+            "text": "這一則在快照裡，必須在還原之後活著。",
+        }, "internal_coaching"))
+        replica = PostgresReplica("postgresql://fake", driver=driver, interval=999)
+        self.assertTrue(replica.backup(source))
+        source.close()
+
+        target = make_store(self.root, "target.db")
+        target.upsert_custom_chunk(build_custom_chunk({
+            "section_title": "已在別台刪掉的知識",
+            "category": "自訂",
+            "domain": "coaching",
+            "text": "這一則不在快照裡，代表已經被刪掉，不可以復活。",
+        }, "internal_coaching"))
+        fresh = PostgresReplica("postgresql://fake", driver=driver, interval=999)
+        self.assertTrue(fresh.restore(target))
+
+        customs = target.list_chunks(limit=1000, origin="custom")
+        self.assertEqual([item["section_title"] for item in customs], ["留下來的知識"])
+        target.close()
+
     def test_restore_returns_false_when_snapshot_is_empty(self):
         target = make_store(self.root, "empty.db")
         replica = PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999)

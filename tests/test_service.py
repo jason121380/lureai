@@ -328,6 +328,35 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("20%", result["answer"])
         self.assertEqual(result["retries"], 1)
 
+    def test_stream_announces_the_quality_rewrite_before_replacing_the_text(self):
+        """品質重打要 5~15 秒，而前端收到第一個字就把等待提示停了——不先送
+        status 事件，畫面會完全靜止、然後整段文字在使用者眼前突然換掉。"""
+
+        class QualityRetryAnswerer:
+            model_enabled = True
+            model_name = "test-model"
+
+            def stream_answer(self, _question, _hits, history=None, tone="expert"):
+                yield ("delta", "我陪你一起拆這個問題 [1]")
+
+            def retry_for_quality(
+                self, _question, _hits, found, history=None, tone="expert",
+                extra_instruction="",
+            ):
+                return "先看到店率 20% [1]", {"input_tokens": 10, "output_tokens": 5}
+
+            def _extractive_answer(self, hits, model_failed=False):
+                return "原文 [1]"
+
+        self.service.answerer = QualityRetryAnswerer()
+        events = list(self.service.chat_stream("燙髮後怎麼整理？"))
+
+        kinds = [event["type"] for event in events]
+        self.assertIn("status", kinds)
+        self.assertEqual(events[kinds.index("status")]["stage"], "refining")
+        self.assertLess(kinds.index("status"), kinds.index("result"))
+        self.assertIn("20%", events[-1]["answer"])
+
     def test_contact_details_never_reach_retrieval_or_the_model(self):
         """電話與 Email 在進檢索與模型之前就換成遮罩。
 
