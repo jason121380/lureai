@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import hmac
 import re
@@ -24,11 +26,26 @@ SCRYPT_MAXMEM = 256 * 1024 * 1024
 
 
 class LoginRateLimiter:
+    # 每累積這麼多次失敗就整份掃一次過期的 key。_prune 只清「再次被查到的
+    # 那一把」，而登入失敗的 key 是攻擊者出的（換一個 XFF 或帳號就是一把
+    # 新鑰匙），只出現一次的 key 永遠不會再被查到——不掃的話字典只進不出。
+    SWEEP_EVERY = 512
+
     def __init__(self, max_failures: int = 5, window_seconds: int = 300):
         self.max_failures = max_failures
         self.window_seconds = window_seconds
         self._failures: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
+        self._ops = 0
+
+    def _sweep(self, now: float) -> None:
+        """caller 持鎖。整份走一遍，把整把都過期的 key 刪掉。"""
+        self._ops += 1
+        if self._ops % self.SWEEP_EVERY:
+            return
+        cutoff = now - self.window_seconds
+        for key in [k for k, items in self._failures.items() if not items or items[-1] <= cutoff]:
+            del self._failures[key]
 
     def _prune(self, key: str, now: float) -> deque[float] | None:
         failures = self._failures.get(key)
@@ -48,9 +65,11 @@ class LoginRateLimiter:
             return failures is None or len(failures) < self.max_failures
 
     def failed(self, key: str) -> None:
+        now = time.monotonic()
         with self._lock:
-            self._prune(key, time.monotonic())
-            self._failures.setdefault(key, deque()).append(time.monotonic())
+            self._prune(key, now)
+            self._failures.setdefault(key, deque()).append(now)
+            self._sweep(now)
 
     def succeeded(self, key: str) -> None:
         with self._lock:

@@ -424,9 +424,11 @@
   }
 
   // 知識內文照原始結構條列呈現（- 與 1. 各自成 <ul>/<ol>），不再壓成一整段。
-  function knowledgeExcerpt(raw) {
+  // full=true 時整篇照排：展開列抓回完整內容後仍走這裡，不能再夾 400 字，
+  // 否則 API 回來的全文永遠只顯示前 400 字＋「…」。
+  function knowledgeExcerpt(raw, showFull = false) {
     const full = String(raw || "");
-    const text = full.slice(0, 400);
+    const text = showFull ? full : full.slice(0, 400);
     const blocks = [];
     let list = null;
     const flush = () => {
@@ -447,7 +449,7 @@
       }
     }
     flush();
-    return `<div class="knowledge-text">${blocks.join("")}${full.length > 400 ? '<p class="knowledge-more">…</p>' : ""}</div>`;
+    return `<div class="knowledge-text">${blocks.join("")}${!showFull && full.length > 400 ? '<p class="knowledge-more">…</p>' : ""}</div>`;
   }
 
   // 知識庫是一長串，攤開來看不完——做成 QA 那種收合清單：一列一則、彼此
@@ -486,11 +488,14 @@
     summary.setAttribute("aria-expanded", String(opening));
     summary.closest(".knowledge-row").classList.toggle("open", opening);
     // 清單只帶前 400 字，展開時才把完整內容抓回來（抓過就記住）。
-    if (opening && !item.fullText && (item.length || 0) > 400) {
+    // 清單重繪會把展開內容重設回摘要，所以已快取的也要重新填回全文。
+    if (opening && (item.length || 0) > 400) {
       try {
-        const body = await api(`/api/admin/knowledge/detail?chunk_id=${encodeURIComponent(item.chunk_id)}`);
-        item.fullText = body.chunk.text;
-        detail.innerHTML = knowledgeExcerpt(item.fullText)
+        if (!item.fullText) {
+          const body = await api(`/api/admin/knowledge/detail?chunk_id=${encodeURIComponent(item.chunk_id)}`);
+          item.fullText = body.chunk.text;
+        }
+        detail.innerHTML = knowledgeExcerpt(item.fullText, true)
           + detail.querySelector(".knowledge-actions").outerHTML;
         window.lucide?.createIcons();
       } catch (_) {

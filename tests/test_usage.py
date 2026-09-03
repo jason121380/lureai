@@ -65,6 +65,25 @@ class BudgetLedgerTests(unittest.TestCase):
         self.ledger.release(second)
         self.assertEqual(self.ledger.pending_for(1), 0.0)
 
+    def test_check_and_reserve_counts_pending_inside_the_same_lock(self):
+        """檢查與預留要在同一把鎖裡：分開做的話，兩個同時到的請求會在彼此
+        reserve 之前都讀到同一份 pending，一起判定沒超額、一起穿過上限。"""
+        # 已結算 0.5、上限 1.0：第一筆預留 0.65 之後，第二筆就該被擋下。
+        ok_first, first = self.ledger.check_and_reserve(1, 0.65, 0.5, 1.0)
+        ok_second, second = self.ledger.check_and_reserve(1, 0.65, 0.5, 1.0)
+        self.assertTrue(ok_first)
+        self.assertIsNotNone(first)
+        self.assertFalse(ok_second)
+        self.assertIsNone(second)
+        # 釋放之後又進得來；沒設上限（budget<=0）一律放行。
+        self.ledger.release(first)
+        ok_again, again = self.ledger.check_and_reserve(1, 0.65, 0.5, 1.0)
+        self.assertTrue(ok_again)
+        self.ledger.release(again)
+        ok_unlimited, token = self.ledger.check_and_reserve(1, 0.65, 999.0, 0.0)
+        self.assertTrue(ok_unlimited)
+        self.ledger.release(token)
+
     def test_releasing_twice_or_releasing_nothing_is_harmless(self):
         token = self.ledger.reserve(1, 0.5)
         self.ledger.release(token)

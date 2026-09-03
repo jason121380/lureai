@@ -687,14 +687,21 @@
     [25000, "這題比較複雜，還在寫"],
     [45000, "快好了，再等一下"],
   ];
+  // 品質重打的階段：字已經吐完才發現不合格，從 0 秒就要講，不能再從
+  // 「正在查知識庫」重數一輪。
+  const REFINE_HINTS = [
+    [0, "這則回答不夠具體，正在重寫"],
+    [20000, "快好了，再等一下"],
+  ];
   let waitTimer = null;
   let waitStartedAt = 0;
+  let waitHints = WAIT_HINTS;
 
   function paintWaitHint() {
     const hint = messages.querySelector(".message-text .wait-hint");
     if (!hint) return;
     const elapsed = Date.now() - waitStartedAt;
-    const stage = WAIT_HINTS.filter(([after]) => elapsed >= after).pop();
+    const stage = waitHints.filter(([after]) => elapsed >= after).pop();
     if (!stage) {
       hint.hidden = true;
       return;
@@ -704,11 +711,13 @@
     hint.textContent = `${stage[1]}（已等 ${Math.round(elapsed / 1000)} 秒）`;
   }
 
-  function startWaitHint() {
+  function startWaitHint(hints = WAIT_HINTS) {
     stopWaitHint();
+    waitHints = hints;
     waitStartedAt = Date.now();
     // 每秒重找一次節點：render() 隨時可能把整串訊息重畫掉。
     waitTimer = window.setInterval(paintWaitHint, 1000);
+    paintWaitHint();
   }
 
   function stopWaitHint() {
@@ -949,7 +958,7 @@
 
   // Reads the ndjson stream from /api/chat/stream: delta events update the
   // bubble as text arrives; the final result event is authoritative.
-  async function streamChat(payload, signal, onDelta) {
+  async function streamChat(payload, signal, onDelta, onStatus) {
     const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -968,6 +977,7 @@
       let event;
       try { event = JSON.parse(line); } catch (_) { return; }
       if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
+      else if (event.type === "status") onStatus?.(event);
       else if (event.type === "result") result = event;
     };
     if (response.body?.getReader) {
@@ -1055,6 +1065,23 @@
             textNode.textContent = streamedText;
             messages.scrollTop = messages.scrollHeight;
           }
+        },
+        (statusEvent) => {
+          // 品質重打：字已經吐完、等待提示也停了，中間 5~15 秒完全靜止，
+          // 然後整段文字突然換掉——先講一聲，秒數照樣要跳。
+          if (statusEvent.stage !== "refining") return;
+          if (state.activeId !== streamingId) return;
+          if (tone !== "service") {
+            // 吐字時 textContent 已把泡泡裡的提示節點洗掉了，補一個回去。
+            const textNode = messages.lastElementChild?.querySelector(".message-text");
+            if (textNode && !textNode.querySelector(".wait-hint")) {
+              const hint = document.createElement("p");
+              hint.className = "wait-hint";
+              hint.hidden = true;
+              textNode.appendChild(hint);
+            }
+          }
+          startWaitHint(REFINE_HINTS);
         },
       );
       conversation.messages[conversation.messages.length - 1] = {
