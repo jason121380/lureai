@@ -134,13 +134,32 @@ def strip_citations(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", cleaned)
 
 
+# 「？」不能整顆吃掉：問句剝掉問號、又沒有語助詞收尾，讀起來就是冷冷的
+# 陳述句（「你想先調哪一段」）。句尾本來就有「嗎」「呢」這類字的問句聽得出
+# 來在問，「？」照舊拿掉；沒有的把「？」換成「～」——它是規則明文允許的符
+# 號，也正是 service-16 要模型自己放在問句尾的那一個（使用者決定用「～」，
+# 不是保留「？」）。`static/chat.js` 的 `softenQuestions` 是同一份實作。
+SOFT_QUESTION_ENDINGS = "嗎呢吧嘛麼么～唷呀啦喔哦欸！!"
+QUESTION_MARK_PATTERN = re.compile(r"[？?]+")
+
+
+def soften_questions(text: str) -> str:
+    raw = str(text or "")
+
+    def _replace(match: re.Match) -> str:
+        previous = raw[match.start() - 1] if match.start() else ""
+        return " " if previous in SOFT_QUESTION_ENDINGS else "～ "
+
+    return QUESTION_MARK_PATTERN.sub(_replace, raw)
+
+
 def postprocess(reply_text: str) -> list[str]:
     """去引用、去標點（空白分段）、依空行分則（備援對半切）。回傳訊息列表。
 
     一則訊息裡面可以有好幾行（LINE 也支援換行），所以**空一行才代表換一則**，
     單純換行只是同一則裡的下一行。
     """
-    text = strip_citations(reply_text)
+    text = soften_questions(strip_citations(reply_text))
     # 條列記號與引號先拿掉（跟前端 `cleanChatLine` 同一套），再處理標點。
     text = "\n".join(
         LIST_MARKER.sub("", line).translate({ord(char): " " for char in QUOTE_CHARS})
