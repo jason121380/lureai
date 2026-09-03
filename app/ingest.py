@@ -26,7 +26,7 @@ def normalize_text(value: str) -> str:
 
 def validate_chunk(
     row: dict,
-    expected_access_level: str = "customer_service",
+    expected_access_level: str = "internal_coaching",
 ) -> tuple[bool, list[str]]:
     errors: list[str] = []
     if not isinstance(row, dict):
@@ -34,11 +34,9 @@ def validate_chunk(
     for field_name in REQUIRED_FIELDS:
         if not normalize_text(row.get(field_name, "")):
             errors.append(f"missing {field_name}")
-    legacy_customer_approval = (
-        expected_access_level == "customer_service"
-        and row.get("customer_service_allowed") is True
-    )
-    if row.get("rag_allowed") is not True and not legacy_customer_approval:
+    # 匯入契約只有一條：rag_allowed 必須為 true。客服版（2026-08-31 移除）
+    # 曾允許 customer_service_allowed=True 代替，橋接已拆。
+    if row.get("rag_allowed") is not True:
         errors.append("rag_allowed must be true")
     if row.get("review_status") != "approved":
         errors.append("review_status must be approved")
@@ -70,7 +68,7 @@ def _search_text(row: dict) -> str:
 def ingest_jsonl(
     store: KnowledgeStore,
     path: str | Path,
-    expected_access_level: str = "customer_service",
+    expected_access_level: str = "internal_coaching",
 ) -> IngestReport:
     source = Path(path)
     accepted: list[dict] = []

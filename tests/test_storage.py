@@ -41,6 +41,34 @@ class AuditRetentionTests(unittest.TestCase):
                 store.close()
 
 
+class LegacyColumnMigrationTests(unittest.TestCase):
+    def test_reopening_drops_the_legacy_customer_service_column(self):
+        """客服版（2026-08-31 移除）留下的 chunks.customer_service_allowed
+        沒有任何讀取者。既有資料庫在下一次開機時要被砍掉，而且砍完照常寫入。"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "knowledge.db"
+            store = KnowledgeStore(path)
+            store.connection.execute(
+                "ALTER TABLE chunks ADD COLUMN customer_service_allowed INTEGER NOT NULL DEFAULT 0"
+            )
+            store.connection.commit()
+            store.close()
+
+            reopened = KnowledgeStore(path)
+            try:
+                self.assertFalse(reopened._has_column("chunks", "customer_service_allowed"))
+                reopened.upsert_custom_chunk({
+                    "chunk_id": "admin:migrated", "locator": "migrated",
+                    "section_title": "搬完還能寫", "text": "欄位砍掉之後照常寫入。",
+                    "title": "後台新增知識", "source_file": "knowledge/admin_authored.md",
+                    "access_level": "internal_coaching", "review_status": "approved",
+                    "search_text": "搬完 還能 寫",
+                })
+                self.assertIsNotNone(reopened.get_chunk("admin:migrated"))
+            finally:
+                reopened.close()
+
+
 class StorageHealthTests(unittest.TestCase):
     def test_health_check_does_not_abort_an_active_reader(self):
         with tempfile.TemporaryDirectory() as directory:

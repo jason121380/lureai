@@ -96,7 +96,7 @@ class ApiTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["chunks"], 1)
-        self.assertEqual(body["profile"], "customer_service")
+        self.assertEqual(body["profile"], "designer_coach")
 
     def test_chat_returns_grounded_answer(self):
         self.request("POST", "/api/auth/login", {
