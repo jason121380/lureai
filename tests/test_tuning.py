@@ -31,6 +31,29 @@ class ComposeTests(unittest.TestCase):
             with self.subTest(tone=tone):
                 self.assertEqual(tuning.compose_tone(tone), TONE_INSTRUCTIONS[tone])
 
+    def test_persona_is_a_long_time_advisor_not_a_first_meeting(self):
+        """使用者指定：AI 是已經認識很久、被信任的顧問，不能講初次見面的客套話。
+
+        「很高興認識你」一出口，前面累積的熟人感全部歸零——規則要同時蓋住
+        RAG 回答（policy 5-1）與閒聊路徑（SMALLTALK_BASE、自我介紹）。"""
+        policy = tuning.compose_policy()
+        self.assertIn("已經認識很久", policy)
+        self.assertIn("很高興認識你", policy)
+
+        from app.answer import SELF_INTRO_INSTRUCTION, SMALLTALK_BASE
+        self.assertIn("不是第一次見面", SMALLTALK_BASE)
+        self.assertIn("很高興認識你", SMALLTALK_BASE)
+        self.assertIn("不是初次見面", SELF_INTRO_INSTRUCTION)
+
+    def test_budget_advice_is_conditional_not_a_reflex(self):
+        """使用者回報：講到廣告不好就回「先不要加預算」，但兩件事非正相關。
+
+        知識裡那幾句「不要急著加預算」都綁著條件（點擊率低→換素材、詢問多但
+        預約少→檢討承接）。規則 7-1 要求先分段診斷，他沒提預算就不主動講預算。"""
+        policy = tuning.compose_policy()
+        self.assertIn("先不要加預算", policy)
+        self.assertIn("他沒提預算就不要主動講預算", policy)
+
     def test_every_catalogue_rule_reaches_the_model(self):
         for group in tuning.TONE_GROUPS:
             composed = tuning.compose_tone(group["tone"])
