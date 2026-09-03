@@ -10,6 +10,11 @@
 
 ## 產品決策
 
+- **2026-09-03 兩條回覆行為修正（使用者指定）**：
+  - **老朋友，不是初見面**：AI 的角色是「已經認識很久、被信任的顧問」，**絕不說「很高興認識你」「初次見面」「請多指教」**。他報名字是在告訴你怎麼稱呼他（「好 小美 記住了」），不是初次見面。改在三個正本：policy 5-1（RAG 全語氣）、`answer.SMALLTALK_BASE`（閒聊全類型）、`SELF_INTRO_INSTRUCTION`（自我介紹改寫成「他在告訴你怎麼稱呼他」）。
+  - **「先不要加預算」不是口頭禪**：使用者回報「講到廣告不好總是回先不要加預算，這非正相關」。知識裡那幾句都綁著條件（點擊率低→先換素材、詢問多但預約少→檢討承接、到店率<20%→接不住），但模型撈到就複誦。policy 新增 7-1：先照漏斗分段診斷，**只有他自己提到加預算、或數字顯示問題在承接時**才講這句，他沒提預算就不主動講預算。
+  兩條都有 `tests/test_tuning.py` 走實際組指令路徑驗證，brain.md 已同步。
+
 - **2026-09-03 第三輪稽核的兩項收尾**：
   - **殭屍預設值清掉**：`AppContext`／`ingest` 的預設改為 designer_coach 真實值；ingest 的 `legacy_customer_approval` 橋接（customer_service_allowed=True 可代替 rag_allowed）拆掉——正式 JSONL 全走 rag_allowed=True，這條分支是死碼還弱化契約；`chunks.customer_service_allowed` 欄位（全 repo 零讀取者）新庫不再建立、舊庫開機 DROP COLUMN、舊 SQLite 砍不動就保留相容寫入。共用 fixture `approved_chunk` 改 internal_coaching＋rag_allowed，六個測試檔自動接上。封存語料工具（build_full_knowledge 等）不動，客服資料在歷史語料裡合法。
   - **browser_smoke 修好而且不會再無聲漂移**：選擇器對回真實 DOM（`.message-row.assistant`、`#user-account`；`#tone-confirm` 只掛在頂部 `#tone-indicator`，帳號選單裡點語氣是直接切）。修的過程再挖出兩個坑：(1) **三個情境共用 browser context 會互相競速**——前一頁的 session cookie 讓下一頁的登入表單填了但送不出去，改成每個情境自己的 context（本來就該模擬另一台裝置）；(2) **登入頁有時序陷阱**——`login-gate` 一開始就看得到，但 bootstrap 的 session 探測 401 回來時 `showLogin()` 會清空密碼欄，太早填表就送出空密碼，所以要先等 focus 落在帳號欄（＝showLogin 跑完）再填。**漂移守門**：`test_static_ui.py` 新增測試，把煙霧測試引用的每個 #id 與 .class 抓出來對照 static/ 引號字串的 token 集合（樣板插值 `${...}` 要先剝掉，不然 `error.message` 會讓 `.message` 這種漂移漏抓），進 unittest discover，一漂移就紅。連跑三次 E2E 全綠。順手修掉 `applyProfile` 裡最後一個 `customer_service` 字串。
