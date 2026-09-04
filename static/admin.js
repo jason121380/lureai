@@ -522,26 +522,38 @@
     return knowledgeAll;
   }
 
+  // 邊打字邊搜（使用者指定）會讓好幾個請求同時在路上：慢的舊請求後到會把
+  // 新結果蓋掉，畫面顯示的就不是輸入框裡的那個字。每次載入領一個號碼，
+  // 寫結果前確認自己還是最新的一發。
+  let knowledgeLoadSeq = 0;
+
   async function loadKnowledge(event, options = {}) {
     event?.preventDefault();
+    const seq = ++knowledgeLoadSeq;
     try {
       const query = el("knowledge-query")?.value.trim() || "";
       const origin = el("knowledge-origin")?.value || "";
       const domain = el("knowledge-domain")?.value || "";
+      let items;
       if (query) {
-        el("knowledge-results").innerHTML = '<div class="loading-state"></div>';
+        // 打字中畫面上還有上一批結果就先留著，換成載入條會一直閃。
+        if (!el("knowledge-results").querySelector(".knowledge-row")) {
+          el("knowledge-results").innerHTML = '<div class="loading-state"></div>';
+        }
         const body = await api(
           `/api/admin/chunks?q=${encodeURIComponent(query)}&origin=${encodeURIComponent(origin)}&domain=${encodeURIComponent(domain)}`,
           { timeoutMs: 15000 },
         );
-        knowledgeCache = body.items || [];
+        items = body.items || [];
       } else {
         if (knowledgeAll === null) el("knowledge-results").innerHTML = '<div class="loading-state"></div>';
         const all = await fetchAllKnowledge(options.force);
-        knowledgeCache = all.filter((chunk) => (
+        items = all.filter((chunk) => (
           (!origin || (chunk.origin || "file") === origin) && (!domain || chunk.domain === domain)
         ));
       }
+      if (seq !== knowledgeLoadSeq) return;
+      knowledgeCache = items;
       el("knowledge-results").innerHTML = knowledgeCache.length
         ? `<div class="knowledge-count">共 ${knowledgeCache.length} 則</div>`
           + knowledgeCache.map(knowledgeCard).join("")
@@ -551,6 +563,8 @@
       });
       window.lucide?.createIcons();
     } catch (error) {
+      // 舊請求的失敗不要蓋掉新請求已經畫好的結果。
+      if (seq !== knowledgeLoadSeq) return;
       el("knowledge-results").innerHTML = `<div class="empty-state">載入失敗：${escapeHtml(error.message)}
         <button type="button" class="command-button ghost-button" data-retry-knowledge>重新載入</button></div>`;
       el("knowledge-results").querySelector("[data-retry-knowledge]")?.addEventListener("click", () => loadKnowledge(undefined, { force: true }));
@@ -917,6 +931,22 @@
   }
 
   el("knowledge-form").addEventListener("submit", loadKnowledge);
+  // 邊打字邊出結果（使用者指定），不用按搜尋才動。250ms 的緩衝讓連續打字
+  // 只發最後一次；**選字中不搜**——注音輸入到一半的「ㄍㄨ」不是他要查的字，
+  // 等 compositionend（選完字）再搜。清空時也走同一條路回到完整清單。
+  {
+    let knowledgeSearchTimer = null;
+    const scheduleKnowledgeSearch = () => {
+      window.clearTimeout(knowledgeSearchTimer);
+      knowledgeSearchTimer = window.setTimeout(() => loadKnowledge(), 250);
+    };
+    const queryInput = el("knowledge-query");
+    queryInput?.addEventListener("input", (event) => {
+      if (event.isComposing) return;
+      scheduleKnowledgeSearch();
+    });
+    queryInput?.addEventListener("compositionend", scheduleKnowledgeSearch);
+  }
   el("knowledge-origin").addEventListener("change", () => loadKnowledge());
   el("knowledge-domain").addEventListener("change", () => loadKnowledge());
   el("new-knowledge").addEventListener("click", openUpload);
