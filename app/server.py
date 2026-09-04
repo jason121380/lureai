@@ -850,13 +850,25 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 if query:
                     hits = context.retriever.retrieve(query, limit=60)
                     found = {hit.chunk_id for hit in hits}
-                    items = [
-                        chunk
-                        for chunk in context.store.list_chunks(
-                            limit=100000, origin=origin, domain=domain
-                        )
-                        if chunk["chunk_id"] in found
-                    ]
+                    # 清單每一列都顯示 locator（ads-10），管理員自然會拿它來搜，
+                    # 但檢索索引裡沒有 locator——語意檢索永遠撈不到，看起來就像
+                    # 這塊知識不存在。編號類查詢走字面比對補上，而且**字面命中
+                    # 排最前面**：搜 ads-10 時它就是要找那一塊，不能埋在語意
+                    # 檢索順便撈到的十幾筆裡。
+                    needle = query.lower()
+                    literal: list = []
+                    semantic: list = []
+                    for chunk in context.store.list_chunks(
+                        limit=100000, origin=origin, domain=domain
+                    ):
+                        if (
+                            needle in str(chunk["locator"]).lower()
+                            or needle in str(chunk["chunk_id"]).lower()
+                        ):
+                            literal.append(chunk)
+                        elif chunk["chunk_id"] in found:
+                            semantic.append(chunk)
+                    items = literal + semantic
                 else:
                     # 沒搜尋時列出全部：知識庫超過 200 塊後，硬上限會讓清單「滑到底就沒了」。
                     items = context.store.list_chunks(limit=100000, origin=origin, domain=domain)

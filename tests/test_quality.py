@@ -63,6 +63,29 @@ class StanceTests(unittest.TestCase):
         self.assertEqual(quality.problems("你覺得我該不該漲價", answer), [])
 
 
+class UnsolicitedBudgetAdviceTests(unittest.TestCase):
+    """使用者回報：「講到廣告不好 總是會回先不要加預算 這非正相關」。
+
+    來源知識裡的預算警語是寫給「正想加預算」或「詢問多但預約少」的情境的，
+    prompt 勸不動（模型照「只能根據來源」把警語抄出來當開頭），所以用程式擋。"""
+
+    def test_budget_advice_without_budget_context_is_rejected(self):
+        # 實際踩到的案例：「廣告沒訊息」的回答第一句就是「先別加預算」。
+        answer = "先別加預算；廣告完全沒訊息時，先查受眾與文案是不是吸引錯人。 [2]"
+        found = quality.problems("廣告沒訊息", answer)
+        self.assertTrue(any("預算" in item for item in found), found)
+
+    def test_budget_advice_is_fine_when_he_brought_it_up(self):
+        answer = "先不要加預算，先檢查素材有沒有疲乏\n抽 20 則對話用同一套評分看卡在哪 [1]"
+        for question in ("要加預算嗎", "廣告花 5000 只來一個", "私訊多但預約少"):
+            with self.subTest(question=question):
+                self.assertEqual(quality.problems(question, answer), [])
+
+    def test_an_ad_answer_without_budget_talk_is_untouched(self):
+        answer = "先查受眾與文案是不是吸引錯人\n用一個需求問題改寫廣告再測 3 天 [1]"
+        self.assertEqual(quality.problems("廣告沒訊息", answer), [])
+
+
 class ForbiddenRoleTests(unittest.TestCase):
     def test_punting_to_a_nonexistent_agent_is_rejected(self):
         for answer in ("我幫你轉人工處理", "這邊會有專人跟你聯繫", "我轉接專人給你"):

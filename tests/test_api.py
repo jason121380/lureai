@@ -460,6 +460,16 @@ class ApiTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertTrue(all(item["domain"] == "operations" for item in body["items"]))
 
+    def test_admin_chunks_can_be_found_by_locator(self):
+        """清單每一列都顯示 locator（ads-10），管理員自然會拿它來搜。
+
+        語意檢索的索引裡沒有 locator，只走檢索的話搜「ads-10」永遠零結果，
+        看起來就像那塊知識不存在（使用者實際回報：「ads-10 我怎麼找不到」）。"""
+        status, body = self.request("GET", "/api/admin/chunks?q=aftercare-1", token="secret-token")
+
+        self.assertEqual(status, 200)
+        self.assertIn("aftercare-1", [item["locator"] for item in body["items"]])
+
     def test_admin_stats_split_knowledge_into_the_two_domains(self):
         status, body = self.request("GET", "/api/admin/stats", token="secret-token")
 

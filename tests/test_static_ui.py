@@ -739,6 +739,16 @@ class SyncAndStreamTests(unittest.TestCase):
         self.assertIn("const streamingId = conversation.id;", self.chat)
         self.assertIn("if (state.activeId !== streamingId) return;", self.chat)
 
+    def test_admin_knowledge_search_is_live(self):
+        """使用者指定：不要按搜尋 icon 才搜，邊打字就邊出結果。
+
+        選字中（IME composition）不搜；舊請求後到不可以蓋掉新請求的結果。"""
+        admin_js = ADMIN_JS.read_text(encoding="utf-8")
+        self.assertIn('addEventListener("input"', admin_js)
+        self.assertIn("event.isComposing", admin_js)
+        self.assertIn("compositionend", admin_js)
+        self.assertIn("seq !== knowledgeLoadSeq", admin_js)
+
     def test_browser_smoke_selectors_match_the_real_frontend(self):
         """browser_smoke.py 的 docstring 自己寫著：對不上實作的煙霧測試比沒有
         更危險——而它已經漂移過兩次（#gate-token、.message.assistant）。這裡
