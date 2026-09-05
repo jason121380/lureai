@@ -823,9 +823,12 @@
     } catch (error) { toast(error.message, true); }
   }
 
-  async function loadQuality() {
+  async function loadQuality(showNotification = false) {
+    // 檢查快、數字又常常不變，沒有任何回饋的話按下去就像死掉——
+    // 跟 loadHealth 同一套：icon 轉起來，手動觸發時完成再給一句 toast。
     const button = el("refresh-quality");
     button.disabled = true;
+    button.classList.add("is-loading");
     try {
       const body = await api("/api/admin/knowledge/quality");
       el("stat-flagged").textContent = body.flagged;
@@ -859,11 +862,15 @@
         ? `<div class="issue-summary">${summary}</div>${samples}`
         : '<div class="empty-state">所有知識都結構完整</div>';
       window.lucide?.createIcons();
+      if (showNotification) {
+        toast(Number(body.flagged) > 0 ? `品質檢查完成：${body.flagged} 則待整理` : "品質檢查完成，所有知識都結構完整");
+      }
     } catch (error) {
       showLoadFailure("quality-list", error.message, loadQuality);
       el("quality-summary").innerHTML = "";
     } finally {
       button.disabled = false;
+      button.classList.remove("is-loading");
     }
   }
 
@@ -1040,7 +1047,9 @@
       await loadTuning();
     } catch (error) { toast(error.message, true); }
   });
-  el("refresh-quality").addEventListener("click", loadQuality);
+  // 直接掛 loadQuality 的話 click 事件物件會被當成 showNotification；
+  // 完成 toast 只給手動觸發，分頁載入那條路不跳。
+  el("refresh-quality").addEventListener("click", () => loadQuality(true));
   el("refresh-health").addEventListener("click", () => loadHealth(true));
   el("reindex-button").addEventListener("click", reindex);
   el("user-form").addEventListener("submit", saveUser);
