@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import secrets
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -305,6 +306,7 @@ class AppContext:
         welcome_prompts: tuple[str, ...] = (),
         blocked_topics: dict | None = None,
         fallback_message: str | None = None,
+        defer_bootstrap: bool = False,
     ) -> "AppContext":
         store = KnowledgeStore(db_path)
         knowledge = Path(knowledge_path)
@@ -328,23 +330,6 @@ class AppContext:
         pricing = UsagePricing.from_env()
         auth = AuthManager(store)
         login_limiter = LoginRateLimiter()
-        bootstrap_username = os.getenv("USER_USERNAME", "").strip()
-        bootstrap_password = os.getenv("USER_PASSWORD", "")
-        if bootstrap_username or bootstrap_password:
-            if not bootstrap_username or not bootstrap_password:
-                store.close()
-                raise ValueError("USER_USERNAME 與 USER_PASSWORD 必須同時設定")
-            auth.ensure_bootstrap_user(
-                bootstrap_username, bootstrap_password,
-                role=os.getenv("USER_ROLE", "").strip() or None,
-            )
-        bot_user_id = None
-        if bot_token:
-            # 服務帳號的密碼沒人需要知道；有了 user_id，用量、月預算與稽核才記得到帳。
-            bot_user_id = auth.ensure_bootstrap_user(
-                BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
-            )["id"]
-        # 後台「AI 模型校調」改過的規則：每次組指令時重讀，存檔後下一則就生效。
         rules_provider = store.model_rules
         service = CustomerService(
             store=store,
@@ -359,7 +344,7 @@ class AppContext:
             top_k=top_k,
             pricing=pricing,
         )
-        return cls(
+        context = cls(
             store=store,
             service=service,
             retriever=retriever,
@@ -367,7 +352,7 @@ class AppContext:
             static_dir=Path(static_dir),
             admin_token=admin_token,
             bot_token=bot_token,
-            bot_user_id=bot_user_id,
+            bot_user_id=None,
             auth=auth,
             pricing=pricing,
             login_limiter=login_limiter,
@@ -382,8 +367,43 @@ class AppContext:
             welcome_prompts=welcome_prompts,
             pipeline_stats=load_pipeline_stats(knowledge),
         )
+        service.answerer.runtime.durable = context.persist_model_accounting
+        if not defer_bootstrap:
+            try:
+                context.initialize_accounts()
+            except Exception:
+                context.close()
+                raise
+        return context
+
+    def initialize_accounts(self):
+        """Apply bootstrap credentials and rule migration after durable restore."""
+        username = os.getenv("USER_USERNAME", "").strip()
+        password = os.getenv("USER_PASSWORD", "")
+        if username or password:
+            if not username or not password:
+                raise ValueError("USER_USERNAME 與 USER_PASSWORD 必須同時設定")
+            self.auth.ensure_bootstrap_user(
+                username, password, role=os.getenv("USER_ROLE", "").strip() or None,
+            )
+        if self.bot_token:
+            self.bot_user_id = self.auth.ensure_bootstrap_user(
+                BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
+            )["id"]
+        tuning.migrate_rule_overrides(self.store)
+
+    def persist_model_accounting(self):
+        if self.replica is not None and self.replica.configured:
+            if not self.replica.enabled or not self.replica.check_writer():
+                raise RuntimeError("snapshot writer unavailable")
+            self.replica.backup(self.store)
+            return True
+        return True
 
     def close(self) -> None:
+        runtime = getattr(self.service.answerer, "runtime", None)
+        if runtime is not None and not runtime.drain(timeout=0):
+            raise TimeoutError("generation accounting still active; database left open")
         self.store.close()
 
 
@@ -400,6 +420,25 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         # Drop slow or stalled connections so they cannot pin worker threads.
         timeout = 30
 
+        def parse_request(self):
+            if not super().parse_request():
+                return False
+            with self.server._drain_condition:
+                if self.server._draining:
+                    self.close_connection = True
+                    return False
+                self.server._connections[self.connection] = True
+            return True
+
+        def handle_one_request(self):
+            try:
+                super().handle_one_request()
+            finally:
+                with self.server._drain_condition:
+                    self.server._connections[self.connection] = False
+                    if self.server._draining:
+                        self.close_connection = True
+
         def log_message(self, format_string: str, *args) -> None:
             if os.getenv("APP_QUIET") != "1":
                 super().log_message(format_string, *args)
@@ -408,7 +447,17 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             for key, value in SECURITY_HEADERS.items():
                 self.send_header(key, value)
 
+        def _writer_unavailable(self):
+            replica = context.replica
+            if not replica or not replica.configured:
+                return False
+            check = getattr(replica, "check_writer", None)
+            return not (check() if check else replica.writable)
+
         def _json(self, status: int, payload: dict, headers: dict | None = None) -> None:
+            if self._writer_unavailable() and status < 400:
+                status = HTTPStatus.SERVICE_UNAVAILABLE
+                payload = {"error": "persistence_unavailable", "message": "資料保存暫時無法使用，請稍後重試"}
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -462,15 +511,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             user = self._current_user()
             return bool(user and user.get("role") == "admin")
 
-        def _save_conversations(self, user_id: int, payload: dict) -> int:
+        def _save_conversations(self, user_id: int, payload: dict) -> list[dict]:
             """把前端送上來的對話寫進資料庫；一次可以送一段或整批（登入時的搬家）。"""
             raw = payload.get("conversations")
             if raw is None:
                 raw = [payload.get("conversation") or payload]
             if not isinstance(raw, list):
-                return 0
+                return []
             now = datetime.now(timezone.utc).isoformat()
-            saved = 0
+            acks = []
             for item in raw[:CONVERSATION_KEEP]:
                 if not isinstance(item, dict):
                     continue
@@ -492,9 +541,14 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     rev = max(0, int(item.get("rev") or 0))
                 except (TypeError, ValueError):
                     rev = 0
-                # 版本比較舊就不寫。這樣兩台裝置同時開著時，這台的舊副本蓋不掉
-                # 另一台剛存的新版本；`saved` 只算真的寫進去的。
-                if context.store.save_conversation(
+                expected_rev = item.get("expected_rev")
+                if expected_rev is not None:
+                    try:
+                        expected_rev = int(expected_rev)
+                    except (TypeError, ValueError):
+                        acks.append({"id": conversation_id, "rev": rev, "status": "conflict"})
+                        continue
+                acks.append(context.store.save_conversation(
                     user_id,
                     conversation_id,
                     str(item.get("title", ""))[:CONVERSATION_TITLE_MAX],
@@ -502,12 +556,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     trimmed,
                     str(item.get("createdAt") or now),
                     str(item.get("updatedAt") or now),
-                    rev,
-                ):
-                    saved += 1
-            if saved:
+                    rev, expected_rev,
+                ))
+            if any(ack["status"] == "accepted" for ack in acks):
                 context.store.prune_conversations(user_id, keep=CONVERSATION_KEEP)
-            return saved
+            return acks
 
         def _fixed_replies(self) -> dict:
             """固定回覆句的預設值（供校調頁顯示與還原）。"""
@@ -668,22 +721,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             return summary
 
         def _reserve_budget(self, user_id: int | None) -> tuple[bool, tuple | None]:
-            """還在預算內嗎，順便先把這一次的估計花費預留起來。
-
-            回傳 `(可以用模型, 預留憑證)`；**憑證一定要在 finally 裡釋放**，
-            不然那筆估計值會一直掛在帳上，之後的請求都會被擋。
-            檢查與預留在 check_and_reserve 的同一把鎖裡做完：分開做的話，
-            同一微秒到的兩個請求會都讀到「還沒超額」再各自預留，一起穿過上限。
-            """
-            if not user_id:
-                return True, None
-            summary = self._usage_summary(user_id, include_pending=False)
-            return context.budget.check_and_reserve(
-                user_id,
-                context.pricing.typical_cost_twd(),
-                summary["spend_twd"],
-                summary["budget_twd"],
-            )
+            # Each actual generation reserves its complete bound in the durable runtime.
+            return True, None
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
@@ -730,6 +769,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "conversations": context.store.list_conversations(
                             user["id"], limit=CONVERSATION_KEEP
                         ),
+                        "tombstones": context.store.list_conversation_tombstones(user["id"]),
                         "prefs": context.store.user_prefs(user["id"]),
                     })
                 return
@@ -1006,6 +1046,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             self._json(HTTPStatus.OK, response)
 
         def do_POST(self) -> None:
+            if self._writer_unavailable():
+                self.close_connection = True
+                self._json(HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "error": "persistence_unavailable", "message": "資料保存暫時無法使用，請稍後重試"})
+                return
             parsed = urlparse(self.path)
             if not self._same_origin():
                 self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden", "message": "來源網域不符"})
@@ -1026,34 +1071,37 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     return
                 if parsed.path == "/api/auth/login":
                     username = str(payload.get("username", "")).strip().casefold()
-                    # 兩把鑰匙一起看。只用 IP＋帳號的話，攻擊者每次換一個
-                    # X-Forwarded-For 就是一把新鑰匙，等於沒有上限；「只看帳號」
-                    # 那把偽造不掉，才是真正擋得住針對單一帳號硬猜的那一道。
+                    # Account, IP and process-wide admission is one atomic reservation.
+                    # It happens before scrypt so parallel requests cannot all pass a
+                    # check and then consume verifier memory together.
                     login_keys = (
-                        f"ip|{self._client_ip()}|{username}",
                         f"account|{username}",
+                        f"ip|{self._client_ip()}",
+                        "global",
                     )
-                    if not all(context.login_limiter.allowed(key) for key in login_keys):
+                    reservation = context.login_limiter.reserve(login_keys)
+                    if reservation is None:
                         self._json(
                             HTTPStatus.TOO_MANY_REQUESTS,
                             {"error": "too_many_attempts", "message": "登入嘗試過多，請稍後再試"},
                             {"Retry-After": "300"},
                         )
                         return
+                    succeeded = False
                     try:
                         token, user = context.auth.login(
                             payload.get("username", ""), payload.get("password", "")
                         )
                     except ValueError:
-                        for key in login_keys:
-                            context.login_limiter.failed(key)
                         self._json(
                             HTTPStatus.UNAUTHORIZED,
                             {"error": "invalid_credentials", "message": "帳號或密碼錯誤"},
                         )
                         return
-                    for key in login_keys:
-                        context.login_limiter.succeeded(key)
+                    else:
+                        succeeded = True
+                    finally:
+                        context.login_limiter.finish(reservation, succeeded=succeeded)
                     self._json(
                         HTTPStatus.OK,
                         {"user": user},
@@ -1137,11 +1185,14 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     self.end_headers()
                     try:
                         for event in itertools.chain([first_event], events):
+                            if self._writer_unavailable():
+                                break
                             self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
                             self.wfile.flush()
                     except (BrokenPipeError, ConnectionResetError):
                         pass
                     finally:
+                        events.close()
                         context.budget.release(slot)
                     return
                 if parsed.path == "/api/feedback":
@@ -1249,6 +1300,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     try:
                         items, source, usage = extract.propose_chunks(
                             context.service.answerer, name, text, allow_model=within_budget,
+                            user_id=admin["id"] if admin else None,
                         )
                     finally:
                         context.budget.release(slot)
@@ -1276,17 +1328,17 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                     user = self._require_user()
                     if not user:
                         return
-                    saved = self._save_conversations(user["id"], payload)
-                    self._json(HTTPStatus.OK, {"saved": saved})
+                    acks = self._save_conversations(user["id"], payload)
+                    self._json(HTTPStatus.OK, {"saved": sum(a["status"] == "accepted" for a in acks), "acks": acks})
                     return
                 if parsed.path == "/api/conversations/delete":
                     user = self._require_user()
                     if not user:
                         return
-                    context.store.delete_conversation(
+                    ack = context.store.delete_conversation(
                         user["id"], str(payload.get("id", "")).strip()
                     )
-                    self._json(HTTPStatus.OK, {"deleted": True})
+                    self._json(HTTPStatus.OK, {"deleted": ack["status"] == "deleted", "ack": ack})
                     return
                 if parsed.path == "/api/prefs":
                     user = self._require_user()
@@ -1388,6 +1440,44 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         # 預設 backlog 只有 5。一頁同時要幾個靜態檔，再加上其他分頁，很容易
         # 滿出來，滿出來的連線會被作業系統直接丟掉（畫面就是圖破掉、CSS 沒套）。
         request_queue_size = 128
+        daemon_threads = True
+        block_on_close = False
+        drain_timeout = 20.0
+
+        def __init__(self, *args, **kwargs):
+            self._drain_condition = threading.Condition()
+            self._connections = {}
+            self._draining = False
+            super().__init__(*args, **kwargs)
+
+        def begin_drain(self):
+            with self._drain_condition:
+                self._draining = True
+                # Idle includes partial headers: these cannot begin application work.
+                for connection, active in list(self._connections.items()):
+                    if not active:
+                        try:
+                            connection.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+
+        def shutdown(self):
+            self.begin_drain()
+            super().shutdown()
+
+        def server_close(self):
+            self.begin_drain()
+            super().server_close()
+            deadline = time.monotonic() + self.drain_timeout
+            with self._drain_condition:
+                while self._connections:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("active HTTP workers exceeded shutdown grace")
+                    self._drain_condition.wait(remaining)
+            runtime = getattr(context.service.answerer, "runtime", None)
+            if runtime is not None and not runtime.drain(timeout=max(0, deadline - time.monotonic())):
+                raise TimeoutError("generation accounting exceeded shutdown grace")
         # 埠還在 TIME_WAIT 時也要能重新綁上，重新部署才不會卡住。
         allow_reuse_address = True
         # 一條連線一條執行緒，而且沒有上限——慢速連線可以一直開下去，把記憶體
@@ -1400,6 +1490,11 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
         # 就是一千條執行緒各卡五秒，記憶體照樣被吃光。這裡在 accept 迴圈裡
         # 非阻塞地拿，拿不到直接回 503（accept 迴圈不能等，等了所有連線都進不來）。
         def process_request(self, request, client_address):
+            with self._drain_condition:
+                if self._draining:
+                    self.shutdown_request(request)
+                    return
+                self._connections[request] = False
             if not self.workers.acquire(blocking=False):
                 try:
                     # 回絕訊息也不能被塞住的 socket 綁住 accept 迴圈。
@@ -1412,12 +1507,18 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 except OSError:
                     pass
                 self.shutdown_request(request)
+                with self._drain_condition:
+                    self._connections.pop(request, None)
+                    self._drain_condition.notify_all()
                 return
             try:
                 super().process_request(request, client_address)
             except Exception:
                 # 執行緒沒開起來就要自己還，否則名額永遠少一個。
                 self.workers.release()
+                with self._drain_condition:
+                    self._connections.pop(request, None)
+                    self._drain_condition.notify_all()
                 raise
 
         def process_request_thread(self, request, client_address):
@@ -1425,5 +1526,8 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                 super().process_request_thread(request, client_address)
             finally:
                 self.workers.release()
+                with self._drain_condition:
+                    self._connections.pop(request, None)
+                    self._drain_condition.notify_all()
 
     return Server((host, port), Handler)

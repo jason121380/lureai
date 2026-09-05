@@ -4,6 +4,7 @@ import re
 
 from dataclasses import dataclass
 
+from . import response_facts
 from .retrieval import SearchHit
 
 
@@ -13,6 +14,7 @@ FALLBACK_MESSAGE = "這題我手邊的資料不夠 沒辦法給你準的答案\n
 # 這句只留給「真的只有人能決定」的題目（法律責任、醫療診斷、顧客個資）。
 # 不要提「轉人工」——這裡沒有人工客服可以接手，說了等於把他丟在原地。
 SENSITIVE_MESSAGE = "這題牽涉到法律或醫療 我不能幫你決定\n我可以陪你想怎麼跟客人說 你要先聊哪一邊"
+LIVE_DATA_MESSAGE = "我看不到店裡現在的價目 排程或顧客紀錄 沒辦法替你查準\n你把目前資料貼給我 我可以幫你整理"
 
 
 # 提問者是「設計師本人」，不是顧客。談客人的報價、追客、頭皮狀況、店內請假
@@ -169,7 +171,7 @@ HAS_WORD_CHARS = re.compile(r"[0-9A-Za-z㐀-鿿]")
 # 情緒句：對方在抒發，不是在問問題。只承接情緒，不檢索、不派任務、不要數字——
 # 同理一句之後接「請給我私訊數 預約數 到店數」等於前功盡棄。
 EMOTION_TERMS = (
-    "好累", "很累", "累死", "累爆", "好煩", "很煩", "煩死", "超煩", "不爽", "生氣", "火大",
+    "好累", "有點累", "很累", "累死", "累爆", "好煩", "很煩", "煩死", "超煩", "不爽", "生氣", "火大",
     "氣死", "好挫折", "很挫折", "難過", "想哭", "委屈", "無力", "沒動力", "提不起勁",
     "好焦慮", "很焦慮", "好慌", "很慌", "壓力好大", "壓力很大", "撐不住", "心累",
     "想放棄", "不想做了", "做不下去", "覺得自己很爛", "覺得自己沒用", "懷疑自己",
@@ -207,7 +209,7 @@ SELF_INTRO_PATTERNS = (
     re.compile(r"^我(?:叫|是)(?![不沒別想要])[\w\u4e00-\u9fff]{1,4}$"),
     # 空白要算進去：「我在台中 店裡有五個設計師」中間隔了一個空格。
     re.compile(r"我(?:現在)?在[\w\s\u4e00-\u9fff]{1,12}(?:店|沙龍|工作室|上班|做)"),
-    re.compile(r"(?:做|待|待了|入行)\s*\d+\s*年"),
+    re.compile(r"(?:做|待|待了|入行)\s*(?:\d+|[零〇一二兩三四五六七八九十百]+)\s*年"),
 )
 
 # 從對話裡把名字撈出來，之後可以直接叫他的名字（記得名字就要用）。
@@ -364,7 +366,8 @@ class PolicyEngine:
         normalized = "".join(text.split())
         if not normalized:
             return None
-        if any(marker in text for marker in ACTION_MARKERS):
+        no_advice = bool(re.search(r"(?:不要|不用|不需要|先別)(?:給)?建議", normalized))
+        if any(marker in text for marker in ACTION_MARKERS) and not no_advice:
             return None
         if METRIC_NUMBER.search(normalized):
             return None
@@ -372,8 +375,82 @@ class PolicyEngine:
             return PolicyDecision("smalltalk", "emotion")
         return None
 
+    def safe_communication(self, question: str) -> PolicyDecision | None:
+        text = "".join(str(question).split())
+        if self.restricted_conclusion(question):
+            return None
+        negated = re.search(r"(?:不做|不要|不問|沒問|沒有問|不需要)(?:醫療)?(?:診斷|確診|法律|法律建議)", text)
+        if not negated or not re.search(r"一句|話術|安撫|怎麼說|幫我寫|溝通", text):
+            return None
+        residual = text[:negated.start()] + text[negated.end():]
+        # A disclaimer never licenses the actual diagnosis, guarantee or legal conclusion.
+        if re.search(r"診斷|確診|判定|處方|保證|一定|絕對|依法|賠償|告不贏|告得贏|責任|治療|不是過敏|能不能染|可以染", residual):
+            return None
+        if re.search(r"評估|診斷|確診|過敏", text):
+            return PolicyDecision("direct", "safe_communication", "我理解你的擔心\n請先完成專業評估 確認適合後我們再約時間")
+        return PolicyDecision("direct", "safe_communication", "我很在意你的感受\n我們先把你遇到的狀況了解清楚 再一起確認接下來怎麼處理")
+
+    @staticmethod
+    def restricted_conclusion(question: str) -> bool:
+        text = "".join(str(question).split())
+        liability = re.search(r"(?:不需|不需要|不用|不必|無須|必須|應該)(?:要)?賠償|(?:我們|我方|店家)(?:沒有|無|不負|有)責任", text)
+        disclaimer = re.search(r"(?:不問|没問|沒問|沒有問|不要)(?:法律|法律建議)", text)
+        smuggled_liability = liability and (disclaimer or re.search(r"一句|告訴|幫我寫", text))
+        diagnosis = re.search(
+            r"(?:確診|診斷|判定).{0,12}(?:哪種|什麼)?(?:皮膚病|疾病|病症|過敏)|"
+            r"(?:皮膚病|疾病|病症).{0,12}(?:確診|診斷|判定)",
+            text,
+        )
+        diagnosis_disclaimer = re.search(r"(?:不做|不要|不問|沒問|沒有問|不需要)(?:醫療)?(?:診斷|確診)", text)
+        if diagnosis and diagnosis_disclaimer and re.search(r"一句|話術|安撫|怎麼說|幫我寫|溝通", text):
+            residual = text[:diagnosis_disclaimer.start()] + text[diagnosis_disclaimer.end():]
+            if not re.search(r"確診|診斷|判定|保證|一定|絕對|處方|治療|不是過敏|能不能染|可以染", residual):
+                diagnosis = None
+        deposit_decision = (
+            re.search(r"訂金|定金", text)
+            and re.search(r"沒收|保留|不退|退還|退回", text)
+            and re.search(r"依法|法律|合法|一定|有權|權利|可以|必須|應該", text)
+        )
+        return bool(smuggled_liability or diagnosis or deposit_decision)
+
+    @staticmethod
+    def unavailable_live_lookup(question: str) -> bool:
+        text = "".join(str(question or "").lower().split())
+        # Supplied facts authorize only their own clause's transformation. Explicit
+        # lookup commands still require unavailable live access, even beside a fact.
+        pending_explicit = False
+        for clause in re.split(r"[，,。；;\n]|(?:再|也|然後|並且)(?=幫我|請|查|確認|核對|調閱)", text):
+            lookup = re.search(r"幫我查|查詢|請查|確認|核對|調閱|幫我整理|是多少|多少錢|有沒有空|還有沒有空|能不能約", clause)
+            inherited_explicit, pending_explicit = pending_explicit, False
+            if not lookup and not inherited_explicit:
+                continue
+            live_price = bool(re.search(r"即時|目前|最新|現行|現在", clause) and re.search(r"價目|價格|價錢|收費|報價", clause))
+            live_schedule = bool(re.search(r"空位|有空|檔期|班表|時段|能不能約", clause))
+            customer_record = bool(re.search(r"客人|顧客|客戶|小姐|先生", clause) and re.search(r"紀錄|記錄|資料|消費|預約紀錄|到店紀錄", clause))
+            explicit = re.search(r"幫我查|查詢|請查|核對|調閱|(?:幫我|請)確認|是多少|多少錢|有沒有空|還有沒有空|能不能約", clause)
+            transformation = re.search(r"幫我(?:寫|改寫|縮短|整理|排版)|改成|整理成", clause)
+            # A command without its live-data object can govern the next clause.
+            # Carry intent, never the preceding clause's supplied facts.
+            pending_explicit = bool(explicit) and not transformation and not (live_price or live_schedule or customer_record)
+            if transformation and not (explicit or inherited_explicit):
+                supplied_price = any(kind == "price" for kind, _value in response_facts.known_facts(clause))
+                supplied_availability = re.search(r"(?:有空|有位|有空位|可以約)(?!嗎|？|\?)", clause)
+                live_price = live_price and not supplied_price
+                live_schedule = live_schedule and not supplied_availability
+            if live_price or live_schedule or customer_record:
+                return True
+        return False
+
     def precheck(self, question: str) -> PolicyDecision:
         normalized = "".join(str(question or "").lower().split())
+        if self.restricted_conclusion(question):
+            return PolicyDecision("escalate", "legal_or_medical_conclusion", self.sensitive_message)
+        if self.unavailable_live_lookup(question):
+            return PolicyDecision("escalate", "unavailable_live_shop_data", LIVE_DATA_MESSAGE)
+        if self.safe_communication(question):
+            return PolicyDecision("continue", "safe_communication")
+        if re.search(r"(?:保證|一定|絕對).{0,12}(?:不會過敏|不是過敏|告不贏|告得贏)|依法.{0,8}(?:賠|責任)", normalized):
+            return PolicyDecision("escalate", "legal_or_medical_conclusion", self.sensitive_message)
         for reason, terms in self.blocked_topics.items():
             if any(term in normalized for term in terms):
                 return PolicyDecision("escalate", reason, self.sensitive_message)

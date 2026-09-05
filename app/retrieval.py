@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -43,12 +45,40 @@ GENERIC_QUERY_TOKENS = {
 }
 
 
+# Remove question glue before making CJK spans, so a fragment crossing into
+# an interrogative (e.g. the preceding verb plus 多 in 多少) is not evidence.
+_QUERY_GLUE = re.compile("|".join(re.escape(term) for term in
+    sorted(GENERIC_QUERY_TOKENS | {"多少", "多久", "幾"}, key=len, reverse=True)))
+
+
+def evidence_question(text: str) -> str:
+    normalized = normalize_for_search(text.replace("〔已遮罩〕", " "))
+    def replace_glue(match):
+        value = match.group()
+        # Cut the preceding action→interrogative span (升多少 must not become
+        # evidence for unrelated 一次升多少), while retaining the directional
+        # interrogative→object span when the object is explicit (多少錢→少錢).
+        if (value in {"多少", "多久", "幾"} and match.end() < len(normalized)
+                and "\u3400" <= normalized[match.end()] <= "\u9fff"):
+            return " " * (len(value) - 1) + value[-1]
+        return " " * len(value)
+    return _QUERY_GLUE.sub(replace_glue, normalized)
+
+
 def relevance_tokens(text: str) -> set[str]:
     return {token for token in search_tokens(text) if token not in GENERIC_QUERY_TOKENS}
 
 
 def relevance_bigrams(text: str) -> set[str]:
     return {token for token in cjk_bigrams(text) if token not in GENERIC_QUERY_TOKENS}
+
+
+@lru_cache(maxsize=2048)
+def support_terms(text: str) -> frozenset[str]:
+    """One lexical unit per CJK bigram or Latin word, without alias evidence."""
+    return frozenset(relevance_bigrams(text) | {
+        term for term in relevance_tokens(text) if term.isascii()
+    })
 
 
 @lru_cache(maxsize=512)
@@ -122,6 +152,7 @@ class Retriever:
     def __init__(self, store: KnowledgeStore, synonym_path: str | Path | None = None):
         self.store = store
         self.synonym_groups = load_synonym_groups(synonym_path)
+        self._source_snapshot = (None, 0, Counter(), Counter())
 
     def expand_question(self, question: str) -> str:
         """Append equivalent phrasings so '一週幾則' can reach '每週發布頻率'."""
@@ -136,6 +167,27 @@ class Retriever:
             return question
         return f"{question} {' '.join(dict.fromkeys(extra))}"
 
+    def _source_frequencies(self, candidate_rows):
+        version, count, frequencies, template_frequencies = self._source_snapshot
+        if hasattr(self.store, "retrieval_snapshot"):
+            new_version, rows = self.store.retrieval_snapshot(version)
+            if rows is None:
+                return count, frequencies, template_frequencies
+        else:
+            # Lightweight store adapters can expose their complete candidate set.
+            new_version, rows = None, candidate_rows
+        frequencies = Counter()
+        template_frequencies = Counter()
+        for row in rows:
+            source_terms = support_terms(f"{row['title']} {row['section_title']} {row['text']}")
+            frequencies.update(source_terms)
+            # One vote per document. Alias templates can only discount positive
+            # specificity; they must never shrink unmatched query mass.
+            template_frequencies.update(source_terms | support_terms(row.get('aliases', '') or ''))
+        snapshot = (new_version, len(rows), frequencies, template_frequencies)
+        self._source_snapshot = snapshot
+        return snapshot[1:]
+
     def retrieve(self, question: str, limit: int = 6) -> list[SearchHit]:
         core_tokens = relevance_tokens(question)
         if not core_tokens:
@@ -145,8 +197,55 @@ class Retriever:
         # the original question still sets the denominator.
         query_tokens = relevance_tokens(expanded)
         rows = self.store.search_fts(fts_query(expanded), limit=max(limit * 8, 60))
+        count, frequencies, template_frequencies = self._source_frequencies(rows)
+        def weight(term, document_frequencies=frequencies):
+            return (0.05 + 0.95 * math.log((count + 1) / (max(1, document_frequencies.get(term, 0)) + 1))
+                    / math.log(count + 1)) if count else 1.0
+
+        # Count original characters once. Unseen cross-word bigrams must not
+        # penalize two otherwise recognized words; genuinely unseen subjects
+        # still retain their full unmatched mass.
+        normalized = evidence_question(question)
+        units = [(match.group(), match.start(), match.end())
+                 for match in re.finditer(r"[a-z0-9]+|(?=([\u3400-\u9fff]{2}))", normalized)]
+        # Lookahead permits overlapping CJK bigrams.
+        units = [(term or normalized[start:start + 2], start, end if term else start + 2)
+                 for term, start, end in units]
+        weights = [None if char.isalnum() else 0.0 for char in normalized]
+        equivalent_units = []
+        for group in self.synonym_groups:
+            equivalents = set().union(*(support_terms(term) for term in group))
+            known = [weight(term) for term in equivalents if term in frequencies]
+            if not known:
+                continue
+            for term in group:
+                for match in re.finditer(re.escape(term), normalized):
+                    equivalent_units.append((group, match.start(), match.end(), max(known)))
+        for term, start, end in units:
+            if term in frequencies:
+                for index in range(start, end):
+                    weights[index] = max(weights[index] or 0.0, weight(term))
+        for _group, start, end, term_weight in equivalent_units:
+            for index in range(start, end):
+                weights[index] = max(weights[index] or 0.0, term_weight)
+        weights = [weight("") if value is None else value for value in weights]
+        denominator = sum(weights) or 1.0
+
+        def coverage_in(text):
+            normalized_source = normalize_for_search(text)
+            terms = support_terms(text)
+            supported = set()
+            for term, start, end in units:
+                if term in terms:
+                    supported.update(range(start, end))
+            for group, start, end, _weight in equivalent_units:
+                if any(term in normalized_source for term in group):
+                    supported.update(range(start, end))
+            return sum(weights[index] for index in supported) / denominator
+
         query_bigrams = relevance_bigrams(expanded)
         question_key = _phrase_key(question)
+        expanded_support = support_terms(evidence_question(expanded))
         hits: list[SearchHit] = []
         seed_hits: list[bool] = []
         for row in rows:
@@ -154,13 +253,15 @@ class Retriever:
             matched = query_tokens & document_tokens
             if not matched:
                 continue
-            overlap = min(1.0, len(matched) / max(1, len(core_tokens)))
             section_bigrams = cjk_bigrams(f"{row['title']} {row['section_title']}")
             field_matches = len(query_bigrams & section_bigrams)
             content_matches = len(query_bigrams & cjk_bigrams(row["text"]))
             # 問法索引：設計師實際會怎麼問這塊知識，對得上就加分。
             alias_text = row["aliases"] if "aliases" in row.keys() else ""
-            alias_matches = len((query_tokens | query_bigrams) & alias_terms(str(alias_text or "")))
+            source_terms = support_terms(f"{row['title']} {row['section_title']} {row['text']}")
+            # Unsupported alias subjects cannot increase even the coverage-scaled bonus.
+            alias_matches = len((query_tokens | query_bigrams) & source_terms
+                                & alias_terms(str(alias_text or "")))
             # 只靠問法模板對上（例如任何題目都有的「的做法」）不算數，必須同時
             # 命中這塊知識的標題或內文，否則不相關的問題會被拉高分數。
             grounded_in_content = bool(field_matches or content_matches)
@@ -172,19 +273,25 @@ class Retriever:
             seed_match = bool(question_key) and question_key in alias_phrases(str(alias_text or ""))
             if seed_match:
                 alias_score += SEED_MATCH_BONUS
-            field_score = min(0.30, field_matches * 0.085)
-            content_score = min(0.12, content_matches * 0.02)
-            overlap_score = min(0.20, overlap * 0.65)
-            # 索引裡若還混有未策展的原始資料（例如私人完整索引），策展內容要
-            # 夠力才不會被長逐字稿蓋過；全部都是策展內容時這個加分不影響排序。
-            curated = str(row["source_file"]).startswith("knowledge/")
-            curated_score = 0.06 if curated else 0.0
-            section_focus = min(0.10, field_matches * 0.05) if curated else 0.0
-            evidence = (
-                overlap_score + field_score + content_score + curated_score
-                + section_focus + alias_score
+            coverage = coverage_in(f"{row['title']} {row['section_title']} {row['text']}")
+            field_coverage = coverage_in(f"{row['title']} {row['section_title']}")
+            specificity = max((weight(term, template_frequencies)
+                               for term in expanded_support & source_terms), default=0.0) / weight("")
+            # Exact curated annotations and verbatim source subjects remain strong
+            # evidence, including a short subject in a one-document corpus.
+            exact_source = question_key and any(
+                question_key == _phrase_key(str(row[field] or ""))
+                for field in ("title", "section_title", "text")
             )
-            score = _compress(evidence)
+            if seed_match or exact_source:
+                coverage = specificity = 1.0
+            # Aliases and source provenance cannot independently authorize an
+            # answer. Scores retain the existing shared policy scale, not a
+            # probability interpretation.
+            curated = str(row["source_file"]).startswith("knowledge/")
+            evidence = (0.80 * coverage + 0.25 * field_coverage
+                        + coverage * (alias_score + (0.06 if curated else 0.0)))
+            score = _compress(evidence * specificity)
             seed_hits.append(seed_match)
             hits.append(SearchHit(
                 chunk_id=row["chunk_id"],

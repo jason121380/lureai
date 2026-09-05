@@ -1,9 +1,15 @@
+import http.client
+import threading
+import time
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+
+from tests.test_api import ServerTestCase
+from types import SimpleNamespace
 
 from app.server import AppContext
 from run import admin_token_for_host, default_paths, default_port, load_profile, load_settings
@@ -11,7 +17,111 @@ from run import admin_token_for_host, default_paths, default_port, load_profile,
 from tests.test_ingest import approved_chunk
 
 
+class WriterFenceTests(ServerTestCase):
+    def test_idle_keepalive_connection_does_not_block_shutdown(self):
+        client = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        client.request("GET", "/api/health")
+        client.getresponse().read()
+        self.server.shutdown()
+        closed = threading.Event()
+        worker = threading.Thread(target=lambda: (self.server.server_close(), closed.set()))
+        worker.start()
+        promptly_closed = closed.wait(0.5)
+        client.close()
+        worker.join(3)
+        self.assertTrue(promptly_closed, "idle keepalive pinned server_close")
+
+    def test_active_worker_has_finite_drain_grace(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.context.auth.login
+        def blocked(*args):
+            entered.set()
+            release.wait(3)
+            return original(*args)
+        self.context.auth.login = blocked
+        request = threading.Thread(target=lambda: self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password"}))
+        request.start()
+        self.assertTrue(entered.wait(2))
+        self.server.shutdown()
+        self.server.drain_timeout = 0.05
+        errors, done = [], threading.Event()
+        def close():
+            try:
+                self.server.server_close()
+            except TimeoutError:
+                errors.append("timeout")
+            finally:
+                done.set()
+        closer = threading.Thread(target=close)
+        closer.start()
+        bounded = done.wait(0.3)
+        release.set()
+        request.join(3)
+        closer.join(3)
+        self.assertTrue(bounded, "active handler drain was unbounded")
+        self.assertEqual(errors, ["timeout"])
+
+    def test_unqualified_replica_rejects_login_before_session_creation(self):
+        self.context.replica = SimpleNamespace(configured=True, writable=False)
+        status, _ = self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password"})
+        self.assertEqual(status, 503)
+        self.assertEqual(self.context.store.connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
+
+
 class RuntimeTests(unittest.TestCase):
+    def test_drain_timeout_exits_without_final_backup_or_closing_live_store(self):
+        import signal
+        from run import main
+        context = Mock()
+        replica = Mock(configured=False, enabled=False)
+        server = Mock()
+        server.server_close.side_effect = TimeoutError("workers busy")
+        old = signal.getsignal(signal.SIGTERM)
+        try:
+            with patch("run.AppContext.create", return_value=context), patch(
+                    "run.PostgresReplica.from_env", return_value=replica), patch(
+                    "run.create_server", return_value=server), patch("run.os._exit", side_effect=SystemExit(1)) as exit_process:
+                with self.assertRaises(SystemExit):
+                    main([])
+            exit_process.assert_called_once_with(1)
+            replica.stop.assert_not_called()
+            context.close.assert_not_called()
+        finally:
+            signal.signal(signal.SIGTERM, old)
+
+    def test_sigterm_drains_server_before_final_backup_and_close(self):
+        import signal
+        from run import main
+        events = []
+        context = Mock()
+        replica = Mock(configured=False, enabled=False)
+        replica.stop.side_effect = lambda *_: events.append("backup")
+        context.close.side_effect = lambda: events.append("close")
+        server = Mock()
+        server.server_close.side_effect = lambda: events.append("drain")
+        server.serve_forever.side_effect = lambda: signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        old = signal.getsignal(signal.SIGTERM)
+        with patch("run.AppContext.create", return_value=context), patch(
+                "run.PostgresReplica.from_env", return_value=replica), patch("run.create_server", return_value=server):
+            self.assertEqual(main([]), 0)
+        self.assertEqual(events, ["drain", "backup", "close"])
+        self.assertEqual(signal.getsignal(signal.SIGTERM), old)
+
+    def test_restore_failure_never_starts_http_or_backup(self):
+        from run import main
+        context = Mock()
+        replica = Mock(configured=True, enabled=True)
+        replica.restore.side_effect = RuntimeError("restore failed")
+        with patch("run.AppContext.create", return_value=context), patch(
+                "run.PostgresReplica.from_env", return_value=replica), patch("run.create_server") as server:
+            with self.assertRaisesRegex(RuntimeError, "restore failed"):
+                main([])
+        server.assert_not_called()
+        replica.start.assert_not_called()
+        context.close.assert_called_once()
+
     def test_public_host_without_a_token_falls_back_to_a_random_one(self):
         # 少一個環境變數不可以讓整站打不開；後台走帳號登入，
         # header 權杖變成沒人知道的隨機值等於關掉那條路。

@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.server import AppContext, create_server
+from app.auth import LoginRateLimiter
 
 from tests.test_ingest import approved_chunk
 
@@ -180,6 +181,69 @@ class ApiTests(ServerTestCase):
         self.assertEqual(status, 429)
         self.assertEqual(body["error"], "too_many_attempts")
 
+    def test_successful_login_keeps_ip_failure_history(self):
+        self.context.login_limiter = LoginRateLimiter(max_failures=1, window_seconds=60)
+        for index in range(3):
+            status, _ = self.request("POST", "/api/auth/login", {
+                "username": f"unknown-{index}", "password": "wrong-password",
+            })
+            self.assertEqual(status, 401)
+        self.assertEqual(self.request("POST", "/api/auth/login", {
+            "username": "designer", "password": "designer-password",
+        })[0], 200)
+        self.assertEqual(self.request("POST", "/api/auth/login", {
+            "username": "last-unknown", "password": "wrong-password",
+        })[0], 401)
+        self.assertEqual(self.request("POST", "/api/auth/login", {
+            "username": "blocked-unknown", "password": "wrong-password",
+        })[0], 429)
+
+    def test_concurrent_login_verification_is_bounded_before_auth_work(self):
+        self.context.login_limiter = LoginRateLimiter(
+            max_failures=5, window_seconds=60, max_concurrent=2,
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+        original = self.context.auth.login
+
+        def blocked(*args):
+            calls.append(args)
+            if len(calls) >= 2:
+                entered.set()
+            release.wait(3)
+            return original(*args)
+
+        self.context.auth.login = blocked
+        results = []
+
+        def attempt(number):
+            client = self.fresh_client()
+            request = urllib.request.Request(
+                self.base + "/api/auth/login",
+                data=json.dumps({"username": "designer", "password": "designer-password"}).encode(),
+                headers={"Content-Type": "application/json", "X-Forwarded-For": f"203.0.113.{number}"},
+                method="POST",
+            )
+            try:
+                with client.open(request, timeout=5) as response:
+                    results.append(response.status)
+            except urllib.error.HTTPError as error:
+                results.append(error.code)
+
+        workers = [threading.Thread(target=attempt, args=(number,)) for number in range(2)]
+        for worker in workers:
+            worker.start()
+        self.assertTrue(entered.wait(2))
+        third = threading.Thread(target=attempt, args=(3,))
+        third.start()
+        third.join(2)
+        release.set()
+        for worker in workers:
+            worker.join(5)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sorted(results), [200, 200, 429])
+
     def test_web_chat_never_runs_the_line_tone(self):
         """`line` 是寫給 LINE 出口的：沒有標點、要拆成多則、引用在出口才剝掉。
 
@@ -284,6 +348,8 @@ class ApiTests(ServerTestCase):
             "LLM_BASE_URL": "https://api.openai.com",
             "LLM_API_KEY": "unit-test-api-key",
             "LLM_MODEL": "test-model",
+            "APP_BUILD_COMMIT": "77328e9c71898791b50a3a77e401fa286fcc23f3",
+            "APP_BUILD_TIMESTAMP": "2026-09-05T16:30:00Z",
         }), patch.object(
             self.context.service.answerer,
             "check_model_access",
@@ -294,6 +360,14 @@ class ApiTests(ServerTestCase):
         self.assertEqual(status, 200)
         self.assertIn(body["status"], ("ok", "warning"))
         self.assertIn("checked_at", body)
+        self.assertEqual(body["build"], {
+            "commit": "77328e9c71898791b50a3a77e401fa286fcc23f3",
+            "timestamp": "2026-09-05T16:30:00Z",
+        })
+        self.assertEqual(body["rules"], {
+            "default_rule_schema_version": "2026-09-05.1",
+            "override_migrated_version": "2026-09-05.1",
+        })
         self.assertEqual(body["summary"]["total"], 9)
         checks = {item["id"]: item for item in body["checks"]}
         self.assertEqual(set(checks), {
@@ -320,16 +394,22 @@ class ApiTests(ServerTestCase):
         self.assertNotIn("unit-test-api-key", serialized)
         self.assertNotIn(str(Path(self.temp.name)), serialized)
 
+    def test_admin_health_marks_missing_build_provenance_unknown(self):
+        with patch.dict(os.environ, {"APP_BUILD_COMMIT": "", "APP_BUILD_TIMESTAMP": ""}):
+            status, body = self.request("GET", "/api/admin/health", token="secret-token")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["build"], {"commit": "unknown", "timestamp": "unknown"})
+
     def test_admin_role_session_grants_admin_access(self):
-        self.context.auth.create_or_reset_user("boss", "1234", role="admin")
-        self.request("POST", "/api/auth/login", {"username": "boss", "password": "1234"})
+        self.context.auth.create_or_reset_user("boss", "boss-password-for-tests", role="admin")
+        self.request("POST", "/api/auth/login", {"username": "boss", "password": "boss-password-for-tests"})
 
         status, body = self.request("GET", "/api/admin/stats")
         self.assertEqual(status, 200)
         self.assertEqual(body["chunks"], 1)
 
         status, body = self.request("POST", "/api/admin/users", {
-            "username": "front-desk", "password": "9999", "role": "user",
+            "username": "front-desk", "password": "front-desk-password-for-tests", "role": "user",
         })
         self.assertEqual(status, 200)
         self.assertEqual(body["user"]["role"], "user")

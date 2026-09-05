@@ -125,7 +125,9 @@
     } catch (_) {
       state.conversations = [];
     }
+    dirty.clear();
     if (Array.isArray(state.conversations)) {
+      state.conversations.forEach((item) => { if (item._dirty) dirty.add(item.id); });
       // A loading placeholder saved mid-request would spin forever after reload.
       state.conversations.forEach((conversation) => {
         if (Array.isArray(conversation?.messages)) {
@@ -139,17 +141,10 @@
     else state.activeId = state.conversations[0].id;
   }
 
-  function persistenceSnapshot(conversationLimit, messageLimit, contentLimit, citationTextLimit) {
-    return state.conversations.slice(0, conversationLimit).map((conversation) => ({
+  function persistenceSnapshot() {
+    return state.conversations.map((conversation) => ({
       ...conversation,
-      messages: (conversation.messages || []).slice(-messageLimit).map((message) => ({
-        ...message,
-        content: String(message.content || "").slice(0, contentLimit),
-        citations: (message.citations || []).slice(0, 6).map((citation) => ({
-          ...citation,
-          text: String(citation.text || "").slice(0, citationTextLimit),
-        })),
-      })),
+      messages: (conversation.messages || []).filter((message) => !message.loading),
     }));
   }
 
@@ -171,44 +166,68 @@
     }
   }
 
+  function preserveConflict(item) {
+    const originalId = item.id;
+    const conflictId = makeId();
+    dirty.delete(originalId);
+    item.id = conflictId;
+    item.title = `${item.title || "對話"}（同步衝突・本機保留）`;
+    item.rev = 1;
+    item.expected_rev = 0;
+    item._dirty = true;
+    dirty.add(item.id);
+    if (state.activeId === originalId) state.activeId = item.id;
+    render();
+  }
+
   async function pushConversations(conversations) {
     if (!conversations.length) return;
-    // 記下這一次送出去的是哪一版。回來之後如果本機又改過（rev 已經往前走），
-    // 就不能把 dirty 清掉——那一版還沒上傳。
-    const sent = conversations.map((item) => [item.id, item.rev || 0]);
+    const sent = conversations.map((item) => ({ ...item,
+      expected_rev: item.expected_rev ?? 0,
+      messages: (item.messages || []).filter((message) => !message.loading),
+    }));
     try {
       const response = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversations }),
+        body: JSON.stringify({ conversations: sent }),
       });
-      // 一定要看狀態碼。舊版只要沒有丟例外就當作存好了，於是 500、401、
-      // 限流回來的時候一樣把旗標清掉——這一段對話就只留在這台瀏覽器裡，
-      // 換裝置或重新部署之後就沒了，而且畫面上完全沒有跡象。
       if (!response.ok) return;
-      sent.forEach(([id, rev]) => {
-        const current = state.conversations.find((item) => item.id === id);
-        if (!current || (current.rev || 0) === rev) dirty.delete(id);
-      });
-    } catch (_) { /* 下一次編輯會再送一次 */ }
+      const body = await response.json();
+      for (const ack of (Array.isArray(body.acks) ? body.acks : [])) {
+        const uploaded = sent.find((item) => item.id === ack.id && (item.rev || 0) === ack.rev);
+        const current = state.conversations.find((item) => item.id === ack.id);
+        if (!uploaded || !current) continue;
+        if (ack.status === "accepted") {
+          current.expected_rev = Math.max(current.expected_rev || 0, ack.rev);
+          if ((current.rev || 0) === ack.rev) {
+            dirty.delete(current.id);
+            delete current._dirty;
+          }
+        } else if (ack.status === "conflict" || ack.status === "deleted") {
+          // 已確認的舊請求不可以把後來的新版本誤判成衝突。
+          if ((current.expected_rev || 0) < ack.rev || ack.status === "deleted") preserveConflict(current);
+        }
+      }
+      persist(false);
+    } catch (_) { /* 未收到逐筆確認，保留完整本機修改等待重試。 */ }
   }
 
   function dirtyConversations() {
     return state.conversations.filter(
-      (item) => dirty.has(item.id) && (item.messages || []).length
+      (item) => dirty.has(item.id) && !pendingDeletes.has(item.id) && (item.messages || []).length
     );
   }
 
-  function scheduleSync() {
-    if (!syncedOnce) return;
-    const conversation = activeConversation();
+  function scheduleSync(conversation = activeConversation()) {
     if (conversation) {
-      // 每改一次就往前走一格。伺服器用它擋掉「舊副本蓋新版本」。
+      conversation.expected_rev ??= 0;
       conversation.rev = (conversation.rev || 0) + 1;
+      conversation._dirty = true;
       dirty.add(conversation.id);
     }
     clearTimeout(syncTimer);
-    // 打字中不要每個字都送；停下來再送**全部**還沒送出去的，不只當前這一段。
+    if (!syncedOnce) return;
     syncTimer = setTimeout(() => {
       const pending = dirtyConversations();
       if (pending.length) pushConversations(pending);
@@ -249,7 +268,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-      if (response.ok) {
+      const body = response.ok ? await response.json() : null;
+      if (body?.ack?.id === id && body.ack.status === "deleted") {
         pendingDeletes.delete(id);
         savePendingDeletes();
         return true;
@@ -268,23 +288,17 @@
     } catch (_) { /* 存不上去就維持本機設定 */ }
   }
 
-  function persist() {
-    const key = storageKey();
-    const limits = [
-      [20, 8, 8000, 600],
-      [10, 6, 5000, 300],
-      [3, 4, 3000, 160],
-    ];
-    scheduleSync();
-    for (const limit of limits) {
-      try {
-        localStorage.setItem(key, JSON.stringify(persistenceSnapshot(...limit)));
-        return true;
-      } catch (_) {
-        // The active conversation remains usable when browser storage is full or unavailable.
-      }
+  function persist(conversation = activeConversation()) {
+    if (conversation !== false) scheduleSync(conversation);
+    try {
+      // 未確認內容必須完整保存；不可將截斷的離線快取當作完整歷史上傳。
+      localStorage.setItem(storageKey(), JSON.stringify(persistenceSnapshot()));
+      return true;
+    } catch (_) {
+      const title = el("conversation-title");
+      if (title) title.textContent = "本機儲存空間不足，請保持此頁開啟直到同步完成";
+      return false;
     }
-    return false;
   }
 
   function activeConversation() {
@@ -292,14 +306,15 @@
   }
 
   function deleteConversation(id) {
-    if (syncedOnce) deleteConversationOnServer(id);
+    deleteConversationOnServer(id);
+    dirty.delete(id);
     state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
     if (!state.conversations.length) {
       newConversation();
       return;
     }
     if (state.activeId === id) state.activeId = state.conversations[0].id;
-    persist();
+    persist(false);
     render();
   }
 
@@ -984,12 +999,14 @@
       throw requestError;
     }
     let result = null;
+    let terminalFailure = false;
     const handleLine = (line) => {
       if (!line.trim()) return;
       let event;
       try { event = JSON.parse(line); } catch (_) { return; }
       if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
       else if (event.type === "status") onStatus?.(event);
+      else if (event.type === "terminal" && event.status !== "completed") terminalFailure = true;
       else if (event.type === "result") result = event;
     };
     if (response.body?.getReader) {
@@ -1010,7 +1027,7 @@
     } else {
       (await response.text()).split("\n").forEach(handleLine);
     }
-    if (!result) throw new Error("服務暫時無法處理請求");
+    if (!result || terminalFailure) throw new Error("服務暫時無法處理請求");
     return result;
   }
 
@@ -1129,7 +1146,7 @@
       stopWaitHint();
       state.controller = null;
       setBusy(false);
-      persist();
+      persist(conversation);
       render();
       if (state.user) loadUsage();
     }
@@ -1193,7 +1210,7 @@
       const title = String(body.title || "").trim().slice(0, 40);
       if (title && !conversation.titleEdited) {
         conversation.title = title;
-        persist();
+        persist(conversation);
         if (state.activeId === conversation.id) el("conversation-title").textContent = title;
         renderSidebar();
       }
@@ -1335,6 +1352,8 @@
     loadTone();
     state.conversations = [];
     state.activeId = null;
+    syncedOnce = false;
+    loadPendingDeletes();
     load();
     render();
     updateComposer();
@@ -1343,75 +1362,54 @@
     prompt.focus();
   }
 
-  // 伺服器那份是主的：以 id 為準合併，本機獨有的（其他裝置還沒同步過的）留著。
-  function mergeConversations(server) {
-    const local = state.conversations.filter((item) => (item.messages || []).length);
-    const byId = new Map(server.map((item) => [item.id, item]));
-    local.forEach((item) => {
+  function mergeConversations(server, tombstones = []) {
+    const deleted = new Set(tombstones.map((item) => item.id));
+    const byId = new Map(server.filter((item) => !pendingDeletes.has(item.id))
+      .map((item) => [item.id, { ...item, expected_rev: item.rev || 0 }]));
+    state.conversations.forEach((item) => {
+      if (pendingDeletes.has(item.id)) return;
       const remote = byId.get(item.id);
-      // 伺服器沒有的留著。兩邊都有時比版本：本機還沒送出去的修改（rev 比較大）
-      // 不可以被前景刷新拉回來的舊版本蓋掉——使用者會看到自己剛打的字消失。
-      if (!remote || (item.rev || 0) > (remote.rev || 0)) byId.set(item.id, item);
+      if (dirty.has(item.id)) {
+        if (deleted.has(item.id) || (remote && (remote.rev || 0) !== (item.expected_rev || 0))) {
+          // 回覆可能在途中遺失；先讓伺服器逐筆確認相同版本重送。
+          if (!remote || (remote.rev || 0) !== (item.rev || 0)) preserveConflict(item);
+        }
+        byId.set(item.id, item);
+      } else if (remote && !deleted.has(item.id)
+                 && (item.expected_rev || 0) > (remote.rev || 0)) {
+        // GET 可能先讀取舊版、在新版 POST 確認後才抵達；不可回退已確認內容。
+        byId.set(item.id, item);
+      } else if (!remote && !deleted.has(item.id)) {
+        // 舊版離線紀錄安全遷移；不存在不等於已刪除。
+        if ((item.messages || []).length) {
+          item.expected_rev = 0;
+          item.rev = Math.max(1, item.rev || 0);
+          item._dirty = true;
+          dirty.add(item.id);
+        }
+        byId.set(item.id, item);
+      }
     });
     state.conversations = [...byId.values()].sort(
       (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
     );
-    state.conversations.forEach((conversation) => {
-      (conversation.messages || []).forEach((message) => {
-        delete message.loading;
-        delete message.pendingReveal;
-      });
-    });
     if (!state.conversations.some((item) => item.id === state.activeId)) {
       state.activeId = state.conversations[0]?.id || null;
     }
     if (!state.activeId) newConversation();
     render();
-    persist();
-  }
-
-  // 這台裝置上一次跟伺服器對齊的時間（per 帳號）。用來分辨「還沒搬上去的舊紀錄」
-  // 和「在別的裝置被刪掉的紀錄」——兩者都是「伺服器沒有、本機有」。
-  function syncMarkerKey() {
-    return `${STORAGE_PREFIX}-synced-${state.user?.id || "anonymous"}`;
-  }
-
-  function lastSyncAt() {
-    try { return localStorage.getItem(syncMarkerKey()) || ""; } catch (_) { return ""; }
-  }
-
-  function markSynced() {
-    try { localStorage.setItem(syncMarkerKey(), new Date().toISOString()); } catch (_) { /* 無痕模式 */ }
+    persist(false);
   }
 
   async function syncWithServer() {
-    // 墓碑是 per 帳號存的，同步前先把這個帳號那份讀進來（重新載入後才記得）。
     loadPendingDeletes();
-    // 上次沒刪成功的先補刪一次，再拉——順序反了的話這一輪又會把它合併回來。
     for (const id of Array.from(pendingDeletes)) await deleteConversationOnServer(id);
     const remote = await pullConversations();
-    if (!remote) { syncedOnce = true; return; }
-    const server = (Array.isArray(remote.conversations) ? remote.conversations : [])
-      .filter((item) => !pendingDeletes.has(item.id));
-    const local = state.conversations.filter((item) => (item.messages || []).length);
-    const localOnly = local.filter((item) => !server.some((entry) => entry.id === item.id));
-    const previous = lastSyncAt();
-    // 第一次同步：本機那些只存在瀏覽器裡的舊紀錄要搬上去。
-    // 之後再同步：伺服器沒有就代表在別的裝置刪掉了，**不能再推回去**（推回去會讓
-    // 刪掉的對話復活），只有這次同步之後才新建的才推。
-    const toPush = previous
-      ? localOnly.filter((item) => String(item.updatedAt || item.createdAt || "") > previous)
-      : localOnly;
-    const dropped = new Set(
-      localOnly.filter((item) => !toPush.includes(item)).map((item) => item.id)
-    );
-    if (dropped.size) {
-      state.conversations = state.conversations.filter((item) => !dropped.has(item.id));
-    }
-    if (server.length || dropped.size) mergeConversations(server);
     syncedOnce = true;
-    markSynced();
-    if (toPush.length) await pushConversations(toPush);
+    if (!remote) return;
+    mergeConversations(Array.isArray(remote.conversations) ? remote.conversations : [],
+      Array.isArray(remote.tombstones) ? remote.tombstones : []);
+    await pushConversations(dirtyConversations());
     if (remote.prefs?.tone && remote.prefs.tone !== state.tone) setTone(remote.prefs.tone);
   }
 
@@ -1705,6 +1703,7 @@
       else flushSync();
     });
     window.addEventListener("pagehide", flushSync);
+    window.addEventListener("online", refreshFromServer);
     try {
       await checkHealth();
       await restoreSession();

@@ -12,6 +12,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
+DEFAULT_RULE_SCHEMA_VERSION = "2026-09-05.1"
+REQUIRED_CONSTRAINTS = (
+    "7-1. 他沒提預算就不要主動講預算；廣告投了幾天或零私訊都不是預算問題。",
+    "客用成品的日期、時段、價格與店家資訊只可來自使用者提供的事實；未知用明確佔位符，不能採用先前助理捏造的資訊。",
+    "漏斗指標必須說清分子與分母；私訊轉預約率不是到店率，沒有到店人數就不能推算到店率。",
+)
+
 POLICY_PATH = Path(__file__).resolve().parent.parent / "config" / "designer_coach_policy.md"
 
 # 基本回答規則的分段：照 markdown 的 `## ` 標題切開；組回去時各段之間補回空行，
@@ -320,6 +327,8 @@ def compose_policy(overrides: dict[str, str] | None = None) -> str:
     for text in texts[1:]:
         body = text[len("## "):] if text.startswith("## ") else text
         joined += POLICY_JOIN + body
+    if overrides:
+        joined += "\n\n## 必要事實限制（不受自訂文字覆寫）\n" + "\n".join(REQUIRED_CONSTRAINTS)
     return joined + "\n"
 
 
@@ -336,3 +345,20 @@ def compose_tone(tone: str, overrides: dict[str, str] | None = None) -> str:
 
 def tone_names() -> tuple[str, ...]:
     return tuple(group["tone"] for group in TONE_GROUPS)
+
+
+def migrate_rule_overrides(store) -> None:
+    """Record the enforced baseline without rewriting any custom rule wording.
+
+    Required constraints are composed on every request, including newly saved overrides.
+    rule_state is durable; derived index metadata deliberately is not.
+    """
+    if store.rule_state("override_migrated_version") != DEFAULT_RULE_SCHEMA_VERSION:
+        store.set_rule_state("override_migrated_version", DEFAULT_RULE_SCHEMA_VERSION)
+
+
+def rule_versions(store) -> dict[str, str]:
+    return {
+        "default_rule_schema_version": DEFAULT_RULE_SCHEMA_VERSION,
+        "override_migrated_version": store.rule_state("override_migrated_version"),
+    }

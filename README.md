@@ -7,7 +7,7 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 - ChatGPT 式聊天介面（串流回覆、AI 對話命名、關聯問題選項）、來源抽屜
 - 對話紀錄存伺服器（per 帳號），換裝置、重新部署都看得到；localStorage 只當離線快取
 - SQLite FTS5 + 中文 n-gram RAG
-- 公開部署索引：241 塊人工重點整理知識（輔導 170 ＋ 店務營運 71）＋ 1.4 萬筆問法索引
+- 公開部署索引：278 塊人工重點整理知識（輔導 207 ＋ 店務營運 71）＋ 16,477 筆問法索引
 - 267 份來源逐檔 Markdown、270 份去識別化對話案例
 - `0.72` 最低信心門檻，低信心內容不進入答案
 - 建議問題保證答得出來：連續追問 50 輪以上不會出現「需要人工協助」（`tests/test_followup_chain.py` 實跑驗證）
@@ -24,7 +24,7 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 - OpenAI Responses API 與 GPT-5.6 Luna
 - 使用者帳密登入、HttpOnly session、後台帳號建立與密碼重設
 - 統一帳號登入；帳號權限分「一般用戶」與「管理者」，管理者登入後由側欄「設定」icon 進入 `/admin` 管理後台（非管理者會被導回對話頁）
-- 每位使用者本月 token、台幣花費與預算進度；超出 `MONTHLY_BUDGET_TWD` 時自動停用模型生成、改用抽取式回答
+- 每位使用者本月 token、台幣花費與預算進度；`MONTHLY_BUDGET_TWD` 是每位使用者上限，`SYSTEM_MONTHLY_BUDGET_TWD` 是全站硬上限（預設 `0` 表示不限額），任一有限上限用完就停用模型生成、改用抽取式回答
 - 聊天每分鐘限流（`CHAT_RATE_LIMIT_PER_MINUTE`）、登入失敗限流、安全標頭與同源檢查
 - 未設定 API Key 時可使用離線抽取式回答
 
@@ -36,26 +36,32 @@ ChatGPT 式的設計師 1 對 1 AI 輔導系統（私有 RAG）。
 APP_PROFILE=designer_coach
 ADMIN_TOKEN=請換成長且不可猜測的隨機值
 USER_USERNAME=designer
-USER_PASSWORD=請換成至少4字的密碼
+USER_PASSWORD=請換成至少15字且不常見的密碼
 USER_ROLE=admin
 LLM_BASE_URL=https://api.openai.com
 LLM_API_KEY=你的OpenAI_API_Key
 LLM_MODEL=gpt-5.6-luna
 LLM_REASONING_EFFORT=low
+# 單次傳輸最多等待 60 秒；整個請求含重試共用 120 秒截止時間
 LLM_TIMEOUT_SECONDS=60
+LLM_REQUEST_DEADLINE_SECONDS=120
+LLM_MAX_OUTPUT_TOKENS=16384
 LLM_INPUT_USD_PER_MILLION=0.20
 LLM_CACHED_INPUT_USD_PER_MILLION=0.02
 LLM_CACHE_WRITE_USD_PER_MILLION=0.25
 LLM_OUTPUT_USD_PER_MILLION=1.20
 USD_TO_TWD=32.5
+# 每位登入使用者的月上限
 MONTHLY_BUDGET_TWD=1000
+# 全站月上限；0 是不限額，正式環境應依需求改成有限正數
+SYSTEM_MONTHLY_BUDGET_TWD=1000
 ```
 
 Zeabur 會注入 `PORT`，程式會自動讀取，不必設定 `APP_PORT`。
 
 倉庫內含 `Dockerfile`（基底映像走 AWS ECR Public 鏡像，避開 Docker Hub 匿名下載限流造成的 429 建置失敗），Zeabur 會自動採用，`ZBPACK_*` 變數不再需要。Dockerfile 已內建部署韌性：預設綁 `0.0.0.0`（不必設 `APP_HOST`）、開機索引重建失敗只記錄不中斷、未設 `ADMIN_TOKEN` 時自動改用隨機權杖（等於停用 header 管理 API，後台仍以管理者帳號登入）。開機 log 會印 `[boot] profile=… chunks=… db=… model=…`，模型呼叫失敗會印 `[llm]` 原因，部署卡住時先看這兩行。
 
-設計師輔導部署預設包含 241 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，可透過私人 Git 倉庫、私有物件儲存或持久化 Volume 放入 JSONL，再設定：
+設計師輔導部署預設包含 278 塊已核准、去識別化的 RAG 區塊。原始檔、原始 Markdown、人員聯絡名冊、員工個資表單與未遮罩對話不會進入 GitHub。若要改用不公開的自訂索引，請用私人 Git 倉庫或私有物件儲存提供 JSONL，再設定：
 
 ```dotenv
 KNOWLEDGE_JSONL=/data/hair-brain/designer_coach_full.jsonl
@@ -68,13 +74,14 @@ SQLite 是工作資料庫（索引、檢索、當下狀態）。**持久化走 P
 
 - Python 3.11 或更新版本
 - SQLite 需支援 FTS5（一般 Python 安裝預設支援）
-- 不需要安裝第三方 Python 套件
+- 本機離線模式可只用標準庫；Postgres 使用 `requirements.txt` 的固定版本，瀏覽器驗證使用 `requirements-dev.txt`
 
 ## 啟動
 
 ```bash
-git clone https://github.com/jason121380/hair_brain.git
-cd hair_brain
+git clone <repository-url> lureai
+cd lureai
+python3 -m pip install -r requirements.txt
 python3 run.py --reindex-only
 python3 run.py --port 8765
 ```
@@ -99,7 +106,7 @@ export LLM_MODEL="gpt-5.6-luna"
 export LLM_REASONING_EFFORT="low"
 export ADMIN_TOKEN="請設定長且不可猜測的管理權杖"
 export USER_USERNAME="designer"
-export USER_PASSWORD="請設定至少4字的密碼"
+export USER_PASSWORD="請設定至少15字且不常見的密碼"
 python3 run.py --port 8765
 ```
 
@@ -118,7 +125,7 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" \
   http://127.0.0.1:8765/api/admin/health
 ```
 
-回傳 Server、內部 API、Frontend、SQLite Database、Postgres 持久化、Auth、RAG、Knowledge 與 LLM 九項狀態、延遲及安全化細節。`warning` 表示服務仍可運作但有降級，例如未設定 LLM 時使用抽取式回答；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key 或完整本機路徑。
+回傳 Server、內部 API、Frontend、SQLite Database、Postgres 持久化、Auth、RAG、Knowledge 與 LLM 九項狀態、延遲及安全化細節，並列出建置 commit、建置時間、預設規則 schema 與自訂規則遷移版本。沒有注入建置資訊時明確回 `unknown`。`warning` 表示服務仍可運作但有降級；`error` 表示該元件需要處理。LLM 檢查會驗證 API Key 與模型存取權，但不會發送付費生成請求，也不會回傳 API Key、完整本機路徑或其他密鑰。
 
 用量成本以 Responses API 回傳的 input、cached input、cache write 與 output tokens 計算。各 token 類型費率、台幣換算率與月預算都能由 `.env` 對應變數調整；模型費率或匯率變動時只需更新環境變數。
 
@@ -264,4 +271,4 @@ LINE 端的 lurebot 沒有自己的知識庫，所有回覆都向這裡拿。設
 python3 -m unittest discover -s tests -v
 ```
 
-瀏覽器端到端測試位於 `tests/browser_smoke.py`，需要 Playwright 測試環境與本機 Chrome。
+CI 的必要工作為 `unit-and-holdout`、`postgres-integration`、`container-build`、`browser-smoke`；倉庫規則仍須由管理者在託管平台設定，文件不代表已啟用。瀏覽器端到端測試位於 `tests/browser_smoke.py`，CI 安裝固定版本 Playwright 與 Chromium。完整啟停、快照還原、帳單對帳及負載驗收見 `docs/operations.md`。

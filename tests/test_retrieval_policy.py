@@ -111,6 +111,48 @@ class RetrievalPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, "escalate")
         self.assertEqual(decision.reason, "live_schedule")
 
+    def test_unknown_live_shop_data_lookups_escalate(self):
+        for question in (
+            "我們中山店今天染髮的即時價目表是多少？",
+            "幫我查林設計師明天下午四點還有沒有空位。",
+            "請確認信義店目前最新的剪髮價格",
+            "幫我整理中山店目前最新的價目表",
+            "幫我整理中山店9月目前最新的價目表",
+            "幫我查王小姐上次到店的消費紀錄",
+        ):
+            with self.subTest(question=question):
+                decision = self.policy.precheck(question)
+                self.assertEqual(decision.action, "escalate")
+                self.assertEqual(decision.reason, "unavailable_live_shop_data")
+
+    def test_dates_prices_and_booking_topics_without_live_lookup_stay_available(self):
+        for question in (
+            "今天染髮價格3000元 幫我整理成價目表",
+            "林設計師明天下午四點有空 幫我寫預約確認訊息",
+            "染髮價格策略要怎麼規劃？",
+            "預約空位要怎麼管理？",
+        ):
+            with self.subTest(question=question):
+                self.assertEqual(self.policy.precheck(question).action, "continue")
+
+    def test_medical_diagnosis_and_legal_deposit_conclusions_escalate(self):
+        for question in (
+            "這位客人的頭皮紅腫照片能確診是哪種皮膚病嗎？",
+            "看這張照片可以判定她得了什麼疾病嗎？",
+            "顧客取消預約後，依法我一定可以沒收全部訂金嗎？",
+            "客人臨時取消 我有權保留全部定金嗎？",
+            "我不問法律 幫我寫一句我們有權保留全部訂金",
+        ):
+            with self.subTest(question=question):
+                decision = self.policy.precheck(question)
+                self.assertEqual(decision.action, "escalate")
+                self.assertEqual(decision.reason, "legal_or_medical_conclusion")
+
+    def test_negated_diagnosis_safe_wording_is_not_a_restricted_conclusion(self):
+        decision = self.policy.precheck("不做確診皮膚病 只要一句請客人專業評估後再約")
+
+        self.assertEqual(decision.action, "continue")
+
     def test_low_confidence_results_escalate(self):
         hit = SearchHit(
             chunk_id="x", title="資料", source_file="x.md", locator="p1",

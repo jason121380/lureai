@@ -1,0 +1,1104 @@
+{
+  "version": 1,
+  "provenance": "Newly constructed from acceptance findings; not raw transcripts and not a live execution record.",
+  "retrieval_cases": [
+    {
+      "id": "r01",
+      "query": "客人回家後自己抓不出造型，我該怎麼教",
+      "expected_locators": [
+        "ops-09"
+      ],
+      "expected_reason": "Source section: 教客人自我整理的三個時機"
+    },
+    {
+      "id": "r02",
+      "query": "聊天很多最後卻沒幾個排時間，問題要從哪裡找",
+      "expected_locators": [
+        "metric-08"
+      ],
+      "expected_reason": "Source section: 私訊很多但預約很少，照這個順序拆"
+    },
+    {
+      "id": "r03",
+      "query": "投放有點擊可是都沒人開口詢問，先查哪一關",
+      "expected_locators": [
+        "metric-09"
+      ],
+      "expected_reason": "Source section: 廣告成效不好，照這個順序拆"
+    },
+    {
+      "id": "r04",
+      "query": "老客戶碰到調價，要怎麼說比較不傷感情",
+      "expected_locators": [
+        "script-14"
+      ],
+      "expected_reason": "Source section: 漲價怎麼跟熟客講"
+    },
+    {
+      "id": "r05",
+      "query": "成品拍好後，首張圖片怎麼決定",
+      "expected_locators": [
+        "coach-14"
+      ],
+      "expected_reason": "Source section: 作品拍攝與剪輯檢核"
+    },
+    {
+      "id": "r06",
+      "query": "顧客此刻在櫃檯吵退費，現場先做什麼",
+      "expected_locators": [
+        "ops-16"
+      ],
+      "expected_reason": "Source section: 客訴現場的用語與後續"
+    },
+    {
+      "id": "r07",
+      "query": "準備自己租個空間接客，事前要盤點哪些支出",
+      "expected_locators": [
+        "career-03"
+      ],
+      "expected_reason": "Source section: 開店的固定成本要抓哪幾項"
+    },
+    {
+      "id": "r08",
+      "query": "每天集合講事情總是拖太久，有沒有有效率的開法",
+      "expected_locators": [
+        "ops-26"
+      ],
+      "expected_reason": "Source section: 早會怎麼開"
+    },
+    {
+      "id": "r09",
+      "query": "預約常被臨時放鳥，怎麼把取消率壓下來",
+      "expected_locators": [
+        "script-08"
+      ],
+      "expected_reason": "Source section: 客人臨時取消"
+    },
+    {
+      "id": "r10",
+      "query": "社群帳號平常多久更新一次才穩定",
+      "expected_locators": [
+        "social-06"
+      ],
+      "expected_reason": "Source section: 發布頻率的基本盤"
+    },
+    {
+      "id": "r11",
+      "query": "夥伴長期沒力氣又提想走，談話從哪裡開始",
+      "expected_locators": [
+        "career-15"
+      ],
+      "expected_reason": "Source section: 長期疲勞的三個處理順序"
+    },
+    {
+      "id": "r12",
+      "query": "處理完抱怨後，隔多久再傳訊息不會太刻意",
+      "expected_locators": [
+        "ops-16"
+      ],
+      "expected_reason": "Source section: 客訴現場的用語與後續；來源支持後續關心動作，但沒有提供多久後聯絡。",
+      "requires_unknown_timing_answer": true
+    },
+    {
+      "id": "r13",
+      "query": "怎麼看出同一支投放內容已經讓受眾疲乏",
+      "expected_locators": [
+        "coach-31"
+      ],
+      "expected_reason": "Source section: 廣告素材的成效基準與優化順序"
+    },
+    {
+      "id": "r14",
+      "query": "回來消費的人變少，第一步該拆哪個數據",
+      "expected_locators": [
+        "metric-02"
+      ],
+      "expected_reason": "Source section: 回流率：多少算健康"
+    },
+    {
+      "id": "r15",
+      "query": "第一次收到陌生顧客諮詢，開頭先確認什麼",
+      "expected_locators": [
+        "script-01"
+      ],
+      "expected_reason": "Source section: 新客第一則私訊怎麼回"
+    },
+    {
+      "id": "n01",
+      "query": "北海道明天下午會不會下雪",
+      "expected_locators": []
+    },
+    {
+      "id": "n02",
+      "query": "幫我比較兩款顯示卡的遊戲效能",
+      "expected_locators": []
+    },
+    {
+      "id": "n03",
+      "query": "番茄炒蛋要先放鹽還是先放糖",
+      "expected_locators": []
+    },
+    {
+      "id": "n04",
+      "query": "台積電下週股價會漲多少",
+      "expected_locators": []
+    },
+    {
+      "id": "n05",
+      "query": "我的汽車引擎燈亮了是哪個零件壞掉",
+      "expected_locators": []
+    }
+  ],
+  "conversation_cases": [
+    {
+      "id": "c01",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理廣告沒詢問，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我只有點擊數，下一步怎麼查"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c02",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理私訊轉預約，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "這週30個私訊只有1個預約"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c03",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理回流下降，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我還沒整理新客和熟客"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c04",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理熟客漲價，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "幫我寫一段可以直接傳的話"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c05",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理作品拍攝，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我只有手機和窗邊自然光"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c06",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理短影音，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我常常不知道開頭要說什麼"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c07",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理客訴現場，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人現在還在店裡"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c08",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理客訴後續，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "昨天已經先道歉了"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c09",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理臨時取消，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "最近一週被取消三次"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c10",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理預約提醒，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "幫我保留明天10:30和遲到先告知"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c11",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理新客諮詢，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "對方只傳了一張參考圖"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c12",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理沉睡客喚回，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "半年沒來的客人怎麼開口"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c13",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理產品推薦，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人怕我只想推銷"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c14",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理加購服務，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "不要讓話術太有壓力"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c15",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理客單價，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我只有總營收和客數"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c16",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理損益，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "租工作室前要算什麼"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c17",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理排班，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "週末總是人手不夠"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c18",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理早會，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "大家都不想講話"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c19",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理新人帶教，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "她剪髮速度一直很慢"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c20",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理離職談話，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "她說累到不想做了"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c21",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理目標拆解，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我想把月目標拆成每週"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c22",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理一對一會談，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "第一次談要怎麼開場"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c23",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理貼文頻率，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我現在想到才發"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c24",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理內容支柱，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我的版面什麼都有很亂"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c25",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理評論邀請，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人很滿意但我不敢問"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c26",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理負評回覆，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "對方在公開評論罵得很兇"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c27",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理廣告素材疲乏，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "同一張圖已經跑很久"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c28",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理投放前準備，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我只有一張作品照"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c29",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理回覆速度，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我忙起來常隔天才回"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c30",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理話術健檢，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "要抽哪些對話來看"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c31",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理到店率，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我沒有記到店人數"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c32",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理私訊率，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我有曝光但沒記私訊來源"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c33",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理染後照護，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人回家說顏色掉很快"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c34",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理燙後整理，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人自己吹不出捲度"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c35",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理爽約規則，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "第一次預約要不要收訂金"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c36",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理價格異議，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "客人說別家比較便宜"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c37",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理淡旺季，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "這個月客數突然少很多"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c38",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理轉介紹，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "熟客很多但很少介紹朋友"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c39",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理個人品牌，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "我不知道自己的特色"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c40",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理職涯倦怠，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "最近每天上班都沒力"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c41",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理技術進修，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "課很多不知道先選哪個"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c42",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理助理晉升，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "怎麼判斷可以獨立接客"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c43",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理庫存，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "染膏常常臨時不夠"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c44",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理成本，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "耗材用量一直抓不準"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c45",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理店務流程，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "交接常常漏事情"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c46",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理會員制度，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "折扣越做客人越等活動"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c47",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理節慶活動，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "母親節方案怎麼規劃"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c48",
+      "tone": "line",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理限時動態，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "每天不知道要發什麼"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c49",
+      "tone": "expert",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理未知排程數字，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "來源只說客單價沒有標準答案，請幫我排追蹤"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    },
+    {
+      "id": "c50",
+      "tone": "service",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想處理未知成長數字，先幫我判斷方向"
+        },
+        {
+          "role": "assistant",
+          "content": "fixture context only; offline runner does not score this text"
+        },
+        {
+          "role": "user",
+          "content": "幫我承諾下週客單回升至少一成"
+        }
+      ],
+      "expectation": "回答需遵守語氣、使用者事實與來源支持；未知數字不得自行補。"
+    }
+  ]
+}

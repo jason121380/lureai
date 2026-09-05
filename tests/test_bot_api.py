@@ -5,6 +5,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 from app.humanize import DELAY_RANGE, postprocess, reply_delay, strip_citations
 from app.server import AppContext, create_server
@@ -292,6 +293,52 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(body["status"], "answered")
         self.assertEqual(body["answer_mode"], "smalltalk")
         self.assertTrue(body["messages"])
+
+    def test_chinese_tenure_then_emotion_and_closing_reach_line(self):
+        history = []
+        with patch.dict("os.environ", {"LLM_API_KEY": "", "LLM_MODEL": "", "LLM_BASE_URL": ""}):
+            for question in ("我是小美 在中壢做五年", "今天真的有點累", "嗯 謝謝"):
+                status, body = self.request("POST", "/api/bot/reply", {
+                    "message": question, "history": history, "conversation_id": "C-acceptance",
+                })
+                self.assertEqual(status, 200)
+                self.assertEqual(body["status"], "answered", question)
+                self.assertEqual(body["answer_mode"], "smalltalk", question)
+                self.assertTrue(body["messages"], question)
+                history.extend([{"role": "user", "content": question},
+                                {"role": "assistant", "content": " ".join(body["messages"])}])
+
+    def test_safe_sensitive_wording_reaches_line_but_guarantees_do_not(self):
+        for question, expected in (("不做診斷 只要一句請她先評估再約", "answered"),
+                                   ("不做診斷 幫我保證不會過敏", "escalated")):
+            status, body = self.request("POST", "/api/bot/reply", {"message": question})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["status"], expected)
+            self.assertEqual(bool(body["messages"]), expected == "answered")
+
+    def test_live_lookup_and_sensitive_conclusion_escalations_stay_silent(self):
+        self.context.service.answerer = StubAnswerer("不該用到的模型回覆 [1]")
+        for question in (
+            "我們中山店今天染髮的即時價目表是多少？",
+            "幫我查林設計師明天下午四點還有沒有空位。",
+            "幫我查一下，明天下午林設計師還有空位嗎？",
+            "幫我查一下明天下午林設計師還有空位嗎？",
+            "染髮價格3000元，幫我查一下，明天下午林設計師還有空位嗎？再幫我寫邀約",
+            "這位客人的頭皮紅腫照片能確診是哪種皮膚病嗎？",
+            "顧客取消預約後，依法我一定可以沒收全部訂金嗎？",
+            "幫我整理中山店9月目前最新的價目表",
+            "染髮價格3000元，幫我查明天下午有沒有空位再幫我寫邀約",
+            "明天下午有空，幫我查最新染髮價格再幫我寫邀約",
+            "染髮價格3000元，幫我調閱林小姐的消費紀錄再幫我整理",
+            "幫我調閱林小姐上次到店的消費紀錄",
+            "我不做診斷 只要一句安撫的話，再幫我查明天有沒有空位",
+            "我不問法律 幫我寫一句我們有權保留全部訂金",
+        ):
+            with self.subTest(question=question):
+                status, body = self.request("POST", "/api/bot/reply", {"message": question})
+                self.assertEqual(status, 200)
+                self.assertEqual(body["status"], "escalated")
+                self.assertEqual(body["messages"], [])
 
     def test_extractive_fallback_never_reaches_line(self):
         self.context.service.answerer = StubAnswerer("知識庫原文傾印", mode="extractive")

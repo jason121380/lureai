@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+import threading
 import secrets
 import sys
 from pathlib import Path
@@ -20,7 +22,7 @@ if sys.version_info < (3, 10):
 from app.ingest import ingest_jsonl
 from app.policy import SENSITIVE_TOPICS
 from app.replica import PostgresReplica
-from app.server import BOT_SERVICE_USERNAME, AppContext, create_server
+from app.server import AppContext, create_server
 from app.storage import KnowledgeStore
 
 
@@ -275,36 +277,26 @@ def main(argv: list[str] | None = None) -> int:
         welcome_prompts=profile["welcome_prompts"],
         blocked_topics=profile["blocked_topics"],
         fallback_message=profile["fallback_message"],
+        defer_bootstrap=True,
     )
     # Postgres 持久化（不掛 Volume）：開機還原上一份快照，之後定期備份。
     replica = PostgresReplica.from_env()
     restored = False
     if replica.configured and not replica.enabled:
-        print("[boot] 偵測到 Postgres 連線設定，但缺少 psycopg 套件，持久化停用", file=sys.stderr, flush=True)
-    if replica.enabled:
-        try:
+        context.close()
+        raise RuntimeError("已設定 Postgres 但缺少 psycopg；停止啟動以保護資料")
+    try:
+        if replica.enabled:
             restored = replica.restore(context.store)
-        except Exception as exc:  # noqa: BLE001 - 還原失敗要照常開站，只是資料是新的
-            print(f"[pg] restore failed: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr, flush=True)
-        if restored:
-            # 快照會整批取代帳號表；環境變數指定的第一個帳號若不在快照裡要補回來。
-            username = os.getenv("USER_USERNAME", "").strip()
-            password = os.getenv("USER_PASSWORD", "")
-            if username and password:
-                try:
-                    context.auth.ensure_bootstrap_user(username, password, os.getenv("USER_ROLE"))
-                except ValueError:
-                    pass
-            # 服務帳號的 id 也要重新認一次。整批換掉帳號表之後，開機時記下的那個
-            # id 可能已經是別人的——lurebot 的用量與稽核就會記到某個真人頭上。
-            if context.bot_token:
-                try:
-                    context.bot_user_id = context.auth.ensure_bootstrap_user(
-                        BOT_SERVICE_USERNAME, secrets.token_urlsafe(32)
-                    )["id"]
-                except ValueError:
-                    pass
-        replica.start(context.store)
+        context.initialize_accounts()
+        if replica.enabled:
+            replica.start(context.store)
+    except Exception:
+        try:
+            replica.stop()
+        finally:
+            context.close()
+        raise
     # 後台「系統健康」要看得到持久化狀態，不用翻 log。
     context.replica = replica
     context.restored_from_replica = restored
@@ -319,19 +311,40 @@ def main(argv: list[str] | None = None) -> int:
         f"{' restored' if restored else ''}",
         flush=True,
     )
-    server = create_server(args.host, args.port, context)
+    try:
+        server = create_server(args.host, args.port, context)
+    except Exception:
+        try:
+            replica.stop(context.store)
+        finally:
+            context.close()
+        raise
     print(f"{profile['app_name']}：http://{args.host}:{server.server_port}", flush=True)
     print(f"管理後台：http://{args.host}:{server.server_port}/admin.html")
     if admin_token == "local-admin":
         print("本機預設管理權杖：local-admin（正式部署必須設定 ADMIN_TOKEN）")
+    def request_shutdown(*_args):
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    replica.on_writer_lost = request_shutdown
+    previous_sigterm = signal.signal(signal.SIGTERM, request_shutdown)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n正在停止服務")
     finally:
-        server.server_close()
-        replica.stop(context.store)
-        context.close()
+        try:
+            server.server_close()
+        except TimeoutError:
+            # Remaining workers may mutate SQLite. Exit without closing it or publishing
+            # a misleading final snapshot; process exit releases the PostgreSQL session.
+            print("[shutdown] 工作逾時，保留上次快照並停止程序", file=sys.stderr, flush=True)
+            os._exit(1)
+        try:
+            replica.stop(context.store)
+        finally:
+            context.close()
+            signal.signal(signal.SIGTERM, previous_sigterm)
     return 0
 
 

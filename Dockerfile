@@ -1,21 +1,23 @@
-# Base image pulled from AWS ECR Public (a mirror of the official Docker
-# library) instead of docker.io, whose anonymous pulls hit 429 rate limits
-# on shared build infrastructure.
-FROM public.ecr.aws/docker/library/python:3.12-slim
+ARG PYTHON_IMAGE=public.ecr.aws/docker/library/python:3.12.11-slim-bookworm
+FROM ${PYTHON_IMAGE}
+
+ARG APP_BUILD_COMMIT=unknown
+ARG APP_BUILD_TIMESTAMP=unknown
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_HOST=0.0.0.0 \
+    APP_DB_PATH=/app/data/designer_coach.db \
+    APP_BUILD_COMMIT=${APP_BUILD_COMMIT} \
+    APP_BUILD_TIMESTAMP=${APP_BUILD_TIMESTAMP}
+
+RUN groupadd --system --gid 10001 lureai \
+    && useradd --system --uid 10001 --gid lureai --home-dir /app --shell /usr/sbin/nologin lureai
 
 WORKDIR /app
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --requirement requirements.txt
+COPY --chown=lureai:lureai . .
+RUN mkdir -p /app/data /app/qa && chown -R lureai:lureai /app/data /app/qa
 
-# 唯一的第三方套件：psycopg（Postgres 持久化快照用）。
-# 程式在沒有 Postgres 連線設定時完全不 import 它，本機開發仍是零依賴。
-RUN pip3 install --no-cache-dir "psycopg[binary]>=3.1,<4"
-
-COPY . .
-
-ENV PYTHONUNBUFFERED=1
-# 容器一定要綁 0.0.0.0，只綁 127.0.0.1 的話平台的流量進不來，
-# 使用者看到的就是「一直轉」。仍可用環境變數覆寫。
-ENV APP_HOST=0.0.0.0
-
-# 先重建索引再啟動；重建失敗（例如 Volume 唯讀）不可以讓容器直接結束，
-# 服務啟動時本來就會在索引過期時自動重建。
+USER 10001:10001
 CMD ["sh", "-c", "python3 run.py --reindex-only || echo '[boot] reindex skipped, server will rebuild if needed'; exec python3 run.py"]

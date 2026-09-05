@@ -85,6 +85,112 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result["citations"][0]["locator"], "aftercare-1")
         self.assertTrue(result["trace_id"])
 
+    def test_final_grounding_quality_is_recomputed_for_each_answer(self):
+        class AlternatingAnswerer(RecordingAnswerer):
+            def __init__(self):
+                super().__init__()
+                self.answers = iter([
+                    "連續做 7 天、每天 3 次、每次 5-10 分鐘。[1]",
+                    "燙髮後依設計師示範方向吹整，並避免拉扯頭髮。[1]",
+                ])
+
+            def answer(self, *args, **kwargs):
+                return next(self.answers), "llm", "used", {"input_tokens": 1, "output_tokens": 1}
+
+        self.service.answerer = AlternatingAnswerer()
+
+        unsupported = self.service.chat("燙髮後怎麼整理？", want_followups=False)
+        supported = self.service.chat("燙髮後怎麼整理？", want_followups=False)
+
+        self.assertTrue(unsupported["quality_failed"])
+        self.assertEqual(unsupported["grounding_diagnostics"]["unsupported_numbers"], ["7 天", "3 次", "5-10 分鐘"])
+        self.assertFalse(supported["quality_failed"])
+
+    def test_service_tone_remains_citation_free_without_quality_failure(self):
+        class ServiceAnswerer(RecordingAnswerer):
+            requires_citations = staticmethod(AnswerEngine.requires_citations)
+
+            def answer(self, *args, **kwargs):
+                return "先照設計師示範的方向吹整", "llm", "used", {"input_tokens": 1, "output_tokens": 1}
+
+        self.service.answerer = ServiceAnswerer()
+        result = self.service.chat("燙髮後怎麼整理？", tone="service", want_followups=False)
+
+        self.assertFalse(result["quality_failed"])
+        self.assertNotIn("[", result["answer"])
+
+    def test_citation_retry_can_still_finish_with_quality_failed(self):
+        class UnsupportedRetryAnswerer(RecordingAnswerer):
+            requires_citations = staticmethod(AnswerEngine.requires_citations)
+            has_valid_citation = staticmethod(AnswerEngine.has_valid_citation)
+
+            def stream_answer(self, *args, **kwargs):
+                yield "delta", "我先整理做法"
+                yield "terminal", "completed"
+
+            def retry_with_citations(self, *args, **kwargs):
+                return "連續做 7 天、每天 3 次、每次 5-10 分鐘。[1]", {}
+
+        self.service.answerer = UnsupportedRetryAnswerer()
+        result = list(self.service.chat_stream("燙髮後怎麼整理？", tone="expert"))[-1]
+
+        self.assertEqual(result["type"], "result")
+        self.assertTrue(result["quality_failed"])
+        self.assertEqual(result["grounding_diagnostics"]["unsupported_numbers"], ["7 天", "3 次", "5-10 分鐘"])
+
+    def test_chinese_rate_claim_is_flagged_in_both_delivery_paths(self):
+        class ChineseRateAnswerer(RecordingAnswerer):
+            requires_citations = staticmethod(AnswerEngine.requires_citations)
+            has_valid_citation = staticmethod(AnswerEngine.has_valid_citation)
+
+            def answer(self, *args, **kwargs):
+                return "下週客單價回升至少一成。[1]", "llm", "used", {"input_tokens": 1, "output_tokens": 1}
+
+            def stream_answer(self, *args, **kwargs):
+                yield "delta", "下週客單價回升至少一成。[1]"
+                yield "terminal", "completed"
+
+        hit = self.service.retriever.retrieve("燙髮後怎麼整理？", limit=1)[0]
+        hit = type(hit)(hit.chunk_id, hit.title, hit.source_file, hit.locator,
+                        hit.section_title, "客單價沒有標準答案。", hit.category, hit.score)
+        self.service.retriever = StubRetriever([hit])
+        self.service.answerer = ChineseRateAnswerer()
+
+        direct = self.service.chat("客單價下週會怎樣？", want_followups=False)
+        streamed = list(self.service.chat_stream("客單價下週會怎樣？", tone="expert"))[-1]
+
+        self.assertTrue(direct["quality_failed"])
+        self.assertTrue(streamed["quality_failed"])
+        self.assertEqual(direct["grounding_diagnostics"]["unsupported_numbers"], ["一 成"])
+        self.assertEqual(streamed["grounding_diagnostics"]["unsupported_numbers"], ["一 成"])
+
+    def test_numeric_locality_failure_and_rate_range_success_recompute(self):
+        class AlternatingRangeAnswerer(RecordingAnswerer):
+            def __init__(self):
+                super().__init__()
+                self.answers = iter([
+                    "私訊轉預約率應達 10%，熟客折扣要調整。[1]",
+                    "客單價預計上升一至兩成。[1]",
+                ])
+
+            def answer(self, *args, **kwargs):
+                return next(self.answers), "llm", "used", {"input_tokens": 1, "output_tokens": 1}
+
+        hit = self.service.retriever.retrieve("燙髮後怎麼整理？", limit=1)[0]
+        hit = type(hit)(hit.chunk_id, hit.title, hit.source_file, hit.locator, hit.section_title,
+                        "私訊轉預約率沒有標準答案。熟客折扣為 10%。客單價預計上升 10-20%。",
+                        hit.category, hit.score)
+        self.service.retriever = StubRetriever([hit])
+        self.service.answerer = AlternatingRangeAnswerer()
+
+        unrelated = self.service.chat("這兩個指標怎麼看？", want_followups=False)
+        supported_range = self.service.chat("這兩個指標怎麼看？", want_followups=False)
+
+        self.assertTrue(unrelated["quality_failed"])
+        self.assertEqual(unrelated["grounding_diagnostics"]["unsupported_numbers"], ["10 %"])
+        self.assertFalse(supported_range["quality_failed"])
+        self.assertEqual(supported_range["grounding_diagnostics"]["unsupported_numbers"], [])
+
     def test_answer_excludes_hits_below_policy_threshold(self):
         result = self.service.chat("燙髮後怎麼整理？")
 
@@ -128,6 +234,17 @@ class ServiceTests(unittest.TestCase):
         audits = self.store.list_audits()
         self.assertEqual(audits[0]["trace_id"], result["trace_id"])
         self.assertEqual(audits[0]["status"], "escalated")
+
+    def test_stream_failure_is_explicitly_retryable(self):
+        class Failed(RecordingAnswerer):
+            def stream_answer(self, *args, **kwargs):
+                yield 'delta', '尚未完成'
+                raise TimeoutError('deadline')
+            def _extractive_answer(self, *args, **kwargs):
+                return '備援內容'
+        self.service.answerer = Failed()
+        events = list(self.service.chat_stream('燙髮後怎麼整理？'))
+        self.assertIn({'type': 'terminal', 'status': 'stream_failed', 'retryable': True}, events)
 
     def test_chat_stream_without_model_yields_single_result(self):
         events = list(self.service.chat_stream("燙髮後怎麼整理？", "conversation-1"))
@@ -290,7 +407,8 @@ class ServiceTests(unittest.TestCase):
         result = events[-1]
         self.assertEqual(result["answer_mode"], "extractive")
         self.assertEqual(result["model_status"], "missing_citations")
-        self.assertIn("原文", result["answer"])
+        self.assertNotIn("原文", result["answer"])
+        self.assertIn("重送", result["answer"])
 
     def test_stream_quality_gate_also_covers_the_citation_retry(self):
         """補回引用之後那則，內容一樣要查。
