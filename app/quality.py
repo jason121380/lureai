@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import re
 
+from . import response_facts
+from .text_utils import cjk_bigrams
+
 
 # 「我陪你拆」這種把回答往後推的句型。單獨出現＝這一輪等於沒講。
 DELAY_PATTERNS = (
@@ -24,6 +27,13 @@ DELAY_PATTERNS = (
 # 半形與全形都要認。實際跑的時候 `normalize_citation_marks` 已經先正規化過，
 # 但這個函式在測試與知識掃描裡是單獨被呼叫的，自己認得出來才不會有死角。
 CITATION_MARK = re.compile(r"[【〔\[（(]\s*[0-9０-９]{1,2}\s*[】〕\]）)]")
+CITATION_NUMBER = re.compile(r"\[(\d{1,3})\]")
+IMPORTANT_NUMBER = re.compile(
+    r"(?<!\d)((?:\d+(?:\.\d+)?|[零〇一二兩三四五六七八九十百千萬]+)"
+    r"(?:\s*[-–~～至]\s*(?:\d+(?:\.\d+)?|[零〇一二兩三四五六七八九十百千萬]+))?)\s*"
+    r"(%|％|成|天|日|週|周|次|分鐘|分|小時|元|塊|則|個|人|位)"
+)
+NON_CLAIM = re.compile(r"^(?:嗨|哈囉|你好|謝謝|收到|好[的啊呀喔～~！!]*)$")
 
 # 結尾那幾行「▷ 建議問題」不是回答，是給前端做按鈕用的。它們也絕對不能算進
 # 「這一則有沒有給東西」——那幾行天生就有動詞跟數字（「那我該先改哪一步？」
@@ -85,13 +95,12 @@ STANCE_QUESTION = re.compile(
 # 「先別加預算」）。來源知識裡的預算警語是寫給「正想加預算」或「詢問多但預約
 # 少（問題在承接）」的情境的；prompt 勸不動——模型照「只能根據來源」把警語
 # 一起抄出來——所以在這裡用程式擋。
-# 問題側刻意放寬（提到花費、成本、投放、預約、到店都算有脈絡），寧可放過也不
-# 誤殺：擋錯的代價是好答案被重打一次，放過的代價只是多一句囉唆。
+# 花費與承接階段可以構成脈絡；單純「廣告投了幾天」不表示在問預算。
 UNSOLICITED_BUDGET_ADVICE = re.compile(
     r"(?:先別|先不要|不要急著|不用急著|別急著|先不用|不用|不需要|別)"
-    r"(?:急著)?(?:增加|加|提高|放大)\s*預算"
+    r"(?:急著)?(?:增加|加|提高|放大)\s*預算|(?:先不要|不要|不用)(?:同時)?(?:動|改|調整)[^。\n]{0,16}預算"
 )
-BUDGET_CONTEXT = re.compile(r"預算|花|錢|費用|成本|加碼|投|預約|到店|來店|成交")
+BUDGET_CONTEXT = re.compile(r"預算|花費|花了?|錢|費用|成本|加碼|預約|到店|來店|成交")
 
 # 只擋「把人推給不存在的對象」這件事。**不要擋「主管」**：沙龍當然有主管，
 # 客訴 SOP、請假、輪值、早會、離職流程整份 ops 知識都在講主管，擋掉等於把
@@ -186,6 +195,126 @@ def has_substance(answer: str) -> bool:
     )
 
 
+def _claim_units(answer: str) -> list[str]:
+    """Split only clear prose assertions; headings, prompts and greetings stay out."""
+    units = []
+    parts = re.findall(r"[^。！？!?\n]+(?:[。！？!?]+(?:\s*\[\d+\])*)?|[^\n]+", str(answer or ""))
+    for part in parts:
+        claim = part.strip()
+        bare = CITATION_NUMBER.sub("", claim).strip(" 。！？!?：:*-•")
+        if len(bare) < 8 or NON_CLAIM.fullmatch(bare) or QUESTION_LINE.search(bare):
+            continue
+        units.append(claim)
+    return units
+
+
+def _topic_bigrams(text: str) -> set[str]:
+    cleaned = IMPORTANT_NUMBER.sub(" ", CITATION_NUMBER.sub(" ", text))
+    return {item for item in cjk_bigrams(cleaned) if not item.isdigit()}
+
+
+def _number_key(value: str, unit: str) -> str:
+    value = re.sub(r"\s+", "", value).replace("–", "-").replace("～", "-").replace("~", "-").replace("至", "-")
+    normalized_unit = unit.replace("％", "%")
+    parts = value.split("-")
+    parts = [str(response_facts.chinese_count(part))
+             if re.fullmatch(r"[零〇一二兩三四五六七八九十百千萬]+", part) else part
+             for part in parts]
+    if normalized_unit == "成":
+        parts = [f"{float(part) * 10:g}" for part in parts]
+        normalized_unit = "%"
+    return f"{'-'.join(parts)}{normalized_unit}"
+
+
+def _numeric_value(value: str, unit: str) -> float | None:
+    if re.search(r"[-–~～至]", value):
+        return None
+    number = float(value) if re.fullmatch(r"\d+(?:\.\d+)?", value.strip()) else float(response_facts.chinese_count(value.strip()))
+    return number * 10 if unit == "成" else number
+
+
+def _local_clause(text: str, start: int, end: int) -> str:
+    left = max(text.rfind(mark, 0, start) for mark in "。！？!?；;，,\n") + 1
+    boundaries = [position for mark in "。！？!?；;，,\n" for position in [text.find(mark, end)] if position >= 0]
+    right = min(boundaries) if boundaries else len(text)
+    return text[left:right]
+
+
+def grounding_diagnostics(
+    answer: str,
+    hits: list,
+    tone: str = "expert",
+    substantive: bool = True,
+    question: str = "",
+    history=None,
+) -> dict:
+    """Return conservative, pure citation/evidence diagnostics for a final answer.
+
+    These lexical checks can identify missing or impossible support. They do not
+    prove that a cited passage semantically entails a claim.
+    """
+    result = {
+        "uncited_claims": [],
+        "unsupported_claims": [],
+        "invalid_citations": [],
+        "unsupported_numbers": [],
+        "quality_failed": False,
+        "limits": "lexical evidence gate; does not prove semantic entailment",
+    }
+    if tone != "expert" or not substantive:
+        return result
+    source_count = len(hits)
+    user_counts = response_facts.stage_counts(question, history)
+    user_metrics = response_facts.metrics(question, history)
+    marks = [int(value) for value in CITATION_NUMBER.findall(str(answer or ""))]
+    result["invalid_citations"] = sorted({value for value in marks if not 1 <= value <= source_count})
+    for claim in _claim_units(answer):
+        valid = [int(value) for value in CITATION_NUMBER.findall(claim) if 1 <= int(value) <= source_count]
+        if not valid:
+            result["uncited_claims"].append(CITATION_NUMBER.sub("", claim).strip())
+        elif not any(
+            len(_topic_bigrams(claim) & _topic_bigrams(str(getattr(hits[number - 1], "text", "") or ""))) >= 2
+            for number in valid
+        ):
+            result["unsupported_claims"].append(claim)
+        numeric_claim = CITATION_NUMBER.sub("", claim)
+        for match in IMPORTANT_NUMBER.finditer(numeric_claim):
+            display = f"{match.group(1).strip()} {match.group(2)}"
+            key = _number_key(match.group(1), match.group(2))
+            numeric_value = _numeric_value(match.group(1), match.group(2))
+            local_claim = _local_clause(numeric_claim, match.start(), match.end())
+            claim_topics = _topic_bigrams(local_claim)
+            count_unit = match.group(2) in {"則", "個", "人", "位"}
+            rate_unit = match.group(2) in {"%", "％", "成"}
+            supported = count_unit and any(
+                numeric_value == value and label in local_claim
+                for label, stage in response_facts.STAGES.items()
+                for value in [user_counts.get(stage)]
+                if value is not None
+            ) or rate_unit and any(
+                numeric_value is not None and metric.value is not None
+                and abs(numeric_value - metric.value) <= .11 and name in local_claim
+                for name, metric in user_metrics.items()
+            )
+            for number in valid:
+                source = str(getattr(hits[number - 1], "text", "") or "")
+                for item in IMPORTANT_NUMBER.finditer(source):
+                    source_clause = _local_clause(source, item.start(), item.end())
+                    if (_number_key(item.group(1), item.group(2)) == key
+                            and len(claim_topics & _topic_bigrams(source_clause)) >= 2):
+                        supported = True
+                        break
+                if supported:
+                    break
+            if not supported and display not in result["unsupported_numbers"]:
+                result["unsupported_numbers"].append(display)
+    result["quality_failed"] = bool(
+        result["uncited_claims"] or result["unsupported_claims"]
+        or result["invalid_citations"] or result["unsupported_numbers"]
+    )
+    return result
+
+
 # 一則訊息裡連寫這麼多字又完全沒換行，畫面上就是一坨。前端與 LINE 出口都會
 # 自己斷行（`humanize.wrap_line`），但那只是把一坨排整齊，救不了「話太多」。
 WALL_CHARS = 40
@@ -217,7 +346,7 @@ def _answer_body(answer: str) -> str:
     return "\n".join(lines).rstrip()
 
 
-def problems(question: str, answer: str, tone: str = "") -> list[str]:
+def problems(question: str, answer: str, tone: str = "", history=None) -> list[str]:
     """回傳這一則回覆的問題清單；空清單＝可以送出去。
 
     `tone` 是聊天語氣（service／line）時會多檢查長度：那兩種是通訊軟體的
@@ -228,7 +357,7 @@ def problems(question: str, answer: str, tone: str = "") -> list[str]:
     text = CITATION_MARK.sub("", _answer_body(answer)).strip()
     if not text:
         return []
-    found: list[str] = []
+    found: list[str] = response_facts.inspect(question, text, history)[1]
 
     # TASK 1：延後回答的句型單獨出現。
     if any(pattern.search(text) for pattern in DELAY_PATTERNS) and not has_substance(text):
@@ -317,3 +446,11 @@ def retry_note(found: list[str]) -> str:
         f"\n{lines}\n"
         "這一次直接把具體內容寫出來，長度規則照舊。"
     )
+
+
+def correct_budget(question: str, answer: str) -> str:
+    """An exhausted retry must not reintroduce unrequested budget advice."""
+    if BUDGET_CONTEXT.search(question) or not UNSOLICITED_BUDGET_ADVICE.search(answer):
+        return answer
+    cleaned = re.sub(r"[^。！？\n，,；;]*預算[^。！？\n，,；;]*[，,；;]?", "", answer).strip()
+    return cleaned or "我們先確認這次廣告卡在哪個環節"

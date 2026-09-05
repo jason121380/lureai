@@ -44,6 +44,13 @@ let syncTimer = null;
 let pendingDeletes = new Set();
 const STORAGE_PREFIX = "test";
 const store = {};
+const crypto = { randomUUID: () => "conflict-copy" };
+Object.defineProperty(globalThis, "crypto", { value: crypto, configurable: true });
+function render() {}
+function el() { return null; }
+function storageKey() { return "cache"; }
+function newConversation() {}
+
 const localStorage = {
   getItem: (k) => (k in store ? store[k] : null),
   setItem: (k, v) => { store[k] = String(v); },
@@ -64,7 +71,7 @@ async function scenarioStaleAck() {
   dirty.add("A");
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  respond = async () => { await gate; return { ok: true }; };
+  respond = async () => { await gate; return { ok: true, json: async () => ({ acks: [{ id: "A", rev: 1, status: "accepted" }] }) }; };
   const inflight = pushConversations([state.conversations[0]]);
   // 上傳還沒回來的時候改 B。
   state.activeId = "B";
@@ -83,12 +90,92 @@ async function scenarioStaleAckSameConversation() {
   dirty.add("A");
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  respond = async () => { await gate; return { ok: true }; };
+  respond = async () => { await gate; return { ok: true, json: async () => ({ acks: [{ id: "A", rev: 1, status: "accepted" }] }) }; };
   const inflight = pushConversations([{ id: "A", rev: 1, messages: [{ role: "user", content: "a" }] }]);
   scheduleSync();   // rev 變成 2
   release();
   await inflight;
   return { dirtyAfterAck: [...dirty], rev: state.conversations[0].rev };
+}
+
+async function scenarioFallbackConflictId() {
+  state.conversations = [{ id: "A", title: "local", rev: 2, expected_rev: 1,
+    messages: [{ content: "fallback local edit" }] }];
+  state.activeId = "A";
+  dirty.clear(); dirty.add("A");
+  const uuid = crypto.randomUUID;
+  delete crypto.randomUUID;
+  let error = null;
+  try { preserveConflict(state.conversations[0]); } catch (caught) { error = caught.message; }
+  crypto.randomUUID = uuid;
+  const item = state.conversations[0];
+  return { error, copied: item.id !== "A", recoverable: dirty.has(item.id), content: item.messages[0].content };
+}
+
+async function scenarioDelayedPullAfterAck() {
+  state.conversations = [{ id: "A", title: "new", rev: 2, expected_rev: 1,
+    messages: [{ content: "acknowledged new content" }] }];
+  dirty.clear(); dirty.add("A");
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  respond = async () => {
+    await gate;
+    return { ok: true, json: async () => ({ conversations: [{ id: "A", rev: 1,
+      messages: [{ content: "older GET snapshot" }] }] }) };
+  };
+  const delayed = pullConversations();
+  respond = async () => ({ ok: true, json: async () => ({ acks: [{ id: "A", rev: 2, status: "accepted" }] }) });
+  await pushConversations(state.conversations);
+  release();
+  mergeConversations((await delayed).conversations);
+  return { rev: state.conversations[0].rev, content: state.conversations[0].messages[0].content, dirty: [...dirty] };
+}
+
+async function scenarioPartialAck() {
+  state.conversations = ["A", "B"].map((id) => ({ id, rev: 2, expected_rev: 1, messages: [{ content: id }] }));
+  dirty.clear(); dirty.add("A"); dirty.add("B");
+  respond = async () => ({ ok: true, json: async () => ({ acks: [
+    { id: "A", rev: 2, status: "accepted" }, { id: "B", rev: 1, status: "accepted" }
+  ] }) });
+  await pushConversations(state.conversations);
+  return [...dirty];
+}
+
+async function scenarioDeletedLocalEdit() {
+  state.conversations = [{ id: "A", title: "local", rev: 2, expected_rev: 1, messages: [{ content: "offline edit" }] }];
+  dirty.clear(); dirty.add("A");
+  mergeConversations([], [{ id: "A", rev: 2 }]);
+  return { id: state.conversations[0].id, content: state.conversations[0].messages[0].content, dirty: [...dirty] };
+}
+
+async function scenarioConflict() {
+  state.conversations = [{ id: "A", title: "local", rev: 2, expected_rev: 1,
+    messages: [{ content: "local content" }] }];
+  state.activeId = "A";
+  dirty.clear(); dirty.add("A");
+  mergeConversations([{ id: "A", title: "remote", rev: 3, messages: [{ content: "remote content" }] }]);
+  const before = JSON.stringify(state.conversations);
+  mergeConversations([{ id: "A", title: "remote", rev: 3, messages: [{ content: "remote content" }] }]);
+  return { items: state.conversations, dirty: [...dirty], stable: before === JSON.stringify(state.conversations) };
+}
+
+async function scenarioReload() {
+  state.conversations = [{ id: "A", rev: 4, expected_rev: 2, messages:
+    Array.from({ length: 25 }, (_, i) => ({ content: "message" + i })) }];
+  state.activeId = "A";
+  dirty.clear();
+  persist();
+  state.conversations = []; dirty.clear();
+  load();
+  return { count: state.conversations[0].messages.length, dirty: [...dirty], rev: state.conversations[0].rev };
+}
+
+async function scenarioRejectedAck() {
+  state.conversations = [{ id: "A", rev: 3, messages: [{ content: "unsaved" }] }];
+  dirty.clear(); dirty.add("A");
+  respond = async () => ({ ok: true, json: async () => ({ saved: 0, acks: [] }) });
+  await pushConversations(state.conversations);
+  return [...dirty];
 }
 
 async function scenarioDeleteInFlight() {
@@ -100,7 +187,7 @@ async function scenarioDeleteInFlight() {
   respond = async () => {
     seenDuringFlight = [...pendingDeletes];   // 請求在路上時同步會看到什麼
     await gate;
-    return { ok: true };
+    return { ok: true, json: async () => ({ ack: { id: "A", status: "deleted", rev: 2 } }) };
   };
   const inflight = deleteConversationOnServer("A");
   release();
@@ -120,6 +207,13 @@ async function scenarioDeleteFailureSurvives() {
   const out = {
     staleAck: await scenarioStaleAck(),
     staleAckSame: await scenarioStaleAckSameConversation(),
+    rejectedAck: await scenarioRejectedAck(),
+    fallback: await scenarioFallbackConflictId(),
+    delayedPull: await scenarioDelayedPullAfterAck(),
+    partial: await scenarioPartialAck(),
+    deletedLocal: await scenarioDeletedLocalEdit(),
+    conflict: await scenarioConflict(),
+    reload: await scenarioReload(),
     deleteInFlight: await scenarioDeleteInFlight(),
     deleteFailure: await scenarioDeleteFailureSurvives(),
   };
@@ -128,7 +222,8 @@ async function scenarioDeleteFailureSurvives() {
 """
 
 NEEDED = (
-    "pushConversations", "dirtyConversations", "scheduleSync",
+    "pushConversations", "dirtyConversations", "scheduleSync", "makeId", "pullConversations",
+    "preserveConflict", "mergeConversations", "persist", "load", "persistenceSnapshot",
     "deletesKey", "loadPendingDeletes", "savePendingDeletes",
     "deleteConversationOnServer",
 )
@@ -151,6 +246,31 @@ class SyncTimingTests(unittest.TestCase):
         if result.returncode != 0:
             raise AssertionError(result.stderr[:2000])
         cls.out = json.loads(result.stdout)
+
+    def test_conflict_id_fallback_keeps_local_content_recoverable(self):
+        self.assertEqual(self.out["fallback"], {"error": None, "copied": True, "recoverable": True, "content": "fallback local edit"})
+
+    def test_delayed_pull_cannot_replace_a_newer_acknowledged_revision(self):
+        self.assertEqual(self.out["delayedPull"], {"rev": 2, "content": "acknowledged new content", "dirty": []})
+
+    def test_partial_or_old_ack_does_not_clear_other_items(self):
+        self.assertEqual(self.out["partial"], ["B"])
+
+    def test_remote_deletion_keeps_unsaved_edit_as_conflict_copy(self):
+        self.assertEqual(self.out["deletedLocal"], {"id": "conflict-copy", "content": "offline edit", "dirty": ["conflict-copy"]})
+
+    def test_conflict_preserves_both_device_contents_and_is_visible(self):
+        result = self.out["conflict"]
+        self.assertEqual({x["messages"][0]["content"] for x in result["items"]}, {"local content", "remote content"})
+        self.assertIn("conflict-copy", result["dirty"])
+        self.assertTrue(any("同步衝突" in x["title"] for x in result["items"]))
+        self.assertTrue(result["stable"], "pull must not create new revisions")
+
+    def test_reload_keeps_full_unacknowledged_history_and_dirty_state(self):
+        self.assertEqual(self.out["reload"], {"count": 25, "dirty": ["A"], "rev": 5})
+
+    def test_http_success_without_item_ack_keeps_dirty(self):
+        self.assertEqual(self.out["rejectedAck"], ["A"])
 
     def test_an_ack_does_not_clear_another_conversations_changes(self):
         """A 的成功回覆只能確認 A。共用一個布林旗標時 B 會被一起清掉。"""

@@ -1,7 +1,7 @@
 """瀏覽器端 E2E 煙霧測試（手動執行，不在 `unittest discover` 裡）。
 
 跑法：
-    USER_USERNAME=tester USER_PASSWORD=test1234 USER_ROLE=admin python3 run.py --port 8765 &
+    USER_USERNAME=tester USER_PASSWORD=test-password-for-browser USER_ROLE=admin python3 run.py --port 8765 &
     BROWSER_BASE_URL=http://127.0.0.1:8765 python3 tests/browser_smoke.py
 
 這份檔案一度整份對不上實作（還在找已經移除的 `customer_service` profile、後台
@@ -21,11 +21,11 @@ from playwright.sync_api import sync_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QA = ROOT / "qa"
+QA = Path(os.getenv("BROWSER_ARTIFACT_DIR", ROOT / "qa"))
 QA.mkdir(exist_ok=True)
 BASE_URL = os.getenv("BROWSER_BASE_URL", "http://127.0.0.1:8765")
 USERNAME = os.getenv("BROWSER_USERNAME", "tester")
-PASSWORD = os.getenv("BROWSER_PASSWORD", "test1234")
+PASSWORD = os.getenv("BROWSER_PASSWORD", "test-password-for-browser")
 # 這台機器的 chromium；沒有就讓 Playwright 用自己的預設。
 CHROME = os.getenv("BROWSER_EXECUTABLE", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome")
 QUESTION = os.getenv("BROWSER_QUESTION", "我的私訊很多，但預約很少，該先查什麼？")

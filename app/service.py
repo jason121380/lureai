@@ -10,12 +10,14 @@ from .answer import (
     AnswerEngine, CONTACT_PATTERN, log_model_failure, mask_contacts,
     normalize_citation_marks, normalize_tone,
 )
-from . import quality
+from . import quality, response_facts
 from .followups import FollowupPlanner, welcome_questions
 from .policy import COACHING_TERMS, PolicyEngine, speaker_name
 from .retrieval import Retriever
 from .storage import KnowledgeStore
-from .usage import UsagePricing
+from .usage import UsagePricing, AccountedUsage
+from .model_runtime import ModelRuntime, scoped, accounted
+from contextlib import closing
 
 
 FOLLOWUP_PATTERN = re.compile(r"^[▷›>]\s*(.+)$")
@@ -57,15 +59,7 @@ WEAK_MATCH_SCORE = 0.80
 MAX_ASSISTANT_TURNS = 4
 MAX_ASSISTANT_CONTEXT_CHARS = 600
 
-# 「接話」不是完整的問題，它一定要靠前一題才知道在講什麼。只看分數擋不住：
-# 「為什麼」0.845、「多少錢」0.898、「太長了」0.851 都高於 0.80，於是完全
-# 不補脈絡，撈到的是「客人為什麼會在活動期消費」這種毫不相干的知識（體檢 B9）。
-# 判斷方式是「這句話裡有沒有店裡的名詞」——沒有名詞就無法自己成立。
-FOLLOW_UP_MAX_CHARS = 8
-FOLLOW_UP_OPENERS = re.compile(
-    r"^(?:那|然後|接下來|再|還有|除了|不是|為什麼|怎麼會|可以再|幫我改|換|給我另|第[二三四五六]|舉個|用我)"
-)
-
+# 接話只限省略主題的指代或改寫要求；短句也可能是新的完整主題。
 CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 
 # 電話與 Email 一律不送進模型。歷史訊息與稽核早就遮罩了，只有「現在這一則」
@@ -97,17 +91,22 @@ def _accepts_kwarg(function, name: str) -> bool:
 
 
 def is_follow_up(question: str) -> bool:
-    """這句話是不是「接話」——沒有店裡的名詞，就一定要靠前一題才看得懂。
-
-    「換一個」「為什麼」「再短一點」「用我的口氣」都算；
-    「燙髮後怎麼整理」「客人說太貴」有名詞，自己就撈得準，不算。
-    """
+    """Recognize subject-omitting anaphora/editing, not every short unknown topic."""
     text = "".join(str(question or "").split()).rstrip("？?。.！!~～")
     if not text:
         return False
     if any(term in text for term in COACHING_TERMS):
         return False
-    return len(text) <= FOLLOW_UP_MAX_CHARS or bool(FOLLOW_UP_OPENERS.match(text))
+    # Brevity or the absence of salon nouns does not establish dependence:
+    # a short new subject still needs its own evidence. Recognize anaphora and
+    # editing requests, rather than treating every unknown noun as a follow-up.
+    return bool(re.fullmatch(
+        r"(?:那|然後|接下來)?(?:呢|為什麼|怎麼會|多少錢|多久|怎麼做|怎麼辦|"
+        r"第[一二三四五六七八九十0-9]+步呢?|下一步呢?|還有呢?)"
+        r"|(?:我想|可以|幫我)?(?:寫得|說得)?(?:再)?(?:短|長|自然|具體|簡單|口語)(?:一點|點|些)(?:呢|嗎)?"
+        r"|太(?:長|短|難)了|換(?:一|另)個|用我的(?:口氣|語氣)"
+        r"|(?:幫我)?(?:改寫|重寫|舉例|舉個例子|再說一次)", text
+    ))
 
 
 class CustomerService:
@@ -128,6 +127,8 @@ class CustomerService:
         self.top_k = top_k
         self.max_question_chars = max_question_chars
         self.pricing = pricing or UsagePricing.from_env()
+        if isinstance(answerer, AnswerEngine):
+            answerer.runtime = ModelRuntime(store, self.pricing)
         self.followups = FollowupPlanner(store, retriever, policy)
 
     def _validated_question(self, message: str) -> str:
@@ -177,18 +178,21 @@ class CustomerService:
         # 打招呼、道謝、應聲這種話沒有東西可查，硬走 RAG 只會回「我手邊的資料不夠」，
         # 一句「哈囉」被當成問題，講話就很硬。交給模型自然接一句，等他問到真正的
         # 問題再從知識庫拿。
-        smalltalk = self.policy.smalltalk(question) or self.policy.emotion_only(question)
-        if smalltalk is not None:
-            return [], [], smalltalk
         precheck = self.policy.precheck(question)
         if precheck.action == "escalate":
             return [], [], precheck
+        safe_communication = self.policy.safe_communication(question)
+        if safe_communication:
+            return [], [], safe_communication
+        smalltalk = self.policy.emotion_only(question) or self.policy.smalltalk(question)
+        if smalltalk is not None:
+            return [], [], smalltalk
         # 先用問題本身檢索。夠好就用它，避免前一題把主題帶偏（「客人沒回要追嗎」
         # 被前面的客訴問題拉去撈送客流程）；只是「勉強及格」時才補上前兩題當脈絡，
         # 讓「然後呢？」「我想寫得自然一點」這種接話仍然查得到正確主題。
         hits = self.retriever.retrieve(question, limit=self.top_k * 2)
         weak = max(self.policy.minimum_score, WEAK_MATCH_SCORE)
-        # 沒有店裡名詞的接話（「為什麼」「然後呢」）本來就看不懂，補脈絡的那份
+        # 省略主題的指代／改寫接話（「為什麼」「然後呢」）需要前題，補脈絡的那份
         # **同分就要贏**。兩個不同 query 的分數不是同一把尺，硬要求嚴格較高的話，
         # 打平時會留下無脈絡的那份——實測「我想漲價」→「為什麼」兩邊都是 0.8566，
         # 於是選到「客人為什麼會在活動期消費」，完全不是他在問的事。
@@ -202,10 +206,21 @@ class CustomerService:
             padded = self.retriever.retrieve(
                 "\n".join(previous_questions + [question]), limit=self.top_k * 2
             )
+            if dependent and previous_questions:
+                # The referent supplies the subject; editing/anaphoric glue
+                # cannot dilute its source evidence below the answer gate.
+                contextual = self.retriever.retrieve(previous_questions[-1], limit=self.top_k * 2)
+                if contextual and (not padded or contextual[0].score > padded[0].score):
+                    padded = contextual
+            if not dependent:
+                # History may refine an already supported subject, never
+                # introduce sources the standalone question did not support.
+                supported_ids = {hit.chunk_id for hit in hits if hit.score >= self.policy.minimum_score}
+                padded = [hit for hit in padded if hit.chunk_id in supported_ids]
             if padded and (
-                not hits
-                or (padded[0].score >= hits[0].score if dependent
-                    else padded[0].score > hits[0].score)
+                (dependent and (not hits or padded[0].score >= hits[0].score))
+                or (not dependent and hits and hits[0].score >= self.policy.minimum_score
+                    and padded[0].score > hits[0].score)
             ):
                 hits = padded
         decision = self.policy.evaluate(hits)
@@ -285,9 +300,9 @@ class CustomerService:
     ) -> dict:
         # 邊界題（離題／不當請求／問身分／被罵）是正常回答，不是轉人工。
         direct = getattr(decision, "action", "") == "direct"
-        # 答不出來時的建議題目要是安全的：拿檢索不到的那批 hits 去衍生，
-        # 會冒出「毛髮構造」這種完全不相干的題目。改用驗證過的開場題庫。
-        followups = welcome_questions(limit=3)
+        # 邊界與政策回覆不另推工作題目，避免把不相關的開場題塞進收尾。
+        followups = []
+        diagnostics = quality.grounding_diagnostics("", [], substantive=False)
         return {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -298,6 +313,8 @@ class CustomerService:
             "followups": followups,
             "answer_mode": "boundary" if direct else "policy",
             "model_status": "boundary" if direct else "policy",
+            "grounding_diagnostics": diagnostics,
+            "quality_failed": False,
         }
 
     def _speaker_note(self, recent_history: list[dict], question: str) -> str:
@@ -332,6 +349,7 @@ class CustomerService:
         if deadline is not None and _accepts_kwarg(self.answerer.smalltalk, "deadline"):
             kwargs["deadline"] = deadline
         answer, mode, model_status, usage = self.answerer.smalltalk(question, **kwargs)
+        diagnostics = quality.grounding_diagnostics(answer, [], tone=tone, substantive=False)
         return {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -342,10 +360,11 @@ class CustomerService:
             "answer_mode": mode,
             "model_status": model_status,
             "usage": usage,
-            # 打招呼時給幾個開場題目讓他知道可以問什麼；情緒與欲言又止不要塞，
-            # 那等於在他抒發的時候又派任務給他。
-            "followups": welcome_questions(limit=3) if kind == "smalltalk" else [],
+            # 閒聊、收尾與情緒都不附工作題目。
+            "followups": [],
             "tone": tone,
+            "grounding_diagnostics": diagnostics,
+            "quality_failed": False,
         }
 
     def _enforce_quality(
@@ -363,7 +382,7 @@ class CustomerService:
         }
         # 串流那條路會先自己檢查一次（要在重打前吐 status 事件），檢查過的
         # 就帶進來，不要再算一遍。
-        found = quality.problems(question, answer, tone=tone) if found is None else found
+        found = quality.problems(question, answer, tone=tone, history=recent_history) if found is None else found
         retry = getattr(self.answerer, "retry_for_quality", None)
         if not found or not callable(retry):
             return answer, empty, 0
@@ -403,6 +422,7 @@ class CustomerService:
     def _retry_count(self) -> int:
         return int(getattr(self.answerer, "last_retries", 0) or 0)
 
+    @scoped
     def chat(
         self,
         message: str,
@@ -455,15 +475,29 @@ class CustomerService:
                 asked=self._asked_questions(history, question),
                 candidates=followups,
                 question=question,
+                history=recent_history,
             )
         else:
             followups = []
+        evidence_diagnostics = []
+        if mode == "llm":
+            answer, evidence_diagnostics = response_facts.inspect(question, answer, recent_history)
+            answer = quality.correct_budget(question, answer)
+        elif model_status not in ("used", "not_configured", "budget_exhausted"):
+            answer = response_facts.failure_reply(question, recent_history)
+        grounding_diagnostics = quality.grounding_diagnostics(
+            answer, grounded_hits, tone=tone, substantive=(mode == "llm"),
+            question=question, history=recent_history,
+        )
         answer, citations = self._fit_citations(answer, grounded_hits, mode, model_status, tone)
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
             "status": "answered",
             "reason": "grounded",
+            "evidence_diagnostics": evidence_diagnostics,
+            "grounding_diagnostics": grounding_diagnostics,
+            "quality_failed": grounding_diagnostics["quality_failed"],
             "answer": answer,
             "citations": citations,
             "answer_mode": mode,
@@ -476,6 +510,7 @@ class CustomerService:
         self._audit(question, result, hits, user_id=user_id)
         return result
 
+    @scoped
     def chat_stream(
         self,
         message: str,
@@ -533,17 +568,23 @@ class CustomerService:
             if deadline is not None and _accepts_kwarg(self.answerer.stream_answer, "deadline"):
                 stream_kwargs["deadline"] = deadline
             try:
-                for kind, payload in self.answerer.stream_answer(
+                with closing(self.answerer.stream_answer(
                     question, grounded_hits, **stream_kwargs
-                ):
-                    if kind == "delta":
-                        partial += payload
-                        yield {"type": "delta", "text": payload}
-                    elif kind == "usage":
-                        usage = payload
+                )) as stream:
+                    for kind, payload in stream:
+                        if kind == "delta":
+                            partial += payload
+                            yield {"type": "delta", "text": payload}
+                        elif kind == "usage":
+                            usage = payload
+                        elif kind == "terminal":
+                            if payload != "completed":
+                                model_status = payload
+                                yield {"type": "terminal", "status": payload, "retryable": True}
             except Exception as exc:  # noqa: BLE001 - 任何失敗都要降級，但要留下原因
                 log_model_failure("stream", exc, f"model={self.answerer.model_name}")
                 model_status = "stream_failed"
+                yield {"type": "terminal", "status": model_status, "retryable": True}
             candidate, followups = split_followups(normalize_citation_marks(partial.strip()))
             # 客服模式不用引用守門（編號本來就不顯示），避免好答案被丟掉。
             needs_citation = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
@@ -588,7 +629,7 @@ class CustomerService:
                 before_quality = answer
                 # 重打要 5~15 秒，而前端收到第一個字就把等待提示停了——不先
                 # 說一聲，畫面會完全靜止、然後整段文字在使用者眼前突然換掉。
-                found = quality.problems(question, answer, tone=tone)
+                found = quality.problems(question, answer, tone=tone, history=recent_history)
                 if found and callable(getattr(self.answerer, "retry_for_quality", None)):
                     yield {"type": "status", "stage": "refining"}
                 answer, extra_usage, retries = self._enforce_quality(
@@ -607,12 +648,25 @@ class CustomerService:
             answer, mode, model_status, usage = self.answerer.answer(
                 question, grounded_hits, history=recent_history, allow_model=allow_model, tone=tone
             )
+        evidence_diagnostics = []
+        if mode == "llm":
+            answer, evidence_diagnostics = response_facts.inspect(question, answer, recent_history)
+            answer = quality.correct_budget(question, answer)
+        elif model_status not in ("used", "not_configured", "budget_exhausted"):
+            answer = response_facts.failure_reply(question, recent_history)
+        grounding_diagnostics = quality.grounding_diagnostics(
+            answer, grounded_hits, tone=tone, substantive=(mode == "llm"),
+            question=question, history=recent_history,
+        )
         answer, citations = self._fit_citations(answer, grounded_hits, mode, model_status, tone)
         result = {
             "trace_id": trace_id,
             "conversation_id": conversation_id,
             "status": "answered",
             "reason": "grounded",
+            "evidence_diagnostics": evidence_diagnostics,
+            "grounding_diagnostics": grounding_diagnostics,
+            "quality_failed": grounding_diagnostics["quality_failed"],
             "answer": answer,
             "citations": citations,
             "answer_mode": mode,
@@ -625,11 +679,13 @@ class CustomerService:
                 asked=self._asked_questions(history, question),
                 candidates=followups,
                 question=question,
+                history=recent_history,
             ),
         }
         self._audit(question, result, hits, user_id=user_id)
         yield {"type": "result", **result}
 
+    @scoped
     def summarize_title(
         self,
         message: str,
@@ -734,6 +790,7 @@ class CustomerService:
             "cached_input_tokens": cached_input_tokens,
             "cache_write_input_tokens": cache_write_input_tokens,
             "output_tokens": output_tokens,
+            "ledger_backed": int(accounted() or isinstance(usage, AccountedUsage)),
             "cost_twd": self.pricing.cost_twd(
                 input_tokens,
                 output_tokens,

@@ -121,3 +121,47 @@ class StorageHealthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConversationVersionsTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.store = KnowledgeStore(Path(self.directory.name) / "conversation.db")
+        from app.auth import AuthManager
+        self.owner = AuthManager(self.store).create_or_reset_user("owner", "password-owner-for-tests")["id"]
+        self.other = AuthManager(self.store).create_or_reset_user("other", "password-other-for-tests")["id"]
+
+    def tearDown(self):
+        self.store.close()
+        self.directory.cleanup()
+
+    def save(self, text="first", rev=1, expected_rev=0, owner=None, ident="c"):
+        return self.store.save_conversation(owner or self.owner, ident, "title", "expert",
+                                            [{"content": text}], "created", "updated", rev, expected_rev)
+
+    def test_idempotent_retry_and_compare_and_swap(self):
+        self.assertEqual(self.save()["status"], "accepted")
+        self.assertEqual(self.save()["status"], "accepted")
+        self.assertEqual(self.save("different")["status"], "conflict")
+        self.assertEqual(self.save("legacy overwrite", 9, None)["status"], "conflict")
+        self.assertEqual(self.save("second", 2, 1)["status"], "accepted")
+        self.assertEqual(self.save("stale base", 99, 1)["status"], "conflict")
+        self.assertEqual(self.store.list_conversations(self.owner)[0]["messages"][0]["content"], "second")
+
+    def test_owner_boundaries_cover_deletion_and_tombstones(self):
+        self.save()
+        self.assertEqual(self.save(owner=self.other)["status"], "conflict")
+        self.assertEqual(self.store.delete_conversation(self.other, "c")["status"], "conflict")
+        self.store.delete_conversation(self.owner, "c")
+        self.assertEqual(self.store.list_conversation_tombstones(self.other), [])
+        self.assertEqual(self.save(owner=self.other)["status"], "conflict")
+        self.assertEqual(self.save(rev=99)["status"], "deleted")
+
+    def test_tombstones_survive_reopen_and_pruning(self):
+        self.save(ident="c")
+        self.save(ident="d")
+        self.store.prune_conversations(self.owner, keep=0)
+        self.store.close()
+        self.store = KnowledgeStore(Path(self.directory.name) / "conversation.db")
+        self.assertEqual({x["id"] for x in self.store.list_conversation_tombstones(self.owner)}, {"c", "d"})
+        self.assertEqual(self.save(rev=99)["status"], "deleted")

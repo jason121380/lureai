@@ -658,8 +658,8 @@ class StaticUiTests(unittest.TestCase):
         # dirty 要記到「哪一段對話」，共用一個布林值時 A 的 ACK 會清掉 B 的旗標。
         self.assertIn("const dirty = new Set()", script)
         self.assertIn("function dirtyConversations", script)
-        # 已經同步過之後，伺服器沒有＝在別台刪掉了，不可以再推回去。
-        self.assertIn("lastSyncAt", script)
+        # 刪除以持久墓碑確認，不從快取時間猜測。
+        self.assertIn("remote.tombstones", script)
         # 側欄可以下拉更新（手機上最直覺的「我要看最新的」動作）。
         self.assertIn("function setupPullToRefresh", script)
         # 側欄每一段對話前面顯示編號（最上面是 1）。
@@ -724,14 +724,15 @@ class SyncAndStreamTests(unittest.TestCase):
         """
         body = self.chat.split("async function pushConversations")[1].split("\n  }")[0]
         self.assertIn("if (!response.ok) return;", body)
-        self.assertLess(body.index("if (!response.ok) return;"), body.index("dirty.delete(id)"))
-        self.assertIn("(current.rev || 0) === rev", body)
+        self.assertLess(body.index("if (!response.ok) return;"), body.index("dirty.delete(current.id)"))
+        self.assertIn("(current.rev || 0) === ack.rev", body)
+        self.assertIn('ack.status === "accepted"', body)
 
     def test_a_failed_delete_is_remembered_so_it_cannot_come_back(self):
         body = self.chat.split("async function deleteConversationOnServer")[1].split("\n  }")[0]
         self.assertIn("pendingDeletes.add(id)", body)
         self.assertIn("pendingDeletes.delete(id)", self.chat)
-        sync = self.chat.split("async function syncWithServer")[1].split("\n  }")[0]
+        sync = self.chat.split("function mergeConversations")[1].split("\n  }")[0]
         self.assertIn("!pendingDeletes.has(item.id)", sync)
 
     def test_stream_text_only_goes_to_the_conversation_that_asked(self):

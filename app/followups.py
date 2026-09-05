@@ -10,6 +10,9 @@
 from __future__ import annotations
 
 import json
+import re
+
+from .response_facts import stage_counts, user_texts
 from functools import lru_cache
 from pathlib import Path
 
@@ -236,7 +239,22 @@ class FollowupPlanner:
         ]
 
     def plan(self, hits: list, asked: set[str] | None = None, limit: int = 3,
-             candidates: list[str] | None = None, question: str = "") -> list[str]:
+             candidates: list[str] | None = None, question: str = "", history=None,
+             reason: str = "grounded") -> list[str]:
+        if (reason in ("smalltalk", "emotion", "closing", "boundary", "hesitation", "self_intro")
+                or self.policy.emotion_only(question) or self.policy.smalltalk(question)
+                or self.policy.boundary_reply(question)):
+            return []
+        counts = stage_counts(question, history)
+        context = " ".join(user_texts(question, history)[-3:])
+        def compatible(candidate):
+            if counts.get("messages") == 0 and re.search(r"有私訊|私訊.*(?:回|預約)|回.*私訊|客人.*過敏", candidate):
+                return False
+            if "開店" in candidate and not re.search(r"開店|創業|工作室", context):
+                return False
+            if re.search(r"廣告|曝光|點擊|私訊", question) and re.search(r"過敏|產品|毛髮|輔導要問|排班", candidate):
+                return False
+            return True
         blocked = {_normalize(item) for item in (asked or set())}
         picked: list[str] = []
         # 「答得出來」跟「跟這一輪有關」是兩件事，要分開檢查。知識庫裡幾乎每一題
@@ -247,7 +265,7 @@ class FollowupPlanner:
         for candidate in candidates or []:
             cleaned = " ".join(str(candidate or "").split())[:60]
             key = _normalize(cleaned)
-            if not key or key in blocked or not self._answerable(cleaned):
+            if not key or key in blocked or not compatible(cleaned) or not self._answerable(cleaned):
                 continue
             if not self._on_topic(cleaned, near):
                 continue
@@ -255,6 +273,17 @@ class FollowupPlanner:
             picked.append(cleaned)
             if len(picked) >= limit:
                 return picked
+
+        # The answer sources are the strongest topic evidence. Offer an unasked
+        # curated question from each source before walking to category neighbours;
+        # otherwise excluding used rows can replace a product answer with unrelated
+        # rows that merely share a broad category.
+        source_rows = [
+            row for row in (self.store.get_chunk(hit.chunk_id) for hit in hits) if row
+        ]
+        picked.extend(self._collect(source_rows, blocked, limit - len(picked), compatible))
+        if len(picked) >= limit:
+            return picked[:limit]
 
         # 頭部是真的接得上這一題的知識：先看「這一題附近還有什麼」，
         # 再補上答案用到的每一塊知識的同分類鄰居。
@@ -268,7 +297,7 @@ class FollowupPlanner:
             row for row in self._related_head(hits)
             if str(row.get("chunk_id", "")) not in taken
         ]
-        picked.extend(self._collect(head, blocked, limit - len(picked)))
+        picked.extend(self._collect(head, blocked, limit - len(picked), compatible))
         if picked:
             # 頭部湊得到就不要再往下拿。後面那條長尾只是「還沒問過的題目」，
             # 拿它湊第三個建議會冒出「毛髮構造」「我想自己開店」這種完全不
@@ -298,10 +327,10 @@ class FollowupPlanner:
             tail = inside + [
                 row for row in tail if str(row.get("chunk_id", "")) not in taken_ids
             ]
-        picked.extend(self._collect(tail, blocked, limit - len(picked)))
+        picked.extend(self._collect(tail, blocked, limit - len(picked), compatible))
         return picked[:limit]
 
-    def _collect(self, rows: list[dict], blocked: set[str], limit: int) -> list[str]:
+    def _collect(self, rows: list[dict], blocked: set[str], limit: int, compatible=lambda _q: True) -> list[str]:
         """從候選知識挑出接得下去、而且還沒問過的問法。"""
         picked: list[str] = []
         if limit <= 0:
@@ -311,7 +340,7 @@ class FollowupPlanner:
                 str(row.get("locator", "")), str(row.get("section_title", "")), limit=3
             ):
                 key = _normalize(question)
-                if not key or key in blocked or not self._answerable(question):
+                if not key or key in blocked or not compatible(question) or not self._answerable(question):
                     continue
                 blocked.add(key)
                 picked.append(" ".join(question.split())[:60])

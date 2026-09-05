@@ -199,8 +199,12 @@ EMPTY_USAGE = {
 }
 
 
+from .model_runtime import scoped, ModelRuntime
+
+
+@scoped
 def propose_chunks(
-    answerer, name: str, text: str, allow_model: bool = True,
+    answerer, name: str, text: str, allow_model: bool = True, user_id: int | None = None,
 ) -> tuple[list[dict], str, dict]:
     """回傳（候選知識, 用了哪條路徑, 這次的用量）。模型不通就用規則切法，不讓後台開天窗。
 
@@ -231,8 +235,8 @@ def propose_chunks(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=max(getattr(answerer, "timeout", 60.0), 60.0)) as response:
-            body = json.loads(response.read())
+        runtime = getattr(answerer, "runtime", None) or ModelRuntime()
+        body = runtime.complete(request, timeout=max(getattr(answerer, "timeout", 60.0), 60.0))
     except (OSError, ValueError, KeyError, urllib.error.URLError, TimeoutError):
         return fallback, "rules", dict(EMPTY_USAGE)
     usage = extract_usage(body)

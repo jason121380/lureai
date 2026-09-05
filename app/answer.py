@@ -56,12 +56,14 @@ def extract_usage(body: dict) -> dict:
     input_details = usage.get("input_tokens_details")
     if not isinstance(input_details, dict):
         input_details = {}
-    return {
+    from .usage import AccountedUsage
+    result = {
         "input_tokens": max(0, int(usage.get("input_tokens", 0))),
         "cached_input_tokens": max(0, int(input_details.get("cached_tokens", 0))),
         "cache_write_input_tokens": max(0, int(input_details.get("cache_write_tokens", 0))),
         "output_tokens": max(0, int(usage.get("output_tokens", 0))),
     }
+    return AccountedUsage(result) if body.get("_ledger_backed") else result
 
 
 def extract_output_text(body: dict) -> str:
@@ -211,23 +213,16 @@ DEFAULT_MODEL_TIMEOUT = 60.0
 # 生成 60 秒＋缺引用重打 60 秒＋停頓 25 秒，最壞要 150 秒，token 早就過期，
 # 設計師收到的是「已讀不回」（體檢 B11）。所以 LINE 這條路自己夾一個上限。
 LINE_TIMEOUT_CEILING = 25.0
-# Reasoning tokens count against max_output_tokens on the Responses API.
-# No cap by default so answers are never cut off; set LLM_MAX_OUTPUT_TOKENS
-# to a positive number to enforce one.
-def max_output_tokens() -> int | None:
-    try:
-        value = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "") or 0)
-    except ValueError:
-        return None
-    return value if value > 0 else None
+from .budget import BudgetExhausted
+from .model_runtime import ModelRuntime, output_limit, positive, scoped, current_deadline
+
+
+def max_output_tokens() -> int:
+    return output_limit()
 
 
 def model_timeout() -> float:
-    try:
-        value = float(os.getenv("LLM_TIMEOUT_SECONDS", "") or DEFAULT_MODEL_TIMEOUT)
-    except ValueError:
-        return DEFAULT_MODEL_TIMEOUT
-    return value if value > 0 else DEFAULT_MODEL_TIMEOUT
+    return positive(os.getenv("LLM_TIMEOUT_SECONDS", "") or DEFAULT_MODEL_TIMEOUT)
 
 
 class AnswerEngine:
@@ -237,7 +232,8 @@ class AnswerEngine:
         timeout: float | None = None,
         rules_provider=None,
     ):
-        self.timeout = model_timeout() if timeout is None else timeout
+        self.timeout = model_timeout() if timeout is None else positive(timeout)
+        self.runtime = ModelRuntime()
         # rules_provider 回傳後台改過的規則（rule_id -> 文字）；沒有就全用預設。
         # 每次組指令時重讀，後台一存檔下一則回答就生效，不用重啟。
         self.rules_provider = rules_provider
@@ -284,6 +280,7 @@ class AnswerEngine:
     @staticmethod
     def remaining(deadline: float | None) -> float | None:
         """離共同截止時間還有幾秒。`None`＝這條路沒有時間預算。"""
+        deadline = deadline if deadline is not None else current_deadline()
         if deadline is None:
             return None
         return deadline - time.monotonic()
@@ -344,6 +341,7 @@ class AnswerEngine:
         """
         return normalize_tone(tone) not in ("service", "line")
 
+    @scoped
     def answer(
         self,
         question: str,
@@ -380,7 +378,7 @@ class AnswerEngine:
                 ):
                     # 診斷完給不出東西是實測扣分最重的一項：只寫「我陪你拆」、
                     # 承諾了成品卻沒給、問到立場卻不表態——帶著具體理由重打一次。
-                    found = quality.problems(question, generated, tone=tone)
+                    found = quality.problems(question, generated, tone=tone, history=history)
                     # 重試從同一份時間預算裡扣。剩不到一次呼叫的時間就直接送出
                     # 這一則——來不及的重試不會變成更好的回覆，只會變成沒有回覆。
                     if found and not self.has_time_for_another_call(deadline):
@@ -421,7 +419,7 @@ class AnswerEngine:
                     # 引用補回來了，但內容還沒查過。舊版只驗 `[n]` 就直接送出，
                     # 於是「格式修好、內容更空」的重打照樣會出去——品質守門對
                     # 「第一次沒附引用」的那些回覆等於完全沒有作用。
-                    found = quality.problems(question, retried, tone=tone)
+                    found = quality.problems(question, retried, tone=tone, history=history)
                     if found and not self.has_time_for_another_call(deadline):
                         log_model_failure("quality", detail="skipped retry after citations: out of time")
                         found = []
@@ -446,6 +444,8 @@ class AnswerEngine:
                         # 比降級訊息好（跟上面那條路同一個取捨）。
                     return retried, "llm", "used", usage
                 return self._extractive_answer(hits, model_failed=True), "extractive", "missing_citations", usage
+            except BudgetExhausted:
+                return self._extractive_answer(hits), "extractive", "budget_exhausted", empty_usage
             except urllib.error.HTTPError as exc:
                 log_model_failure("answer", exc, f"model={self.model_name}")
                 return self._extractive_answer(hits, model_failed=True), "extractive", f"http_{exc.code}", empty_usage
@@ -460,11 +460,11 @@ class AnswerEngine:
     # 生成失敗時不要把知識原文整段丟出去（多半跟問題無關，看起來像壞掉）。
     # 改成一句誠實的話加一個小問題，把球留在對話裡。
     MODEL_FAILED_MESSAGE = (
-        "這題我剛剛沒有整理好 抱歉唷\n"
-        "我們換個方式講 你想先從哪一段開始\n"
-        "看客人怎麼來 還是看客人來了之後怎麼接"
+        "這題剛剛沒有整理完整\n"
+        "請重送一次 我會接著你這個問題回答"
     )
 
+    @scoped
     def smalltalk(self, question: str, history: list[dict] | None = None,
                   allow_model: bool = True, tone: str = DEFAULT_TONE,
                   kind: str = "smalltalk", speaker: str = "",
@@ -507,8 +507,7 @@ class AnswerEngine:
             # 閒聊也要吃 LINE 的時間預算。用全域的 60 秒，加上出口那段 8-25 秒
             # 的回覆停頓，最壞會超過 LINE reply token 的 60 秒窗口——設計師在
             # 群組裡打一句「哈囉」，收到的是已讀不回。
-            with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
-                body = json.loads(response.read().decode("utf-8"))
+            body = self.runtime.complete(request, timeout=self._timeout_for(tone, deadline))
         except Exception as exc:  # noqa: BLE001 - 閒聊失敗就用備援句，不要讓對話斷掉
             log_model_failure("smalltalk", exc, f"model={self.model_name}")
             return fallback, "smalltalk", "unavailable", empty_usage
@@ -556,7 +555,7 @@ class AnswerEngine:
             return "", usage
         if self.requires_citations(tone) and not self.has_valid_citation(generated, len(hits)):
             return "", usage
-        if quality.problems(question, generated, tone=tone):
+        if quality.problems(question, generated, tone=tone, history=history):
             log_model_failure("quality-retry", detail="still not concrete enough")
             return "", usage
         return generated, usage
@@ -651,6 +650,7 @@ class AnswerEngine:
             "output_tokens": max(0, int(usage.get("output_tokens", 0))),
         }
 
+    @scoped
     def stream_answer(
         self,
         question: str,
@@ -666,36 +666,7 @@ class AnswerEngine:
             question, hits, history, stream=True, tone=tone,
             extra_instruction=extra_instruction, context_note=context_note,
         )
-        with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
-            for raw_line in response:
-                line = raw_line.decode("utf-8", "replace").strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if not data or data == "[DONE]":
-                    continue
-                try:
-                    event = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                event_type = str(event.get("type", ""))
-                if event_type == "response.output_text.delta":
-                    delta = event.get("delta")
-                    if isinstance(delta, str) and delta:
-                        yield ("delta", delta)
-                elif event_type in ("response.completed", "response.incomplete"):
-                    # An incomplete response (e.g. output-token cap reached) still
-                    # carries useful streamed text and usage; keep what we have.
-                    usage = event.get("response", {}).get("usage")
-                    yield ("usage", self._token_usage(usage if isinstance(usage, dict) else {}))
-                elif event_type in ("response.failed", "error"):
-                    payload = event.get("response", event)
-                    message = ""
-                    if isinstance(payload, dict):
-                        error = payload.get("error")
-                        if isinstance(error, dict):
-                            message = str(error.get("message", ""))[:200]
-                    raise ValueError(f"model stream failed: {message}" if message else "model stream failed")
+        yield from self.runtime.stream(request, timeout=self._timeout_for(tone, deadline))
 
     def _call_model(
         self,
@@ -712,10 +683,10 @@ class AnswerEngine:
             question, hits, history, stream=False, extra_instruction=extra_instruction,
             tone=tone, include_followups=include_followups, context_note=context_note,
         )
-        with urllib.request.urlopen(request, timeout=self._timeout_for(tone, deadline)) as response:
-            body = json.loads(response.read())
+        body = self.runtime.complete(request, timeout=self._timeout_for(tone, deadline))
         return extract_output_text(body), extract_usage(body)
 
+    @scoped
     def generate_title(self, question: str, answer: str, allow_model: bool = True) -> tuple[str, str, dict]:
         empty_usage = {
             "input_tokens": 0,
@@ -751,8 +722,7 @@ class AnswerEngine:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=min(self.timeout, 20.0)) as response:
-                body = json.loads(response.read())
+            body = self.runtime.complete(request, timeout=min(self.timeout, 20.0))
         except (OSError, ValueError, KeyError, urllib.error.URLError, TimeoutError):
             return fallback, "model_failed", empty_usage
         usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}

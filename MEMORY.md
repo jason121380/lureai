@@ -4,7 +4,7 @@
 
 ## 工作流程偏好（使用者指定）
 
-- **每次 push 後一律開 PR 併入 main**（2026-08-31 授權），main 更新後 Zeabur 自動部署。
+- 發布前以當次授權、CI 結果及倉庫規則為準；repo 內沒有證據可宣稱 ruleset、正式部署或 MFA 已完成。
 - 測試必須全綠才能 push；UI 改動用 Playwright 截圖驗證後再交付。
 - Repo 已改名 `jason121380/lureai`（舊名 hair_brain 自動轉向）。
 
@@ -129,7 +129,7 @@
   **順手補一個更上游的洞**：`extract.has_prose` 只數字母，而 `https://www.taiwan-marketing.com/slides2/22` 一行就有三十幾個拉丁字母，任何來源的純網址都能混成知識。改成先把網址扣掉再數。
   **仍然讀不了的**：投影片真的是圖片（掃描、截圖）就只能靠 OCR，那會破零依賴，所以是講清楚下一步而不是硬解。
 
-- **2026-09-02 聊天等太久要講一句話**（使用者：「等太久要給進度提示」）：三顆點只證明畫面沒死，說不出「還要多久」，也說不出「它在幹嘛」——推理模型一題寫 40 秒是常態（`LLM_TIMEOUT_SECONDS` 預設 60，曾經設 20 秒導致全數降級），中間完全沒有交代看起來就像當掉。
+- **2026-09-02 聊天等太久要講一句話**（使用者：「等太久要給進度提示」）：三顆點只證明畫面沒死，說不出「還要多久」，也說不出「它在幹嘛」。`LLM_TIMEOUT_SECONDS` 是單次傳輸上限（預設 60），目前另有 `LLM_REQUEST_DEADLINE_SECONDS` 作含重試的整體截止時間（預設 120）；中間完全沒有交代看起來就像當掉。
   超過 5 秒開始，點點下面出現分階段提示：查知識庫（5s）→ 整理回答（12s）→ 這題比較複雜，還在寫（25s）→ 快好了（45s），**後面固定接「已等 N 秒」而且每秒真的在跳**——只換一句話，看久了跟靜止沒兩樣。階段是照實際流程排的。
   兩個實作細節：(1) 計時器**每秒重找一次節點**，`render()` 隨時可能把整串訊息重畫掉；(2) 收到第一段字就停，但**客服模式那條路要留著跑**——它刻意不即時吐字（等結果再一句一句發），在 delta 就停掉的話最需要提示的那個模式反而沒有。
   實測（Playwright，把 `/api/chat/stream` 延遲 30 秒）：2 秒時隱藏、9 秒「正在查知識庫（已等 9 秒）」、23 秒「正在整理回答（已等 23 秒）」、回答到了就消失，無 console 錯誤。
@@ -354,7 +354,7 @@
 
 - **2026-08-31 移除客服版**：只保留 `designer_coach` profile；客服知識檔、customer_policy.md、start.command 已刪除，預設 profile 改為 designer_coach。
 - **2026-08-31 關聯問題**：模型在同一次生成結尾以「▷ 」行輸出 3 個追問，service 解析為 `followups`，前端顯示為可點選項。
-- **2026-08-31 輸出無上限**：預設不設 max_output_tokens（`LLM_MAX_OUTPUT_TOKENS` 可選擇性限制）。
+- **2026-08-31 歷史狀態：輸出曾經無上限**。目前 `LLM_MAX_OUTPUT_TOKENS` 預設 16384，所有生成都有有限上限。
 
 - **2026-08-31 統一登入**：廢除管理權杖登入頁。所有人走同一個帳號登入；admin 角色帳號在側欄看到「設定」icon（僅 admin 可見）→ 進 `/admin`；非 admin 開 `/admin` 直接導回 `/`。`ADMIN_TOKEN` 只保留給 API header（curl／測試／緊急）。
 - **2026-08-31 角色制**：帳號分「一般用戶 user／管理者 admin」；後台建帳號時選權限；`USER_ROLE` 可指定 bootstrap 帳號權限。
@@ -366,11 +366,11 @@
 
 ## 技術決策
 
-- 零第三方依賴維持不變（stdlib + SQLite FTS5），唯一例外：`psycopg`（僅 Dockerfile 安裝、只在設 Postgres 連線時 import）。
+- 應用核心維持 stdlib + SQLite FTS5；Postgres 的 `psycopg` 與瀏覽器驗證的 Playwright 由 `requirements*.txt` 固定版本。映像以 uid 10001 執行，寫入 `/app/data` 與 `/app/qa`。
 - **2026-09-01 持久化改 Postgres 快照（使用者明確不要 Volume）**：SQLite 仍是工作資料庫（FTS5 檢索），視為可拋棄；`app/replica.py` 把 users／sessions／audits／feedback／後台自訂知識壓成 gzip JSON 單列快照存 Postgres（預設每 120 秒、內容沒變不上傳、關機前補一次），開機時還原再重建索引。Zeabur 綁 PostgreSQL 服務即自動啟用（吃 `DATABASE_URL`／`POSTGRES_*`）；沒設定時完全 no-op、維持零依賴。取代原本「掛 Volume + APP_DB_PATH」方案。後台「系統健康」新增「Postgres 持久化」一項（會真的連線寫入一次快照）：未設定＝警告並提示重新部署會歸零、設定了但缺 psycopg 或連不上＝錯誤並顯示原因、正常＝顯示備份間隔與最後備份時間，不用翻 log。
-- 月預算（`MONTHLY_BUDGET_TWD`）為硬限制：超標自動停用模型、降級抽取式（`model_status: budget_exhausted`）。
+- `MONTHLY_BUDGET_TWD` 是每位使用者月上限（預設 1000）；`SYSTEM_MONTHLY_BUDGET_TWD` 是包含匿名管理呼叫的全站月上限（預設 0＝不限額）。正式環境要全站有限額必須明確設正數；任一有限上限超標都會停止生成並降級（`model_status: budget_exhausted`）。
 - 聊天限流 `CHAT_RATE_LIMIT_PER_MINUTE`（預設 20/分）。
-- LLM timeout `LLM_TIMEOUT_SECONDS`（預設 60；曾因 20 秒太短導致推理模型全數降級「模型暫時無法完成生成」）。
+- `LLM_TIMEOUT_SECONDS` 是單次傳輸上限（預設 60）；`LLM_REQUEST_DEADLINE_SECONDS` 是所有重試共用的整體截止時間（預設 120）。把單次上限設為 20 秒曾導致全部降級；整體 deadline 不能用舊變數取代。
 - scrypt 參數 N=2^15/r=8/p=4（OWASP 等效、單次驗證 ~32MB），驗證在鎖外執行、入庫前鎖內重驗 hash。
 - 稽核 log 的問題欄位自動遮罩 PII。
 - loading 佔位訊息不落地：載入 localStorage 時過濾 `loading` 訊息（修復「重新整理後永遠轉圈」）。

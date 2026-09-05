@@ -2,6 +2,11 @@ import os
 from dataclasses import dataclass
 
 
+class AccountedUsage(dict):
+    """Token summary whose monetary cost is already in the call ledger."""
+    pass
+
+
 @dataclass(frozen=True)
 class UsagePricing:
     input_usd_per_million: float = 0.20
@@ -10,6 +15,11 @@ class UsagePricing:
     output_usd_per_million: float = 1.20
     usd_to_twd: float = 32.5
     monthly_budget_twd: float = 1000.0
+
+    def __post_init__(self):
+        from .budget import nonnegative
+        for value in self.__dict__.values():
+            nonnegative(value)
 
     @classmethod
     def from_env(cls) -> "UsagePricing":

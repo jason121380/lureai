@@ -13,7 +13,15 @@ from .storage import KnowledgeStore
 
 
 USERNAME_PATTERN = re.compile(r"^\S{2,64}$")
-PASSWORD_MIN_LENGTH = 4
+PASSWORD_MIN_LENGTH = 15
+PASSWORD_MAX_LENGTH = 256
+# Exact matches after case-folding. Length remains a separate rule so this list
+# can reject widely reused secrets that happen to meet the minimum.
+COMMON_WEAK_PASSWORDS = frozenset({
+    "123456789012345", "adminadminadmin", "letmeinletmeinletmein",
+    "password1234567", "passwordpassword", "qwerty123456789",
+    "qwertyuiopasdfgh", "welcome123456789",
+})
 ROLES = ("user", "admin")
 # OWASP-equivalent scrypt work factor N=2^15/r=8/p=4: identical total cost to
 # the N=2^17/p=1 baseline but ~32 MB instead of ~128 MB per verification, so
@@ -31,17 +39,24 @@ class LoginRateLimiter:
     # 新鑰匙），只出現一次的 key 永遠不會再被查到——不掃的話字典只進不出。
     SWEEP_EVERY = 512
 
-    def __init__(self, max_failures: int = 5, window_seconds: int = 300):
+    def __init__(
+        self, max_failures: int = 5, window_seconds: int = 300,
+        max_concurrent: int = 4, max_keys: int = 4096,
+    ):
         self.max_failures = max_failures
         self.window_seconds = window_seconds
         self._failures: dict[str, deque[float]] = {}
+        self._active: dict[str, int] = {}
         self._lock = threading.Lock()
         self._ops = 0
+        self.max_concurrent = max_concurrent
+        self.max_keys = max_keys
+        self._active_verifiers = 0
 
-    def _sweep(self, now: float) -> None:
+    def _sweep(self, now: float, *, force: bool = False) -> None:
         """caller 持鎖。整份走一遍，把整把都過期的 key 刪掉。"""
         self._ops += 1
-        if self._ops % self.SWEEP_EVERY:
+        if not force and self._ops % self.SWEEP_EVERY:
             return
         cutoff = now - self.window_seconds
         for key in [k for k, items in self._failures.items() if not items or items[-1] <= cutoff]:
@@ -59,21 +74,60 @@ class LoginRateLimiter:
             return None
         return failures
 
-    def allowed(self, key: str) -> bool:
-        with self._lock:
-            failures = self._prune(key, time.monotonic())
-            return failures is None or len(failures) < self.max_failures
+    def _limit(self, key: str) -> int:
+        if key == "global":
+            return self.max_failures * 20
+        if key.startswith("ip|"):
+            return self.max_failures * 4
+        return self.max_failures
 
-    def failed(self, key: str) -> None:
+    def reserve(self, keys: tuple[str, ...]) -> tuple[str, ...] | None:
+        """Atomically admit and occupy all scopes before password verification."""
+        keys = tuple(dict.fromkeys(keys))
         now = time.monotonic()
         with self._lock:
-            self._prune(key, now)
-            self._failures.setdefault(key, deque()).append(now)
-            self._sweep(now)
+            failures = {key: self._prune(key, now) for key in keys}
+            if self._active_verifiers >= self.max_concurrent:
+                return None
+            if any(
+                len(failures[key] or ()) + self._active.get(key, 0) >= self._limit(key)
+                for key in keys
+            ):
+                return None
+            tracked = set(self._failures) | set(self._active)
+            if len(tracked | set(keys)) > self.max_keys:
+                self._sweep(now, force=True)
+                tracked = set(self._failures) | set(self._active)
+                if len(tracked | set(keys)) > self.max_keys:
+                    return None
+            for key in keys:
+                self._active[key] = self._active.get(key, 0) + 1
+            self._active_verifiers += 1
+            return keys
 
-    def succeeded(self, key: str) -> None:
+    def finish(self, reservation: tuple[str, ...] | None, *, succeeded: bool) -> None:
+        if not reservation:
+            return
+        now = time.monotonic()
         with self._lock:
-            self._failures.pop(key, None)
+            for key in reservation:
+                remaining = self._active.get(key, 0) - 1
+                if remaining > 0:
+                    self._active[key] = remaining
+                else:
+                    self._active.pop(key, None)
+            self._active_verifiers = max(0, self._active_verifiers - 1)
+            if succeeded:
+                # A valid account may recover from its own typos. IP and global
+                # history describe surrounding attack traffic and must remain.
+                for key in reservation:
+                    if key.startswith("account|"):
+                        self._failures.pop(key, None)
+            else:
+                for key in reservation:
+                    self._prune(key, now)
+                    self._failures.setdefault(key, deque()).append(now)
+                self._sweep(now)
 
 
 class RequestRateLimiter:
@@ -120,15 +174,21 @@ class AuthManager:
         self.store = store
         self.session_days = session_days
 
-    def _validate(self, username: str, password: str) -> tuple[str, str]:
+    def _validate_username(self, username: str) -> str:
         normalized = str(username or "").strip()
-        secret = str(password or "")
         if not USERNAME_PATTERN.fullmatch(normalized):
             raise ValueError("帳號需為 2 至 64 個字且不可包含空白")
+        return normalized
+
+    def _validate(self, username: str, password: str) -> tuple[str, str]:
+        normalized = self._validate_username(username)
+        secret = str(password or "")
         if len(secret) < PASSWORD_MIN_LENGTH:
             raise ValueError(f"密碼至少 {PASSWORD_MIN_LENGTH} 個字")
-        if len(secret) > 256:
-            raise ValueError("密碼不可超過 256 個字")
+        if len(secret) > PASSWORD_MAX_LENGTH:
+            raise ValueError(f"密碼不可超過 {PASSWORD_MAX_LENGTH} 個字")
+        if secret.casefold() in COMMON_WEAK_PASSWORDS:
+            raise ValueError("不可使用常見弱密碼")
         return normalized, secret
 
     @staticmethod
@@ -194,7 +254,17 @@ class AuthManager:
         return _public_user(current)
 
     def ensure_bootstrap_user(self, username: str, password: str, role: str | None = None) -> dict:
-        normalized, secret = self._validate(username, password)
+        normalized = self._validate_username(username)
+        # Existing deployments may intentionally retain an older short password.
+        # Check existence before validating or hashing the environment value.
+        with self.store._lock:
+            row = self.store.connection.execute(
+                "SELECT id, username, role, active, created_at, updated_at FROM users "
+                "WHERE username = ? COLLATE NOCASE", (normalized,),
+            ).fetchone()
+        if row:
+            return _public_user(row)
+        normalized, secret = self._validate(normalized, password)
         normalized_role = self._validate_role(role) or "user"
         password_hash = self._hash_password(secret)
         timestamp = _now().isoformat()

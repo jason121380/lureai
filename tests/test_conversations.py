@@ -53,7 +53,7 @@ class ConversationApiTests(ServerTestCase):
         }]})
 
         self.request("POST", "/api/conversations", {"conversations": [{
-            "id": "c-1", "title": "第二版",
+            "id": "c-1", "title": "第二版", "rev": 1, "expected_rev": 0,
             "messages": [{"role": "user", "content": "一"}, {"role": "assistant", "content": "二"}],
         }]})
         body = self.request("GET", "/api/conversations")[1]
@@ -84,6 +84,29 @@ class ConversationApiTests(ServerTestCase):
 
         self.assertNotIn("loading", message)
         self.assertNotIn("pendingReveal", message)
+
+    def test_same_revision_different_content_is_rejected_with_ack(self):
+        self.login()
+        item = {"id": "race", "title": "first", "rev": 1, "expected_rev": 0,
+                "messages": [{"role": "user", "content": "first"}]}
+        first = self.request("POST", "/api/conversations", {"conversations": [item]})[1]
+        item["messages"][0]["content"] = "other device"
+        result = self.request("POST", "/api/conversations", {"conversations": [item]})[1]
+        self.assertEqual(first["acks"][0]["status"], "accepted")
+        self.assertEqual(result["acks"][0]["status"], "conflict")
+        self.assertEqual(self.request("GET", "/api/conversations")[1]["conversations"][0]["messages"][0]["content"], "first")
+
+    def test_deleted_conversation_cannot_be_resurrected(self):
+        self.login()
+        item = {"id": "gone", "rev": 1, "messages": [{"content": "old"}]}
+        self.request("POST", "/api/conversations", {"conversations": [item]})
+        self.request("POST", "/api/conversations/delete", {"id": "gone"})
+        item["rev"] = 999
+        result = self.request("POST", "/api/conversations", {"conversations": [item]})[1]
+        self.assertEqual(result["acks"][0]["status"], "deleted")
+        remote = self.request("GET", "/api/conversations")[1]
+        self.assertEqual(remote["conversations"], [])
+        self.assertEqual(remote["tombstones"][0]["id"], "gone")
 
     def test_tone_preference_follows_the_account(self):
         self.login()

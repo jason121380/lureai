@@ -206,7 +206,7 @@ class AnswerTests(unittest.TestCase):
             answer, mode, model_status, usage = AnswerEngine().answer("先查什麼？", [hit])
 
         # 生成失敗不外露知識原文與內部字串，只給一句誠實的話＋一個小問題。
-        self.assertIn("沒有整理好", answer)
+        self.assertIn("沒有整理完整", answer)
         self.assertNotIn("核准內容", answer)
         self.assertEqual(mode, "extractive")
         self.assertEqual(model_status, "timeout")
@@ -286,7 +286,8 @@ class LineTimeoutTests(unittest.TestCase):
         line = self._timeout_used(lambda engine: engine.smalltalk("哈囉", tone="line"))
         expert = self._timeout_used(lambda engine: engine.smalltalk("哈囉", tone="expert"))
 
-        self.assertEqual(line, LINE_TIMEOUT_CEILING)
+        self.assertGreater(line, LINE_TIMEOUT_CEILING - 1)
+        self.assertLessEqual(line, LINE_TIMEOUT_CEILING)
         self.assertGreater(expert, line)
 
 

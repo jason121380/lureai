@@ -1,5 +1,8 @@
+import gzip
 import json
+from contextlib import nullcontext
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -33,7 +36,28 @@ class FakeConn:
     def __exit__(self, *_args):
         return False
 
+    def close(self):
+        if self.storage.get("owner") is self:
+            self.storage.pop("owner")
+
+    def transaction(self):
+        return nullcontext()
+
     def execute(self, sql, params=None):
+        if sql.startswith("SELECT pg_try_advisory_lock"):
+            if self.storage.get("owner") not in (None, self):
+                return FakeResult((False,))
+            self.storage["owner"] = self
+            return FakeResult((True,))
+        if sql == "SELECT 1":
+            return FakeResult((1,))
+        if sql.startswith("INSERT INTO lureai_snapshot_history"):
+            history = self.storage.setdefault("history", [])
+            if params:
+                history.append(params)
+            elif not history and "data" in self.storage:
+                history.append((self.storage["data"], self.storage.get("updated_at", "")))
+            return FakeResult()
         if sql.startswith("CREATE TABLE"):
             return FakeResult()
         if sql.startswith("SELECT data"):
@@ -54,7 +78,7 @@ class FakeDriver:
     def __init__(self):
         self.storage = {}
 
-    def connect(self, _dsn, autocommit=True):
+    def connect(self, _dsn, autocommit=True, **kwargs):
         assert autocommit
         return FakeConn(self.storage)
 
@@ -81,11 +105,124 @@ class ReplicaTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_malformed_row_does_not_authorize_empty_replacement(self):
+        store = make_store(self.root, "malformed.db")
+        driver = FakeDriver()
+        replica = PostgresReplica("postgresql://fake", driver=driver)
+        payload = json.loads(gzip.decompress(replica.export_snapshot(store)))
+        for row in ({"unrecognized": "bad"}, {}, {"id": 42}):
+            with self.subTest(row=row):
+                payload["tables"]["users"] = [row]
+                original = gzip.compress(json.dumps(payload).encode())
+                driver.storage["data"] = original
+                with self.assertRaises(ValueError):
+                    replica.restore(store)
+                self.assertFalse(replica.writable)
+                with self.assertRaises(RuntimeError):
+                    replica.backup(store)
+                self.assertEqual(driver.storage["data"], original)
+        store.close()
+
+    def test_backup_requires_successful_restore(self):
+        store = make_store(self.root, "guard.db")
+        replica = PostgresReplica("postgresql://fake", driver=FakeDriver())
+        with self.assertRaises(RuntimeError):
+            replica.backup(store)
+        replica.driver.storage["data"] = b"corrupt"
+        with self.assertRaises(Exception):
+            replica.restore(store)
+        with self.assertRaises(RuntimeError):
+            replica.backup(store)
+        store.close()
+
+    def test_only_one_writer_and_history_survives_handoff(self):
+        driver = FakeDriver()
+        store = make_store(self.root, "writer.db")
+        first = PostgresReplica("postgresql://fake", driver=driver)
+        second = PostgresReplica("postgresql://fake", driver=driver)
+        first.restore(store)
+        with self.assertRaises(RuntimeError):
+            second.restore(store)
+        first.backup(store)
+        store.add_feedback("trace", None, "up", "now")
+        first.stop(store)
+        self.assertEqual(len(driver.storage["history"]), 2)
+        self.assertTrue(second.restore(store))
+        with self.assertRaises(RuntimeError):
+            first.backup(store)
+        second.stop()
+        store.close()
+
+    def test_lost_writer_connection_disables_writes_and_notifies_runtime(self):
+        store = make_store(self.root, "lost.db")
+        replica = PostgresReplica("postgresql://fake", driver=FakeDriver())
+        replica.restore(store)
+        notices = []
+        replica.on_writer_lost = lambda: notices.append("lost")
+        replica._writer.execute = lambda *_args: (_ for _ in ()).throw(OSError("lost"))
+        self.assertFalse(replica.check_writer())
+        self.assertFalse(replica.writable)
+        self.assertEqual(notices, ["lost"])
+        with self.assertRaises(RuntimeError):
+            replica.backup(store)
+        store.close()
+
+    def test_stop_waits_for_background_backup_before_releasing_writer(self):
+        driver = FakeDriver()
+        replica = PostgresReplica("postgresql://fake", driver=driver)
+        store = make_store(self.root, "stop.db")
+        replica.restore(store)
+        entered, release = threading.Event(), threading.Event()
+        original = replica.export_snapshot
+        def blocked(target):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return original(target)
+        replica.export_snapshot = blocked
+        replica._thread = threading.Thread(target=replica.backup, args=(store,))
+        replica._thread.start()
+        self.assertTrue(entered.wait(3))
+        stopping = threading.Thread(target=replica.stop, args=(store,))
+        stopping.start()
+        self.assertIn("owner", driver.storage)
+        release.set()
+        stopping.join(3)
+        self.assertFalse(stopping.is_alive())
+        self.assertFalse(replica._thread.is_alive())
+        self.assertNotIn("owner", driver.storage)
+        store.close()
+
+    def test_snapshot_automatically_includes_new_durable_tables(self):
+        store = make_store(self.root, "future.db")
+        with store.connection:
+            store.connection.execute("CREATE TABLE new_durable (value TEXT)")
+            store.connection.execute("INSERT INTO new_durable VALUES ('preserved')")
+        replica = PostgresReplica("", driver=FakeDriver())
+        data = replica.export_snapshot(store)
+        with store.connection:
+            store.connection.execute("DELETE FROM new_durable")
+        replica.apply_snapshot(store, data)
+        self.assertEqual(store.connection.execute("SELECT value FROM new_durable").fetchone()[0], "preserved")
+        store.close()
+
+    def test_conversation_tombstone_survives_snapshot_restore(self):
+        store = make_store(self.root, "tombstone.db")
+        user = AuthManager(store).create_or_reset_user("owner", "password-owner-for-tests")
+        store.delete_conversation(user["id"], "deleted-before-upload")
+        replica = PostgresReplica("", driver=FakeDriver())
+        data = replica.export_snapshot(store)
+        with store.connection:
+            store.connection.execute("DELETE FROM conversation_tombstones")
+        replica.apply_snapshot(store, data)
+        result = store.save_conversation(user["id"], "deleted-before-upload", "title", "expert", [], "a", "b", 999)
+        self.assertEqual(result["status"], "deleted")
+        store.close()
+
     def test_snapshot_round_trip_restores_durable_data(self):
         driver = FakeDriver()
         source = make_store(self.root, "source.db")
         auth = AuthManager(source)
-        user = auth.create_or_reset_user("designer", "pass-1234", role="admin")
+        user = auth.create_or_reset_user("designer", "replica-password-for-tests", role="admin")
         source.add_feedback("trace-1", user["id"], "down", "2026-09-01T00:00:00+00:00")
         source.upsert_custom_chunk(build_custom_chunk({
             "section_title": "後台新增的知識",
@@ -95,9 +232,11 @@ class ReplicaTests(unittest.TestCase):
         }, "internal_coaching"))
 
         replica = PostgresReplica("postgresql://fake", driver=driver, interval=999)
+        replica.restore(source)
         self.assertTrue(replica.backup(source))
         # 內容沒變就不重複上傳。
         self.assertFalse(replica.backup(source))
+        replica.stop()
         source.close()
 
         target = make_store(self.root, "target.db")
@@ -128,7 +267,9 @@ class ReplicaTests(unittest.TestCase):
             "text": "這一則在快照裡，必須在還原之後活著。",
         }, "internal_coaching"))
         replica = PostgresReplica("postgresql://fake", driver=driver, interval=999)
+        replica.restore(source)
         self.assertTrue(replica.backup(source))
+        replica.stop()
         source.close()
 
         target = make_store(self.root, "target.db")
@@ -178,6 +319,7 @@ class ReplicaTests(unittest.TestCase):
 
             # **健康檢查不可以自己備份**：備份會在 store 的鎖裡把所有 durable 表
             # 讀出來，後台的知識庫分頁會被它卡住（畫面停在「載入中」）。
+            connected.replica.restore(store)
             connected.replica.backup(store)
             status, _message, details = _persistence_check(connected)
             self.assertEqual(status, "ok")
@@ -196,6 +338,7 @@ class ReplicaTests(unittest.TestCase):
         store = make_store(self.root, "no-backup.db")
         try:
             replica = PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999)
+            replica.restore(store)
             replica.backup(store)
             before = replica.last_backup_at
             calls = []
@@ -218,6 +361,7 @@ class ReplicaTests(unittest.TestCase):
         store = make_store(self.root, "backup-error.db")
         try:
             replica = PostgresReplica("postgresql://fake", driver=FakeDriver(), interval=999)
+            replica.restore(store)
             replica.backup(store)
             replica.last_error = "OperationalError: connection refused"
 
@@ -239,7 +383,7 @@ class ReplicaTests(unittest.TestCase):
         try:
 
             class BrokenDriver:
-                def connect(self, _dsn, autocommit=True):
+                def connect(self, _dsn, autocommit=True, **kwargs):
                     raise OSError("connection refused")
 
             broken = SimpleNamespace(

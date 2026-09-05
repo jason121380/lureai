@@ -20,10 +20,14 @@ class KnowledgeStore:
         self.connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._audit_writes = 0
+        self._knowledge_revision = 0
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA busy_timeout=30000")
         self.connection.execute("PRAGMA foreign_keys=ON")
         self._create_schema()
+        from .budget import SCHEMA
+        with self.connection:
+            self.connection.execute(SCHEMA)
 
     def _create_schema(self) -> None:
         self.connection.executescript(
@@ -111,6 +115,11 @@ class KnowledgeStore:
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS rule_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS model_rules (
                 rule_id TEXT PRIMARY KEY,
                 text TEXT NOT NULL,
@@ -128,6 +137,12 @@ class KnowledgeStore:
                 rev INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS conversation_tombstones (
+                conversation_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                rev INTEGER NOT NULL,
+                deleted_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_conversations_user
                 ON conversations(user_id, updated_at DESC);
 
@@ -147,6 +162,7 @@ class KnowledgeStore:
         # 對話的版本號：舊版只由「最後一個寫入的人」決定，於是一台裝置的舊副本
         # 可以覆蓋另一台剛存的新版本，而且畫面上完全看不出來。
         self._ensure_column("conversations", "rev", "INTEGER NOT NULL DEFAULT 0")
+        self._ensure_column("audits", "ledger_backed", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "user_id", "INTEGER")
         self._ensure_column("audits", "input_tokens", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("audits", "cached_input_tokens", "INTEGER NOT NULL DEFAULT 0")
@@ -249,6 +265,17 @@ class KnowledgeStore:
                 (key, value),
             )
 
+    def rule_state(self, key: str) -> str:
+        with self._lock:
+            row = self.connection.execute("SELECT value FROM rule_state WHERE key = ?", (key,)).fetchone()
+        return str(row[0]) if row else ""
+
+    def set_rule_state(self, key: str, value: str) -> None:
+        with self._lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO rule_state(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+
     def model_rules(self) -> dict[str, str]:
         """後台改過的規則；沒改過的不會有列，由 app/tuning.py 補預設值。"""
         with self._lock:
@@ -298,51 +325,92 @@ class KnowledgeStore:
             })
         return conversations
 
+    def list_conversation_tombstones(self, user_id: int) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self.connection.execute(
+                "SELECT conversation_id AS id, rev, deleted_at FROM conversation_tombstones WHERE user_id = ?",
+                (user_id,),
+            )]
+
     def save_conversation(
         self, user_id: int, conversation_id: str, title: str, tone: str,
         messages: list, created_at: str, updated_at: str, rev: int = 0,
-    ) -> bool:
-        """寫入一段對話；只有版本不比現有的舊才會蓋過去。
-
-        回傳有沒有真的寫進去。舊版是「最後一個寫入的人贏」，於是同一個帳號在
-        兩台裝置上開著時，這台的舊副本可以覆蓋另一台剛存的新版本——訊息就這樣
-        不見了，而且畫面上完全看不出來。
-        """
-        payload = json.dumps(messages, ensure_ascii=False)
+        expected_rev: int | None = None,
+    ) -> dict:
+        """以讀取版本為條件寫入；同版重試只有內容相同才確認。"""
+        payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)
+        ack = {"id": conversation_id, "rev": rev, "status": "conflict"}
         with self._lock, self.connection:
-            cursor = self.connection.execute(
-                "INSERT INTO conversations"
-                "(conversation_id, user_id, title, tone, messages_json, created_at, updated_at, rev) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(conversation_id) DO UPDATE SET "
-                "title = excluded.title, tone = excluded.tone, "
-                "messages_json = excluded.messages_json, updated_at = excluded.updated_at, "
-                "rev = excluded.rev "
-                # 別人的對話不會被蓋掉：user_id 對不上就不動。
-                # 版本比較舊的也不動（相等時放行：同一版重送要能成功，
-                # 網路重試與關頁補送都會送同一版）。
-                "WHERE conversations.user_id = excluded.user_id"
-                " AND excluded.rev >= conversations.rev",
-                (conversation_id, user_id, title, tone, payload, created_at, updated_at, int(rev)),
-            )
-        return cursor.rowcount > 0
+            tombstone = self.connection.execute(
+                "SELECT user_id, rev FROM conversation_tombstones WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            if tombstone:
+                if tombstone["user_id"] == user_id:
+                    ack.update(status="deleted", server_rev=tombstone["rev"])
+                return ack
+            row = self.connection.execute(
+                "SELECT * FROM conversations WHERE conversation_id = ?", (conversation_id,),
+            ).fetchone()
+            if row:
+                if row["user_id"] != user_id:
+                    return ack
+                ack["server_rev"] = row["rev"]
+                identical = (row["title"] == title and row["tone"] == tone
+                             and json.loads(row["messages_json"]) == messages)
+                if row["rev"] == rev and identical:
+                    return {**ack, "status": "accepted"}
+                if expected_rev is None or expected_rev != row["rev"] or rev <= row["rev"]:
+                    return ack
+                self.connection.execute(
+                    "UPDATE conversations SET title=?, tone=?, messages_json=?, updated_at=?, rev=? "
+                    "WHERE conversation_id=? AND user_id=?",
+                    (title, tone, payload, updated_at, rev, conversation_id, user_id),
+                )
+            else:
+                if expected_rev not in (None, 0):
+                    return ack
+                self.connection.execute(
+                    "INSERT INTO conversations "
+                    "(conversation_id,user_id,title,tone,messages_json,created_at,updated_at,rev) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (conversation_id, user_id, title, tone, payload, created_at, updated_at, rev),
+                )
+            return {**ack, "status": "accepted", "server_rev": rev}
 
-    def delete_conversation(self, user_id: int, conversation_id: str) -> None:
+    def delete_conversation(self, user_id: int, conversation_id: str) -> dict:
         with self._lock, self.connection:
+            row = self.connection.execute(
+                "SELECT user_id, rev FROM conversations WHERE conversation_id=?", (conversation_id,),
+            ).fetchone()
+            tombstone = self.connection.execute(
+                "SELECT user_id, rev FROM conversation_tombstones WHERE conversation_id=?", (conversation_id,),
+            ).fetchone()
+            if (row and row["user_id"] != user_id) or (tombstone and tombstone["user_id"] != user_id):
+                return {"id": conversation_id, "rev": 0, "status": "conflict"}
+            rev = tombstone["rev"] if tombstone else (row["rev"] + 1 if row else 1)
             self.connection.execute(
-                "DELETE FROM conversations WHERE conversation_id = ? AND user_id = ?",
-                (conversation_id, user_id),
+                "INSERT OR IGNORE INTO conversation_tombstones VALUES (?,?,?,?)",
+                (conversation_id, user_id, rev, datetime.now(timezone.utc).isoformat()),
             )
+            self.connection.execute(
+                "DELETE FROM conversations WHERE conversation_id=? AND user_id=?", (conversation_id, user_id),
+            )
+            return {"id": conversation_id, "rev": rev, "status": "deleted"}
 
     def prune_conversations(self, user_id: int, keep: int = 100) -> None:
-        """一個帳號只留最近 N 段，避免無上限長大。"""
+        """淘汰也保留墓碑，舊裝置無法重新建立同一筆。"""
         with self._lock, self.connection:
-            self.connection.execute(
-                "DELETE FROM conversations WHERE user_id = ? AND conversation_id NOT IN ("
-                "SELECT conversation_id FROM conversations WHERE user_id = ? "
-                "ORDER BY updated_at DESC LIMIT ?)",
-                (user_id, user_id, keep),
-            )
+            rows = self.connection.execute(
+                "SELECT conversation_id, rev FROM conversations WHERE user_id=? "
+                "ORDER BY updated_at DESC LIMIT -1 OFFSET ?", (user_id, keep),
+            ).fetchall()
+            for row in rows:
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO conversation_tombstones VALUES (?,?,?,?)",
+                    (row["conversation_id"], user_id, row["rev"] + 1, datetime.now(timezone.utc).isoformat()),
+                )
+                self.connection.execute("DELETE FROM conversations WHERE conversation_id=?", (row["conversation_id"],))
 
     # ---- 個人偏好（語氣等）：跟著帳號走，換裝置不用重設 ----
 
@@ -421,8 +489,8 @@ class KnowledgeStore:
                     trace_id, created_at, conversation_id, question, status,
                     reason, top_score, chunk_ids_json, user_id, input_tokens,
                     cached_input_tokens, cache_write_input_tokens, output_tokens,
-                    cost_twd, model, tone, retries
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cost_twd, model, tone, retries, ledger_backed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["trace_id"], record["created_at"], record.get("conversation_id"),
@@ -433,7 +501,7 @@ class KnowledgeStore:
                     int(record.get("cache_write_input_tokens", 0)),
                     int(record.get("output_tokens", 0)), float(record.get("cost_twd", 0)),
                     str(record.get("model", "")), str(record.get("tone", "")),
-                    int(record.get("retries", 0)),
+                    int(record.get("retries", 0)), int(record.get("ledger_backed", 0)),
                 ),
             )
 
@@ -491,10 +559,14 @@ class KnowledgeStore:
                        COALESCE(SUM(cache_write_input_tokens), 0) AS cache_write_input_tokens,
                        COALESCE(SUM(output_tokens), 0) AS output_tokens,
                        COALESCE(SUM(cost_twd), 0) AS spend_twd
-                FROM audits
-                WHERE user_id = ? AND created_at >= ? AND created_at < ?
+                FROM (
+                    SELECT user_id,created_at,input_tokens,cached_input_tokens,cache_write_input_tokens,output_tokens,cost_twd FROM audits WHERE ledger_backed=0
+                    UNION ALL
+                    SELECT user_id,created_at,input_tokens,cached_input_tokens,cache_write_input_tokens,output_tokens,cost_twd FROM model_calls
+                )
+                WHERE (? IS NULL OR user_id = ?) AND created_at >= ? AND created_at < ?
                 """,
-                (user_id, start_at, end_at),
+                (user_id, user_id, start_at, end_at),
             ).fetchone()
         return {
             "input_tokens": int(row["input_tokens"]),
@@ -581,6 +653,21 @@ class KnowledgeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def retrieval_snapshot(self, version=None) -> tuple[tuple[int, int], list[dict] | None]:
+        """Source fields only; aliases never constitute answer evidence.
+
+        Local mutations and commits by other SQLite connections invalidate the
+        snapshot. Account/audit writes on this connection do not re-tokenize it.
+        """
+        with self._lock:
+            current = (self._knowledge_revision, self.connection.execute("PRAGMA data_version").fetchone()[0])
+            if current == version:
+                return current, None
+            rows = self.connection.execute(
+                "SELECT chunk_id, title, section_title, text, aliases FROM chunks"
+            ).fetchall()
+            return current, [dict(row) for row in rows]
+
     def list_chunks(
         self,
         limit: int = 100,
@@ -631,6 +718,7 @@ class KnowledgeStore:
         return [dict(row) for row in rows]
 
     def _insert_chunk(self, row: dict, origin: str) -> None:
+        self._knowledge_revision += 1
         columns = [
             "chunk_id", "doc_id", "locator", "section_title", "text", "title",
             "source_file", "source_sha256", "category", "access_level",
@@ -668,6 +756,7 @@ class KnowledgeStore:
 
     def _delete_chunk_rows(self, where: str, params: tuple) -> None:
         """Delete chunks matching a predicate along with their FTS entries."""
+        self._knowledge_revision += 1
         ids = [
             int(row[0])
             for row in self.connection.execute(f"SELECT id FROM chunks WHERE {where}", params)

@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .ingest import validate_chunk
+from .tuning import rule_versions
 
 
 FRONTEND_ASSETS = (
@@ -178,6 +179,7 @@ def _persistence_check(context) -> tuple[str, str, dict]:
         return "warning", "未設定 Postgres，重新部署後帳號與用量會歸零", details
     if not enabled:
         return "error", "已設定 Postgres 連線但缺少 psycopg 套件", details
+    details["writer_ready"] = bool(getattr(replica, "writable", False))
     details["interval_seconds"] = int(getattr(replica, "interval", 0))
     details["restored_on_boot"] = bool(getattr(context, "restored_from_replica", False))
     last_backup = getattr(replica, "last_backup_at", None)
@@ -333,6 +335,11 @@ def build_health_report(context) -> dict:
     return {
         "status": overall,
         "checked_at": datetime.now(timezone.utc).isoformat(),
+        "build": {
+            "commit": os.getenv("APP_BUILD_COMMIT", "").strip() or "unknown",
+            "timestamp": os.getenv("APP_BUILD_TIMESTAMP", "").strip() or "unknown",
+        },
+        "rules": rule_versions(context.store),
         "summary": summary,
         "checks": checks,
     }
