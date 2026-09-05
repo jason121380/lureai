@@ -286,6 +286,9 @@
   // 目標值寫在 qa/brain_review 的量化指標那一節。
   const FALLBACK_TARGET = 0.03;
   const RETRY_TARGET = 0.15;
+  // 百分制品質分數（quality.score_reply）的告警線：平均掉到這以下代表
+  // 降級、引用或重打的比例明顯偏高，要去看稽核。
+  const QUALITY_SCORE_TARGET = 80;
 
   function percent(value) {
     return `${Math.round((Number(value) || 0) * 1000) / 10}%`;
@@ -299,9 +302,16 @@
     el("stat-retry").textContent = percent(metrics.retry_rate);
     el("stat-input-tokens").textContent = (metrics.avg_input_tokens || 0).toLocaleString("en-US");
     el("stat-thumbs-up").textContent = metrics.graded ? percent(metrics.thumbs_up_rate) : "—";
+    // 分數只算有知識支持的回答（閒聊與轉人工不打分），沒有樣本就顯示「—」。
+    const scored = Number(metrics.scored) || 0;
+    el("stat-quality").textContent =
+      scored && metrics.avg_quality_score != null ? `${metrics.avg_quality_score} 分` : "—";
     // 超過目標值才變色，平常不要一直亮紅字。
     el("stat-fallback-card").dataset.alert = String(Number(metrics.fallback_rate) > FALLBACK_TARGET);
     el("stat-retry-card").dataset.alert = String(Number(metrics.retry_rate) > RETRY_TARGET);
+    el("stat-quality-card").dataset.alert = String(
+      scored > 0 && Number(metrics.avg_quality_score) < QUALITY_SCORE_TARGET
+    );
   }
 
   async function loadStats() {

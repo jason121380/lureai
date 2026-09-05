@@ -172,6 +172,8 @@ class KnowledgeStore:
         # 語氣與品質重打次數：後台總覽要量得到「這個模式好不好」與「重打率」。
         self._ensure_column("audits", "tone", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("audits", "retries", "INTEGER NOT NULL DEFAULT 0")
+        # 百分制品質分數（quality.score_reply）；閒聊與轉人工不打分，存 NULL。
+        self._ensure_column("audits", "quality_score", "INTEGER")
         self._ensure_column("audits", "model", "TEXT NOT NULL DEFAULT ''")
         self.connection.execute(
             "CREATE INDEX IF NOT EXISTS audits_user_created_idx ON audits(user_id, created_at)"
@@ -207,7 +209,9 @@ class KnowledgeStore:
                     COUNT(*) AS total,
                     SUM(CASE WHEN reason IN ('no_results', 'low_confidence') THEN 1 ELSE 0 END) AS fallbacks,
                     SUM(CASE WHEN retries > 0 THEN 1 ELSE 0 END) AS retried,
-                    AVG(input_tokens) AS avg_input_tokens
+                    AVG(input_tokens) AS avg_input_tokens,
+                    AVG(quality_score) AS avg_quality_score,
+                    COUNT(quality_score) AS scored
                 FROM audits WHERE created_at >= ? AND status <> 'title'
                 """,
                 (since,),
@@ -227,6 +231,10 @@ class KnowledgeStore:
             "fallback_rate": round(int(row["fallbacks"] or 0) / total, 4) if total else 0.0,
             "retry_rate": round(int(row["retried"] or 0) / total, 4) if total else 0.0,
             "avg_input_tokens": int(row["avg_input_tokens"] or 0),
+            # AVG/COUNT 都自動略過 NULL（沒打分的閒聊與轉人工），scored 是分母。
+            "avg_quality_score": round(float(row["avg_quality_score"]), 1)
+            if row["avg_quality_score"] is not None else None,
+            "scored": int(row["scored"] or 0),
             "thumbs_up_rate": round(counted.get("up", 0) / graded, 4) if graded else 0.0,
             "thumbs_down_rate": round(counted.get("down", 0) / graded, 4) if graded else 0.0,
             "graded": graded,
@@ -489,8 +497,8 @@ class KnowledgeStore:
                     trace_id, created_at, conversation_id, question, status,
                     reason, top_score, chunk_ids_json, user_id, input_tokens,
                     cached_input_tokens, cache_write_input_tokens, output_tokens,
-                    cost_twd, model, tone, retries, ledger_backed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cost_twd, model, tone, retries, ledger_backed, quality_score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["trace_id"], record["created_at"], record.get("conversation_id"),
@@ -502,6 +510,8 @@ class KnowledgeStore:
                     int(record.get("output_tokens", 0)), float(record.get("cost_twd", 0)),
                     str(record.get("model", "")), str(record.get("tone", "")),
                     int(record.get("retries", 0)), int(record.get("ledger_backed", 0)),
+                    None if record.get("quality_score") is None
+                    else int(record["quality_score"]),
                 ),
             )
 

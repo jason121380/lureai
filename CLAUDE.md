@@ -80,7 +80,7 @@ python3 run.py --port 8765                   # 啟動（designer_coach）
 - **每題送 4 塊來源**：`config/settings.json` 的 `top_k`。原本 6 塊時 100 題裡有 76 題送滿，模型幾乎用不到後面幾塊，但輸入 token 多一倍、跑偏機率也高。
 - **不是聊天的模型呼叫也要記帳**：後台的文件分析（`extract.propose_chunks`）一次送兩萬多字進模型，是單次最貴的呼叫，用量經 `service.record_usage` 寫進同一張 audits 表，月預算與後台總覽才看得到它。**回饋只能投自己那一則**（`storage.audit_belongs_to`）：不驗的話任何登入的人都能灌「👍 比例」這個指標。
 - **快照還原之後要重認服務帳號 id**：Postgres 快照會整批取代帳號表，開機時記下的 `bot_user_id` 可能已經是別人的，lurebot 的用量與稽核就會記到某個真人頭上（`run.py` 還原區塊）。
-- **後台總覽量得到回覆品質**：`/api/admin/stats` 的 `replies` 帶最近 30 天的查不到資料比例、品質重打率、平均輸入 tokens 與 👍 比例，全部從既有稽核算（`storage.reply_metrics`，稽核多存 `tone` 與 `retries` 兩欄）。查不到資料的比例是「這個產品什麼時候在裝死」最直接的指標。
+- **後台總覽量得到回覆品質**：`/api/admin/stats` 的 `replies` 帶最近 30 天的查不到資料比例、品質重打率、平均輸入 tokens、平均品質分數與 👍 比例，全部從既有稽核算（`storage.reply_metrics`，稽核多存 `tone`、`retries`、`quality_score` 三欄）。查不到資料的比例是「這個產品什麼時候在裝死」最直接的指標。**品質分數只是把既有診斷收成一個數字**（`quality.score_reply`，百分制）：降級 −40、引用指不到／數字沒出處 −15、沒附引用／來源撐不起 −10、改過使用者數字 −10、重打過 −10、來源支持弱（top_score < 0.80）−10；**閒聊、邊界與轉人工不打分（NULL）**——它們是「正確地不回答」，混進分母平均值就看不出真正的品質變化。後台低於 80 分亮告警。
 - **安全**：全部 SQL 參數化；回應含安全標頭與 HTML CSP（無 inline script）；POST 檢查 Origin；月預算超標即停用模型生成；聊天與登入均有限流。三個不能拆掉的細節：
   - **電話與 Email 的遮罩在「組模型 payload」那一層**（`answer.mask_contacts`，正本在 `app/answer.py`）。只在聊天入口遮會有旁路：自動產生標題是另一條路（正常用完第一則就會跑）、lurebot 的群組脈絡是另一條路、後台的文件分析又是一條——使用者以為聊天已經遮好，同一組號碼卻從別的呼叫送了出去。`service._validated_question` 也遮一次，是為了讓**檢索與長期保存的稽核**拿到的也是乾淨的。**不要改用 `SENSITIVE_HISTORY_PATTERN`**，那條含關鍵字的規則對稽核夠好，拿來改寫要送模型的文字會把「客人一直看手機」也遮掉。
   - **登入限流有兩把鑰匙**：`ip|<ip>|<帳號>` 與 `account|<帳號>`。只有前者的話，攻擊者每次換一個 `X-Forwarded-For` 就換到一把新鑰匙。**不要為此拿掉對 XFF 的信任**——雲端一律是內網 proxy 連進來，全部不信會讓所有人共用同一個 IP，一個人打錯密碼就把整間店鎖在外面；知道拓樸的人用 `TRUSTED_PROXY_IPS` 收緊。

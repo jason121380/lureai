@@ -28,6 +28,7 @@
 - 父任務在 `f840570` 前凍結的 30 題首次結果為 Recall@3 `0.45`、MRR@3 `0.425`、no-answer threshold proxy `4/10`、policy false positive `4/10`。四個失敗已揭露並用於 Task 9，之後只能稱 regression；fixture SHA-256 為 `b2ddfd30b3f39199946c490dc3678f19d69c068760beda893429202bbeb102b0`。
 - 最終分支對同一 frozen 30 題的回歸為 Recall@3 `0.45`、MRR@3 `0.425`、raw threshold proxy `3/10`、policy false positive `0/10`。這是揭露後 regression，不是 post-fix blind score。
 - 沒有真實模型、真人 LINE、正式部署、MFA 或 production billing 測試。不得從離線 lexical gate 推論整體語意正確率或滿分。
+- 2026-09-05 後續：依 20 題 holdout 揭露的失敗補同義詞與問法種子後，同一份 20 題回歸為 Recall@3 `0.9333`、MRR@3 `0.7667`、threshold proxy `0/5`、policy false positive `0/5`。失敗案例已先揭露並用於修正，這只能稱 regression，不是 blind score；語意層評估仍需新的未揭露資料集。
 
 ## 交付與來源
 

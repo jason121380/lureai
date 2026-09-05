@@ -165,3 +165,41 @@ class ConversationVersionsTests(unittest.TestCase):
         self.store = KnowledgeStore(Path(self.directory.name) / "conversation.db")
         self.assertEqual({x["id"] for x in self.store.list_conversation_tombstones(self.owner)}, {"c", "d"})
         self.assertEqual(self.save(rev=99)["status"], "deleted")
+
+
+class QualityScoreMetricsTests(unittest.TestCase):
+    def test_reply_metrics_averages_only_scored_replies(self):
+        """平均品質分數的分母是「有打分的回答」：閒聊與轉人工存 NULL，
+        混進分母的話一天十句「哈囉」就能把平均沖到看不出真正的品質變化。"""
+        with tempfile.TemporaryDirectory() as directory:
+            store = KnowledgeStore(Path(directory) / "knowledge.db")
+            try:
+                now = datetime.now(timezone.utc).isoformat()
+                store.add_audit({
+                    "trace_id": "scored-100", "created_at": now,
+                    "question": "怎麼漲價", "status": "answered", "quality_score": 100,
+                })
+                store.add_audit({
+                    "trace_id": "scored-60", "created_at": now,
+                    "question": "廣告怎麼投", "status": "answered", "quality_score": 60,
+                })
+                store.add_audit({
+                    "trace_id": "smalltalk", "created_at": now,
+                    "question": "哈囉", "status": "answered",
+                })
+                metrics = store.reply_metrics(since="1970-01-01T00:00:00")
+                self.assertEqual(metrics["replies"], 3)
+                self.assertEqual(metrics["scored"], 2)
+                self.assertEqual(metrics["avg_quality_score"], 80.0)
+            finally:
+                store.close()
+
+    def test_reply_metrics_with_no_scored_replies_returns_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = KnowledgeStore(Path(directory) / "knowledge.db")
+            try:
+                metrics = store.reply_metrics(since="1970-01-01T00:00:00")
+                self.assertEqual(metrics["scored"], 0)
+                self.assertIsNone(metrics["avg_quality_score"])
+            finally:
+                store.close()

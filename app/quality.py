@@ -315,6 +315,50 @@ def grounding_diagnostics(
     return result
 
 
+# 每一項扣分都對應一個「這則回覆比較不可信」的既有訊號；分數只是把它們
+# 收成一個數字，不另外發明新的判斷。權重是刻意的粗刻度（好記、好解釋），
+# 不是校準過的機率。
+SCORE_DEDUCTIONS = (
+    # 模型不可用、走抽取式降級：內容是原文片段不是回答，扣最重。
+    ("degraded", 40),
+    # 引用編號指不到來源／有點沒附引用／引用的來源撐不起那句話／數字沒有出處。
+    ("invalid_citations", 15),
+    ("unsupported_numbers", 15),
+    ("uncited_claims", 10),
+    ("unsupported_claims", 10),
+    # 把使用者自己講過的數字寫錯，出口已更正，但代表模型沒抓穩事實。
+    ("evidence_corrected", 10),
+    # 第一版不合格重打過：最終送出的可能已修好，但這一題對模型偏難。
+    ("retried", 10),
+    # 檢索最高分低於自足支持線（service.WEAK_MATCH_SCORE）：來源本身偏弱。
+    ("weak_support", 10),
+)
+
+
+def score_reply(result: dict, top_score: float | None = None) -> int | None:
+    """百分制回覆品質分數；只給有知識支持的正式回答打分。
+
+    閒聊、邊界題與轉人工不打（None）——它們沒有來源可言，硬打分只會
+    把「正確地不回答」算成低分。全部訊號都來自這一輪已經算好的診斷，
+    純函式、不重跑任何檢查。
+    """
+    if result.get("status") != "answered" or result.get("reason") != "grounded":
+        return None
+    diagnostics = result.get("grounding_diagnostics") or {}
+    flags = {
+        "degraded": result.get("answer_mode") != "llm",
+        "invalid_citations": bool(diagnostics.get("invalid_citations")),
+        "unsupported_numbers": bool(diagnostics.get("unsupported_numbers")),
+        "uncited_claims": bool(diagnostics.get("uncited_claims")),
+        "unsupported_claims": bool(diagnostics.get("unsupported_claims")),
+        "evidence_corrected": bool(result.get("evidence_diagnostics")),
+        "retried": int(result.get("retries", 0) or 0) > 0,
+        "weak_support": top_score is not None and top_score < 0.80,
+    }
+    score = 100 - sum(penalty for name, penalty in SCORE_DEDUCTIONS if flags[name])
+    return max(0, min(100, score))
+
+
 # 一則訊息裡連寫這麼多字又完全沒換行，畫面上就是一坨。前端與 LINE 出口都會
 # 自己斷行（`humanize.wrap_line`），但那只是把一坨排整齊，救不了「話太多」。
 WALL_CHARS = 40
