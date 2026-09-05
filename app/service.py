@@ -315,6 +315,8 @@ class CustomerService:
             "model_status": "boundary" if direct else "policy",
             "grounding_diagnostics": diagnostics,
             "quality_failed": False,
+            # 品質分數只給有知識支持的回答打；邊界與轉人工是「正確地不回答」。
+            "quality_score": None,
         }
 
     def _speaker_note(self, recent_history: list[dict], question: str) -> str:
@@ -365,6 +367,8 @@ class CustomerService:
             "tone": tone,
             "grounding_diagnostics": diagnostics,
             "quality_failed": False,
+            # 閒聊沒有來源可言，不打分（打了只會把正常寒暄算成低分）。
+            "quality_score": None,
         }
 
     def _enforce_quality(
@@ -507,6 +511,9 @@ class CustomerService:
             "tone": tone,
             "retries": self._retry_count(),
         }
+        result["quality_score"] = quality.score_reply(
+            result, grounded_hits[0].score if grounded_hits else None
+        )
         self._audit(question, result, hits, user_id=user_id)
         return result
 
@@ -682,6 +689,9 @@ class CustomerService:
                 history=recent_history,
             ),
         }
+        result["quality_score"] = quality.score_reply(
+            result, grounded_hits[0].score if grounded_hits else None
+        )
         self._audit(question, result, hits, user_id=user_id)
         yield {"type": "result", **result}
 
@@ -800,4 +810,5 @@ class CustomerService:
             "model": self.answerer.model_name,
             "tone": result.get("tone", ""),
             "retries": int(result.get("retries", 0)),
+            "quality_score": result.get("quality_score"),
         })

@@ -215,5 +215,79 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(quality.retry_note([]), "")
 
 
+class ScoreReplyTests(unittest.TestCase):
+    """百分制品質分數：把既有診斷收成一個數字，不另外發明判斷。
+
+    分數存在的理由是後台一眼看得出「這 30 天的回答可不可信」；所以乾淨的
+    正式回答必須是滿分，而閒聊與轉人工必須不打分——把「正確地不回答」
+    算成低分，平均值就再也看不出真正的品質變化。
+    """
+
+    @staticmethod
+    def _grounded(**overrides) -> dict:
+        result = {
+            "status": "answered",
+            "reason": "grounded",
+            "answer_mode": "llm",
+            "grounding_diagnostics": {},
+            "evidence_diagnostics": [],
+            "retries": 0,
+        }
+        result.update(overrides)
+        return result
+
+    def test_clean_grounded_reply_scores_100(self):
+        self.assertEqual(quality.score_reply(self._grounded(), top_score=0.9), 100)
+
+    def test_smalltalk_boundary_and_escalation_are_not_scored(self):
+        for status, reason in (
+            ("answered", "smalltalk"),
+            ("answered", "boundary"),
+            ("escalated", "sensitive_topic"),
+        ):
+            self.assertIsNone(
+                quality.score_reply({"status": status, "reason": reason}),
+                f"{status}/{reason} 不該被打分",
+            )
+
+    def test_degraded_extractive_answer_loses_40(self):
+        result = self._grounded(answer_mode="extractive")
+        self.assertEqual(quality.score_reply(result, top_score=0.9), 60)
+
+    def test_each_grounding_issue_deducts(self):
+        cases = {
+            "invalid_citations": 85,
+            "unsupported_numbers": 85,
+            "uncited_claims": 90,
+            "unsupported_claims": 90,
+        }
+        for field, expected in cases.items():
+            result = self._grounded(grounding_diagnostics={field: ["x"]})
+            self.assertEqual(quality.score_reply(result, top_score=0.9), expected, field)
+
+    def test_retry_correction_and_weak_support_deduct(self):
+        self.assertEqual(quality.score_reply(self._grounded(retries=1), top_score=0.9), 90)
+        self.assertEqual(
+            quality.score_reply(self._grounded(evidence_diagnostics=["改了數字"]), top_score=0.9),
+            90,
+        )
+        # 低於 service.WEAK_MATCH_SCORE（0.80）＝來源支持偏弱。
+        self.assertEqual(quality.score_reply(self._grounded(), top_score=0.75), 90)
+        # 沒有 top_score（例如測試替身）不算弱支持，不扣。
+        self.assertEqual(quality.score_reply(self._grounded()), 100)
+
+    def test_score_never_goes_below_zero(self):
+        result = self._grounded(
+            answer_mode="extractive",
+            grounding_diagnostics={
+                "invalid_citations": ["9"], "unsupported_numbers": ["10 %"],
+                "uncited_claims": ["a"], "unsupported_claims": ["b"],
+            },
+            evidence_diagnostics=["改了數字"],
+            retries=2,
+        )
+        self.assertEqual(quality.score_reply(result, top_score=0.5), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

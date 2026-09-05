@@ -106,6 +106,33 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(unsupported["grounding_diagnostics"]["unsupported_numbers"], ["7 天", "3 次", "5-10 分鐘"])
         self.assertFalse(supported["quality_failed"])
 
+    def test_reply_quality_score_reaches_result_and_audit(self):
+        """分數要跟著結果一路進稽核；有據可查的回答要比數字沒出處的高分，
+        轉人工不打分（NULL）——它是「正確地不回答」，不是低品質。"""
+        class AlternatingAnswerer(RecordingAnswerer):
+            def __init__(self):
+                super().__init__()
+                self.answers = iter([
+                    "連續做 7 天、每天 3 次、每次 5-10 分鐘。[1]",
+                    "燙髮後依設計師示範方向吹整，並避免拉扯頭髮。[1]",
+                ])
+
+            def answer(self, *args, **kwargs):
+                return next(self.answers), "llm", "used", {"input_tokens": 1, "output_tokens": 1}
+
+        self.service.answerer = AlternatingAnswerer()
+        unsupported = self.service.chat("燙髮後怎麼整理？", want_followups=False)
+        supported = self.service.chat("燙髮後怎麼整理？", want_followups=False)
+        escalated = self.service.chat("客人要求退費，我要賠多少？")
+
+        self.assertIsInstance(supported["quality_score"], int)
+        self.assertGreater(supported["quality_score"], unsupported["quality_score"])
+        self.assertIsNone(escalated["quality_score"])
+        audits = {row["trace_id"]: row for row in self.store.list_audits()}
+        self.assertEqual(audits[supported["trace_id"]]["quality_score"], supported["quality_score"])
+        self.assertEqual(audits[unsupported["trace_id"]]["quality_score"], unsupported["quality_score"])
+        self.assertIsNone(audits[escalated["trace_id"]]["quality_score"])
+
     def test_service_tone_remains_citation_free_without_quality_failure(self):
         class ServiceAnswerer(RecordingAnswerer):
             requires_citations = staticmethod(AnswerEngine.requires_citations)
