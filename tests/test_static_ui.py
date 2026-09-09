@@ -702,6 +702,23 @@ class StaticUiTests(unittest.TestCase):
         self.assertNotIn("這題需要人來判斷", script)
         self.assertIn(".message-status.escalated.soft", css)
 
+    def test_the_service_mode_fallback_is_not_repeated_as_a_badge(self):
+        """回退語本身就寫著「這題我手邊的資料不夠 還是你先跟我說一下…」。
+
+        客服模式的泡泡下面再掛一顆「這題我先不亂答」，畫面上就是同一句話
+        送了兩次（體檢 P0-2：10 次回退 100% 重現）。真人不會在訊息後面
+        補一張狀態標籤。"""
+        script = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'const restatesFallback = item.tone === "service" && item.status !== "answered"',
+            script,
+        )
+        self.assertIn(
+            'if (item.status && !(chatty && item.status === "answered") && !restatesFallback) {',
+            script,
+        )
+
     def test_touch_targets_are_large_enough(self):
         css = CSS.read_text(encoding="utf-8")
 

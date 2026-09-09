@@ -54,6 +54,18 @@ class ComposeTests(unittest.TestCase):
         self.assertIn("先不要加預算", policy)
         self.assertIn("他沒提預算就不要主動講預算", policy)
 
+    def test_service_mode_hands_over_a_draft_when_he_asks_for_one(self):
+        """體檢 P1：20 組情境只有 5 組在第一輪就給出可以貼上的話術。
+
+        客服模式的「先了解再給指令」是刻意的節奏，但他打字問「怎麼回」的時候
+        客人已經在等——那一輪就是他唯一有空看的一輪，只反問等於把他丟在現場。
+        規則要寫明這是例外，而且不能跟現場緊急那條的「唯一」互相打架。"""
+        service = tuning.compose_tone("service")
+
+        self.assertIn("怎麼回", service)
+        self.assertIn("第一輪就要給稿", service)
+        self.assertNotIn("唯一可以跳過", service)
+
     def test_every_catalogue_rule_reaches_the_model(self):
         for group in tuning.TONE_GROUPS:
             composed = tuning.compose_tone(group["tone"])
