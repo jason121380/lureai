@@ -461,7 +461,12 @@
     // 客服模式是「真人在傳訊息」，泡泡下面不該長出系統徽章。
     // 正常回覆時整個藏起來，只有降級或轉真人時才顯示（那時候要講清楚）。
     const chatty = item.tone === "service" && item.modelStatus === "used";
-    if (item.status && !(chatty && item.status === "answered")) {
+    // 回退語本身就寫著「這題我手邊的資料不夠 還是你先跟我說一下…」，客服模式
+    // 的泡泡下面再掛一顆「這題我先不亂答」，看起來就是同一句話被送了兩次
+    // （體檢 P0-2：10 次回退 100% 重現）。真人不會在訊息後面補一張狀態標籤。
+    const restatesFallback = item.tone === "service" && item.status !== "answered"
+      && ["no_results", "low_confidence"].includes(item.reason);
+    if (item.status && !(chatty && item.status === "answered") && !restatesFallback) {
       const status = document.createElement("div");
       const answered = item.status === "answered";
       // 模型沒回應時要講清楚，不然看起來像 AI 亂答。

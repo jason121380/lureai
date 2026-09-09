@@ -62,6 +62,45 @@ MAX_ASSISTANT_CONTEXT_CHARS = 600
 # 接話只限省略主題的指代或改寫要求；短句也可能是新的完整主題。
 CITATION_REF_PATTERN = re.compile(r"\[(\d{1,2})\]")
 
+# 「上一則是我們在問他」：客服模式不寫標點，問句常常只靠句尾的「嗎」「呢」
+# 或二選一的「還是」收尾，光找問號會全部漏掉。
+ASSISTANT_QUESTION_PATTERN = re.compile(
+    r"[?？]$|(?:嗎|呢|吧)$|還是|要不要|有沒有|多跟我說|方便.{0,8}說"
+)
+# 補充脈絡是陳述句。帶問句的那一則是新的問題，仍然要自己撐得起來——
+# 歷史可以補脈絡，不可以讓沒有來源支持的新主題變成答得出來。
+# 寧可多擋：擋過頭只是維持現狀（照樣回退），擋不住卻會用上一題的知識答新題。
+USER_QUESTION_PATTERN = re.compile(
+    r"[?？]|嗎|呢|怎麼|如何|多少|什麼|甚麼|為什麼|為何|該不該|要不要|可不可以|能不能|是否|"
+    r"哪|誰|幾|何時|好不好|對不對|行不行"
+)
+
+# 客服／LINE 不顯示 [n]，沒有引用可以拿來裁掉沒用到的來源，改用分數：
+# 低於第一名九成的那幾塊只是字面沾到邊（跟 followups 的鄰域同一把尺）。
+CITATION_SCORE_RATIO = 0.90
+
+
+def answers_our_question(question: str, recent_history: list[dict]) -> bool:
+    """這一則是不是在回答「我們上一則問他的那個問題」。
+
+    體檢實測 10 次回退有 6 次踩在這裡：AI 自己反問、使用者照答，AI 卻回
+    「這題我先不亂答」——它問了問題、對方答了、它擺爛，比一開始就說不會更傷。
+    兩個閘門缺一不可：上一則真的是我們在問他，而且這一則沒有問句。
+    """
+    if not recent_history or recent_history[-1].get("role") != "assistant":
+        return False
+    lines = [
+        line.strip()
+        for line in str(recent_history[-1].get("content", "")).splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return False
+    tail = lines[-1].rstrip("～~!！。.… ")
+    if not ASSISTANT_QUESTION_PATTERN.search(tail):
+        return False
+    return not USER_QUESTION_PATTERN.search("".join(str(question or "").split()))
+
 # 電話與 Email 一律不送進模型。歷史訊息與稽核早就遮罩了，只有「現在這一則」
 # 是原文送進檢索與模型的——設計師貼一句「客人 0912-345-678 一直沒回」，那組
 # 號碼就離開了這台機器。這裡只挑不會誤傷的兩種：下面
@@ -224,6 +263,11 @@ class CustomerService:
             ):
                 hits = padded
         decision = self.policy.evaluate(hits)
+        if decision.action == "escalate" and decision.reason in ("no_results", "low_confidence"):
+            supplemented = self._supplemented_hits(question, recent_history)
+            if supplemented:
+                hits = supplemented
+                decision = self.policy.evaluate(hits)
         if decision.action == "escalate":
             return hits, [], decision
         grounded_hits = [hit for hit in hits if hit.score >= self.policy.minimum_score]
@@ -236,6 +280,30 @@ class CustomerService:
         else:
             grounded_hits = historical_hits[:2]
         return hits, grounded_hits, None
+
+    def _supplemented_hits(self, question: str, recent_history: list[dict]) -> list:
+        """使用者回答我們的追問時，改用「他原本那一題 ＋ 這一則補充」重新檢索。
+
+        只拿補充去檢索必然撈不到東西（「她已經坐在位子上了」不會命中任何一塊
+        知識），前一輪的情境完全沒帶進去，於是照答之後收到的是回退語。
+        合併之後還是撈不到，就退回用他原本那一題的來源直接生成——
+        那一輪本來就答得出來，沒有理由因為他多講了一句話就不答。
+
+        已知取捨：他在我們問完之後改用**陳述句**丟出一個全新的話題（而且那個
+        話題知識庫也答不出來）時，會拿上一題的來源回他。發生條件很窄（只在
+        本來就要回退時、只在我們剛問完、而且那一則沒有問句），寧可承受這個，
+        也不要讓照答的人再收到一次「這題我先不亂答」。
+        """
+        if not answers_our_question(question, recent_history):
+            return []
+        previous = [item["content"] for item in recent_history if item["role"] == "user"][-2:]
+        if not previous:
+            return []
+        for query in ("\n".join(previous + [question]), previous[-1]):
+            candidate = self.retriever.retrieve(query, limit=self.top_k * 2)
+            if self.policy.evaluate(candidate).action != "escalate":
+                return candidate
+        return []
 
     @staticmethod
     def _citations(grounded_hits: list, mode: str, model_status: str) -> list[dict]:
@@ -256,8 +324,13 @@ class CustomerService:
         """
         citations = self._citations(grounded_hits, mode, model_status)
         shows_numbers = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
-        if not citations or not shows_numbers:
+        if not citations:
             return answer, citations
+        if not shows_numbers:
+            # 客服／LINE 沒有 [n] 可以拿來裁，但「來源 3」點開是「私訊要回多長」
+            # 而他問的是客人嫌剪太短時，標示反而在拆信任（體檢 P2）。
+            # 用分數擋掉只是字面沾到邊的陪襯塊。
+            return answer, self._nearby_citations(grounded_hits, citations)
         used = sorted({
             int(number) for number in CITATION_REF_PATTERN.findall(answer or "")
             if 1 <= int(number) <= len(citations)
@@ -274,6 +347,20 @@ class CustomerService:
             answer,
         )
         return rewritten, [citations[old - 1] for old in used]
+
+    @staticmethod
+    def _nearby_citations(grounded_hits: list, citations: list[dict]) -> list[dict]:
+        """只列跟第一名夠接近的來源，至少留一則（有回答就要查得到依據）。"""
+        if not grounded_hits:
+            return citations
+        # 第一名不一定排在最前面：`_route` 會把歷史案例挪到後面。
+        floor = max(hit.score for hit in grounded_hits) * CITATION_SCORE_RATIO
+        kept = [
+            citation
+            for hit, citation in zip(grounded_hits, citations)
+            if hit.score >= floor
+        ]
+        return kept or citations[:1]
 
     @staticmethod
     def _asked_questions(history: list[dict] | None, question: str) -> set[str]:

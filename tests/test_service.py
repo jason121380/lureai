@@ -692,14 +692,8 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(titles, ["第一則", "第三則"])
         self.assertEqual(result["answer"], "先做這件事。[1] 再做那件事。[2]")
 
-    def test_service_tone_keeps_every_source_even_though_numbers_are_stripped(self):
-        """客服／LINE 的 [n] 在出口就被剝掉，照樣裁切會讓來源一則不剩。"""
-        from app.retrieval import SearchHit
-
-        hits = [
-            SearchHit("a", "手冊", "knowledge/a.md", "l-1", "第一則", "內容一。", "分類", 0.95),
-            SearchHit("b", "手冊", "knowledge/b.md", "l-2", "第二則", "內容二。", "分類", 0.85),
-        ]
+    def _service_tone_citations(self, hits):
+        """客服語氣跑一題，回傳畫面上會列出來的來源。"""
         self.service.retriever = StubRetriever(hits)
 
         class NoNumbersAnswerer(RecordingAnswerer):
@@ -712,9 +706,46 @@ class ServiceTests(unittest.TestCase):
                 return "先傳關心訊息", "llm", "used", {"input_tokens": 10, "output_tokens": 5}
 
         self.service.answerer = NoNumbersAnswerer()
-        result = self.service.chat("燙髮後怎麼整理？", tone="service")
+        return self.service.chat("燙髮後怎麼整理？", tone="service")["citations"]
 
-        self.assertEqual(len(result["citations"]), 2)
+    def test_service_tone_keeps_every_close_source_even_though_numbers_are_stripped(self):
+        """客服／LINE 的 [n] 在出口就被剝掉，照引用裁切會讓來源一則不剩。
+
+        分數接近第一名的都算數：那幾塊真的可能被寫進回答，只是看不出編號。"""
+        from app.retrieval import SearchHit
+
+        citations = self._service_tone_citations([
+            SearchHit("a", "手冊", "knowledge/a.md", "l-1", "第一則", "內容一。", "分類", 0.95),
+            SearchHit("b", "手冊", "knowledge/b.md", "l-2", "第二則", "內容二。", "分類", 0.93),
+        ])
+
+        self.assertEqual(len(citations), 2)
+
+    def test_service_tone_drops_the_padding_sources(self):
+        """他問客人嫌剪太短，來源列出「私訊要回多長」時，標示反而在拆信任。
+
+        客服／LINE 沒有 [n] 可以拿來裁，改用分數：低於第一名九成的那幾塊
+        只是字面沾到邊，被撈進來陪襯的，不該掛成「知識來源 2、3」。"""
+        from app.retrieval import SearchHit
+
+        citations = self._service_tone_citations([
+            SearchHit("a", "教練手冊", "knowledge/a.md", "coach-17", "客人不滿意時怎麼接", "先接住情緒。", "教練", 0.95),
+            SearchHit("b", "社群手冊", "knowledge/b.md", "social-04", "私訊要回多長", "私訊長度。", "社群", 0.80),
+            SearchHit("c", "職涯手冊", "knowledge/c.md", "career-02", "對話健檢怎麼做", "健檢流程。", "職涯", 0.75),
+        ])
+
+        self.assertEqual([item["section_title"] for item in citations], ["客人不滿意時怎麼接"])
+
+    def test_service_tone_always_keeps_at_least_one_source(self):
+        """有回答就要查得到依據；分數再散也不能一則來源都不給。"""
+        from app.retrieval import SearchHit
+
+        citations = self._service_tone_citations([
+            SearchHit("a", "手冊", "knowledge/a.md", "l-1", "第一則", "內容一。", "分類", 0.95),
+            SearchHit("b", "手冊", "knowledge/b.md", "l-2", "第二則", "內容二。", "分類", 0.73),
+        ])
+
+        self.assertEqual(len(citations), 1)
 
     def test_question_is_always_retrieved_on_its_own_terms_first(self):
         queries = []
@@ -929,6 +960,92 @@ class ServiceTests(unittest.TestCase):
         for question in ("燙髮後怎麼整理？", "客人說太貴怎麼接", "廣告一天要投多少錢"):
             with self.subTest(question=question):
                 self.assertFalse(is_follow_up(question), question)
+
+    def test_answering_our_own_question_does_not_get_the_fallback(self):
+        """AI 反問、使用者照答、AI 回「這題我先不亂答」——體檢 10 次回退有 6 次
+        踩在這裡。補充脈絡撈不到東西是正常的（「我下午全滿」不會命中任何一塊
+        知識），要帶著他原本那一題一起查。"""
+        class ContextRetriever:
+            """只有帶上前一題時才撈得到東西——第二輪的真實情況。"""
+
+            def __init__(self, hits):
+                self.hits = hits
+
+            def retrieve(self, query, limit=6):
+                return self.hits[:limit] if "改時間" in query else []
+
+        self.service.retriever = ContextRetriever(self.service.retriever.retrieve("燙髮後怎麼整理？"))
+        history = [
+            {"role": "user", "content": "客人臨時要改時間 我後面已經排滿了 怎麼回"},
+            {"role": "assistant", "content": "你還有其他時段能提供嗎～"},
+        ]
+
+        result = self.service.chat("她想改到今天下午 但我下午全滿 最快只能安明天", history=history)
+
+        self.assertEqual(result["status"], "answered")
+
+    def test_the_supplement_can_fall_back_to_the_first_rounds_own_sources(self):
+        """合併之後還是撈不到，就用他原本那一題的來源答——那一輪本來就答得出來，
+        沒有理由因為他多講了一句話就不答。"""
+        class PreviousOnlyRetriever:
+            def __init__(self, hits):
+                self.hits = hits
+
+            def retrieve(self, query, limit=6):
+                return self.hits[:limit] if query.strip() == "客人臨時要改時間 我後面已經排滿了 怎麼回" else []
+
+        self.service.retriever = PreviousOnlyRetriever(
+            self.service.retriever.retrieve("燙髮後怎麼整理？")
+        )
+        history = [
+            {"role": "user", "content": "客人臨時要改時間 我後面已經排滿了 怎麼回"},
+            {"role": "assistant", "content": "你還有其他時段能提供嗎～"},
+        ]
+
+        result = self.service.chat("她想改到今天下午 但我下午全滿 最快只能安明天", history=history)
+
+        self.assertEqual(result["status"], "answered")
+
+    def test_a_new_question_after_our_own_still_needs_its_own_evidence(self):
+        """他沒有在回答我們，而是問了新的一題時，歷史不能讓沒有來源支持的
+        新主題變成答得出來——回退語難看，用上一題的知識答新題更糟。"""
+        class ContextRetriever:
+            def __init__(self, hits):
+                self.hits = hits
+
+            def retrieve(self, query, limit=6):
+                return self.hits[:limit] if "改時間" in query else []
+
+        self.service.retriever = ContextRetriever(self.service.retriever.retrieve("燙髮後怎麼整理？"))
+        history = [
+            {"role": "user", "content": "客人臨時要改時間 我後面已經排滿了 怎麼回"},
+            {"role": "assistant", "content": "你還有其他時段能提供嗎～"},
+        ]
+
+        result = self.service.chat("那毛髮的三種鏈鍵是什麼", history=history)
+
+        self.assertEqual(result["status"], "escalated")
+
+    def test_only_a_question_of_ours_opens_that_door(self):
+        """上一則是我們在給答案（不是在問他）時，這一則就是新的一題。"""
+        from app.service import answers_our_question
+
+        asked = [
+            {"role": "user", "content": "客人臨時要改時間 怎麼回"},
+            {"role": "assistant", "content": "先跟她說今天的時段\n你還有其他時段能提供嗎～"},
+        ]
+        told = [
+            {"role": "user", "content": "客人臨時要改時間 怎麼回"},
+            {"role": "assistant", "content": "先跟她說今天的時段已經排滿了唷"},
+        ]
+
+        self.assertTrue(answers_our_question("她想改到今天下午 我下午全滿", asked))
+        self.assertFalse(answers_our_question("她想改到今天下午 我下午全滿", told))
+        # 帶問句的那一則是新的問題，仍然要自己撐得起來。寧可擋過頭：擋過頭
+        # 只是維持現狀（照樣回退），擋不住卻會拿上一題的知識去答新的一題。
+        for question in ("那染髮要怎麼報價", "那螺絲起子哪裡買比較好", "她大概幾點會到呢"):
+            with self.subTest(question=question):
+                self.assertFalse(answers_our_question(question, asked), question)
 
     def test_sensitive_history_is_not_sent_to_retrieval_or_model(self):
         answerer = RecordingAnswerer()
