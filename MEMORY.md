@@ -4,7 +4,7 @@
 
 ## 工作流程偏好（使用者指定）
 
-- **每次 push 後一律開 PR 併入 main**（2026-08-31 授權；2026-09-05 使用者再次確認「always merge」）：CI 全綠才合併（squash），main 更新後 Zeabur 自動部署。repo 內仍沒有證據可宣稱 ruleset、正式部署或 MFA 已完成。
+- **每次 push 後一律開 PR 併入 main，而且不要再問**（2026-08-31 授權；2026-09-05「always merge」；2026-09-09「always auto merge」——使用者已經講第三次，CI 全綠就直接 squash，**不要再回頭問要不要合併**，即使改動會影響回覆行為或正式站）：main 更新後 Zeabur 自動部署。repo 內仍沒有證據可宣稱 ruleset、正式部署或 MFA 已完成。
 - 測試必須全綠才能 push；UI 改動用 Playwright 截圖驗證後再交付。
 - Repo 已改名 `jason121380/lureai`（舊名 hair_brain 自動轉向）。
 
