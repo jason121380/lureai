@@ -95,8 +95,8 @@ class BootFlowTests(unittest.TestCase):
     def test_new_weak_bootstrap_fails_after_empty_restore_before_backup_or_serving(self):
         replica = Mock(configured=True, enabled=True)
         replica.restore.return_value = False
-        with self.assertRaisesRegex(ValueError, '15'):
-            self.boot(replica, lambda context: self.fail('served weak new account'), {'USER_USERNAME': 'new', 'USER_PASSWORD': '1234'})
+        with self.assertRaisesRegex(ValueError, '至少 4'):
+            self.boot(replica, lambda context: self.fail('served weak new account'), {'USER_USERNAME': 'new', 'USER_PASSWORD': 'abc'})
         replica.restore.assert_called_once()
         replica.start.assert_not_called()
         self.serving.assert_not_called()

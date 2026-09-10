@@ -13,7 +13,7 @@ from .storage import KnowledgeStore
 
 
 USERNAME_PATTERN = re.compile(r"^\S{2,64}$")
-PASSWORD_MIN_LENGTH = 15
+PASSWORD_MIN_LENGTH = 4
 PASSWORD_MAX_LENGTH = 256
 # Exact matches after case-folding. Length remains a separate rule so this list
 # can reject widely reused secrets that happen to meet the minimum.
