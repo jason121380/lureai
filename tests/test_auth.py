@@ -51,11 +51,16 @@ class AuthTests(unittest.TestCase):
         )
 
     def test_rejects_short_passwords(self):
-        with self.assertRaisesRegex(ValueError, "至少 15"):
+        with self.assertRaisesRegex(ValueError, "至少 4"):
             self.auth.create_or_reset_user("designer", "abc")
 
+    def test_accepts_four_digit_password(self):
+        # 使用者決定：後台建帳號的密碼四位數字即可（設計師習慣用數字 PIN）。
+        self.auth.create_or_reset_user("designer", "1234")
+        self.assertEqual(self.auth.login("designer", "1234")[1]["username"], "designer")
+
     def test_rejects_common_password_even_when_long_enough(self):
-        self.assertEqual(PASSWORD_MIN_LENGTH, 15)
+        self.assertEqual(PASSWORD_MIN_LENGTH, 4)
         with self.assertRaisesRegex(ValueError, "常見弱密碼"):
             self.auth.create_or_reset_user("designer", "password1234567")
 
