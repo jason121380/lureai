@@ -38,6 +38,10 @@ class LoginRateLimiter:
     # 那一把」，而登入失敗的 key 是攻擊者出的（換一個 XFF 或帳號就是一把
     # 新鑰匙），只出現一次的 key 永遠不會再被查到——不掃的話字典只進不出。
     SWEEP_EVERY = 512
+    # 驗證槽滿時回這個哨兵，不是 None：滿了只是在排隊（會議上全場同時登入，
+    # 一次只驗 max_concurrent 組密碼），下一秒重試就進得去；None 才是真的
+    # 被鎖，要等視窗過。兩種混在一起回，帳密全對的人會被「請稍後再試」騙走。
+    BUSY = object()
 
     def __init__(
         self, max_failures: int = 5, window_seconds: int = 300,
@@ -81,14 +85,17 @@ class LoginRateLimiter:
             return self.max_failures * 4
         return self.max_failures
 
-    def reserve(self, keys: tuple[str, ...]) -> tuple[str, ...] | None:
-        """Atomically admit and occupy all scopes before password verification."""
+    def reserve(self, keys: tuple[str, ...]):
+        """Atomically admit and occupy all scopes before password verification.
+
+        Returns the reserved keys, ``BUSY`` when every verifier slot is taken,
+        or ``None`` when any scope is locked out."""
         keys = tuple(dict.fromkeys(keys))
         now = time.monotonic()
         with self._lock:
             failures = {key: self._prune(key, now) for key in keys}
             if self._active_verifiers >= self.max_concurrent:
-                return None
+                return self.BUSY
             if any(
                 len(failures[key] or ()) + self._active.get(key, 0) >= self._limit(key)
                 for key in keys
@@ -105,8 +112,8 @@ class LoginRateLimiter:
             self._active_verifiers += 1
             return keys
 
-    def finish(self, reservation: tuple[str, ...] | None, *, succeeded: bool) -> None:
-        if not reservation:
+    def finish(self, reservation, *, succeeded: bool) -> None:
+        if not reservation or reservation is self.BUSY:
             return
         now = time.monotonic()
         with self._lock:
