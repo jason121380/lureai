@@ -131,14 +131,20 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(set(limiter._failures), {"account|fresh", "ip|10.9.9.9", "global"})
 
     def test_login_reservations_atomically_bound_concurrent_verifiers(self):
+        # 槽滿要回 BUSY 而不是 None：滿了只是排隊（會議上全場同時登入），
+        # 馬上重試就進得去；None 是真的被鎖。混用會把帳密全對的人騙走。
         limiter = LoginRateLimiter(max_failures=5, window_seconds=60, max_concurrent=2)
         first = limiter.reserve(("account|one", "ip|1", "global"))
         second = limiter.reserve(("account|two", "ip|2", "global"))
         self.assertIsNotNone(first)
         self.assertIsNotNone(second)
-        self.assertIsNone(limiter.reserve(("account|three", "ip|3", "global")))
+        self.assertIs(limiter.reserve(("account|three", "ip|3", "global")), LoginRateLimiter.BUSY)
+        # BUSY 不佔名額也不算失敗：finish 它必須是 no-op。
+        limiter.finish(LoginRateLimiter.BUSY, succeeded=False)
+        self.assertEqual(limiter._failures, {})
         limiter.finish(first, succeeded=False)
-        self.assertIsNotNone(limiter.reserve(("account|three", "ip|3", "global")))
+        reservation = limiter.reserve(("account|three", "ip|3", "global"))
+        self.assertIsInstance(reservation, tuple)
 
     def test_success_does_not_clear_ip_or_global_failure_history(self):
         limiter = LoginRateLimiter(max_failures=3, window_seconds=60)

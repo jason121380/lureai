@@ -242,7 +242,9 @@ class ApiTests(ServerTestCase):
         for worker in workers:
             worker.join(5)
         self.assertEqual(len(calls), 2)
-        self.assertEqual(sorted(results), [200, 200, 429])
+        # 第三個人不是被鎖，是在排隊：要收到 503（login_busy）讓前端自動重試，
+        # 而不是 429 的「請稍後再試」。
+        self.assertEqual(sorted(results), [200, 200, 503])
 
     def test_web_chat_never_runs_the_line_tone(self):
         """`line` 是寫給 LINE 出口的：沒有標點、要拆成多則、引用在出口才剝掉。

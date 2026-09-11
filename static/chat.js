@@ -1453,18 +1453,31 @@
     const button = el("login-button");
     button.disabled = true;
     el("login-status").textContent = "";
+    const payload = JSON.stringify({
+      username: el("login-username").value.trim(),
+      password: el("login-password").value,
+    });
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: el("login-username").value.trim(),
-          password: el("login-password").value,
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.message || "登入失敗");
-      await initializeUser(body.user);
+      // 會議上全場同時登入時，伺服器一次只驗幾組密碼，滿了回 503（login_busy）。
+      // 那只是排隊不是被鎖，帶著抖動自動重試就進得去；429 才是真的要等。
+      for (let attempt = 0; ; attempt += 1) {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok) {
+          await initializeUser(body.user);
+          return;
+        }
+        if (response.status === 503 && attempt < 12) {
+          el("login-status").textContent = "登入人數較多，排隊中…";
+          await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 900));
+          continue;
+        }
+        throw new Error(body.message || "登入失敗");
+      }
     } catch (error) {
       el("login-status").textContent = error.message;
       el("login-password").select();

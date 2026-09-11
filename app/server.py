@@ -1080,6 +1080,15 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
                         "global",
                     )
                     reservation = context.login_limiter.reserve(login_keys)
+                    if reservation is LoginRateLimiter.BUSY:
+                        # 驗證槽滿只是排隊（會議上全場同時登入），不是被鎖：回
+                        # 503 讓前端自動重試，不能跟鎖定共用「請稍後再試」那句。
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "login_busy", "message": "登入人數較多，正在排隊，請稍候"},
+                            {"Retry-After": "1"},
+                        )
+                        return
                     if reservation is None:
                         self._json(
                             HTTPStatus.TOO_MANY_REQUESTS,
