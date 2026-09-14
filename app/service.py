@@ -129,11 +129,35 @@ def _accepts_kwarg(function, name: str) -> bool:
         return False
 
 
+CONTEXT_TRANSFORM_PATTERNS = (
+    re.compile(r"其中.{1,32}(?:算|哪一層|哪一段)"),
+    re.compile(r"(?:再)?(?:加入|加上).{1,32}後(?:再)?(?:計算|算|看|比較).{0,12}"),
+    re.compile(r"(?:這篇|那篇|上面|剛剛|這段|那些|這些).{0,20}(?:寫成|改成|整理成|縮成)"),
+    re.compile(
+        r"(?:每天只有\d+(?:分鐘|分)[，,]?)?(?:幫我)?(?:整理成|改成|縮成|寫成)"
+        r".{0,20}(?:清單|追蹤表|貼文|話術|員工群組|字內).{0,8}"
+    ),
+)
+
+
+def is_context_transform(question: str) -> bool:
+    """是否明確沿用上一輪資料，並增加條件或要求改寫格式。"""
+    text = "".join(str(question or "").split()).rstrip("？?。.！!~～")
+    if not text:
+        return False
+    return any(pattern.fullmatch(text) for pattern in CONTEXT_TRANSFORM_PATTERNS)
+
+
 def is_follow_up(question: str) -> bool:
     """Recognize subject-omitting anaphora/editing, not every short unknown topic."""
     text = "".join(str(question or "").split()).rstrip("？?。.！!~～")
     if not text:
         return False
+    # 明確沿用上一輪資料或要求改格式的句子，即使含「取消、毛利、員工」等店務詞，
+    # 主題仍在上一題。這些判斷要放在 COACHING_TERMS 前，否則合法接話會被當成
+    # 一個自足但低分的新題目，直接落到 no-results 回覆。
+    if is_context_transform(text):
+        return True
     if any(term in text for term in COACHING_TERMS):
         return False
     # Brevity or the absence of salon nouns does not establish dependence:
@@ -238,7 +262,9 @@ class CustomerService:
         # 分數只是勉強及格的那條路照舊要嚴格較高：那裡的問題本身是看得懂的，
         # 同分就換掉會讓自足的問題被前一題帶走。
         dependent = is_follow_up(question)
+        context_transform = is_context_transform(question)
         if recent_history and (not hits or hits[0].score < weak or dependent):
+            standalone = hits
             previous_questions = [
                 item["content"] for item in recent_history if item["role"] == "user"
             ][-2:]
@@ -261,7 +287,17 @@ class CustomerService:
                 or (not dependent and hits and hits[0].score >= self.policy.minimum_score
                     and padded[0].score > hits[0].score)
             ):
-                hits = padded
+                if context_transform:
+                    # 改寫題同時需要上一輪的主題來源與這一輪的格式／文案來源。
+                    # 只留上一題會讓「把建立信任那篇寫完整」只拿到排程知識；
+                    # 只留這一題又會失去上一輪已談好的內容方向。
+                    seen = set()
+                    hits = [
+                        hit for hit in padded + standalone
+                        if not (hit.chunk_id in seen or seen.add(hit.chunk_id))
+                    ]
+                else:
+                    hits = padded
         decision = self.policy.evaluate(hits)
         if decision.action == "escalate" and decision.reason in ("no_results", "low_confidence"):
             supplemented = self._supplemented_hits(question, recent_history)
