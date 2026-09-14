@@ -236,17 +236,40 @@ SOURCE_ACTION = re.compile(
 QUOTABLE_SCORE = 0.80
 
 
+def _first_quote_block(text: str) -> str:
+    """來源裡第一段 > 引用區塊（連續的引用行合成一段完整話術）。"""
+    block: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        stripped = raw_line.lstrip()
+        if stripped.startswith(">"):
+            line = stripped.lstrip("> ").strip()
+            if line:
+                block.append(line)
+        elif block:
+            break
+    return "\n".join(block)
+
+
 def source_fallback(hits, deliverable: bool = False) -> str:
-    """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。"""
+    """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。
+
+    引用區塊（> 逐字稿）是要傳給「客人」的成品：他要話術（deliverable）時
+    整段照給，那正是他等著複製的東西；他問建議時一律跳過，脫離情境送出
+    會變成 AI 在跟設計師說「那我先不打擾你囉」。
+    """
     candidates = []
     for source_number, hit in enumerate(hits or [], start=1):
         score = getattr(hit, "score", None)
         if score is not None and score < QUOTABLE_SCORE:
             continue
-        for raw_line in str(getattr(hit, "text", "") or "").splitlines():
+        text = str(getattr(hit, "text", "") or "")
+        if deliverable:
+            block = _first_quote_block(text)
+            if block:
+                return f"我先保留你給的資訊 這版可以直接用\n{block} [{source_number}]"
+            continue
+        for raw_line in text.splitlines():
             if raw_line.lstrip().startswith(">"):
-                # 引用區塊是要傳給「客人」的逐字稿，脫離情境直接送出會變成
-                # AI 在跟設計師說「那我先不打擾你囉」。
                 continue
             line = SOURCE_LINE_PREFIX.sub("", raw_line).replace("**", "").strip()
             if len(line) < 8:
@@ -257,11 +280,7 @@ def source_fallback(hits, deliverable: bool = False) -> str:
     _passive, source_number, line = min(candidates, key=lambda item: (item[0], item[1]))
     if len(line) > 120:
         line = line[:117].rstrip(" ，,；;：:") + "…"
-    if deliverable:
-        lead = "我先保留你給的資訊 用這個來源骨架"
-    else:
-        lead = "先從這個不會出錯的動作開始"
-    return f"{lead}\n{line} [{source_number}]"
+    return f"先從這個不會出錯的動作開始\n{line} [{source_number}]"
 
 
 def failure_reply(question: str, history=None, hits=None) -> str:

@@ -919,6 +919,31 @@ class ServiceTests(unittest.TestCase):
         fallback = response_facts.failure_reply("我的版面要怎麼做一次總體檢？", None, [weak])
         self.assertNotIn("[1]", fallback)
 
+    def test_deliverable_fallback_hands_over_the_quote_block_itself(self):
+        """Codex #125 的 P1：話術知識的成品全部放在 > 引用行。他要話術時
+        跳過引用行只剩「當天晚上可以傳：」這種標題，等於說要給又沒給；
+        交件題要整段照給，那正是他等著複製的東西。"""
+        class FakeHit:
+            def __init__(self, text, score):
+                self.text = text
+                self.score = score
+
+        script = FakeHit(
+            "情境：客人剛離開店裡。\n\n當天晚上可以傳：\n\n"
+            "> 今天的顏色你還喜歡嗎\n> 這兩天先不要洗太熱的水\n> 有什麼狀況隨時跟我說唷\n\n"
+            "為什麼這樣講：\n- 售後訊息先關心，不推銷。",
+            score=0.95,
+        )
+        reply = response_facts.failure_reply("幫我寫售後訊息", None, [script])
+        self.assertIn("今天的顏色你還喜歡嗎", reply)
+        self.assertIn("有什麼狀況隨時跟我說唷", reply)
+        self.assertIn("[1]", reply)
+        self.assertNotIn("當天晚上可以傳", reply)
+
+        # 交件題但來源沒有成品可抄：不硬湊標題行，退回通用交件備援。
+        prose = FakeHit("先關心再提醒，最後留一句開放的話。", score=0.95)
+        self.assertEqual(response_facts.source_fallback([prose], deliverable=True), "")
+
     def test_non_stream_generation_failure_uses_the_same_cited_fallback(self):
         class BrokenAnswerer(RecordingAnswerer):
             def answer(self, *_args, **_kwargs):
