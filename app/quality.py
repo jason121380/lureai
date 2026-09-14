@@ -107,6 +107,10 @@ BUDGET_CONTEXT = re.compile(r"預算|花費|花了?|錢|費用|成本|加碼|預
 # 照著知識回答的正確答案判成不合格（使用者指正：「會有主管的」）。
 # 「專人」「公司現行」同理，知識庫本來就有正當用法，只擋轉接的講法。
 FORBIDDEN_PATTERN = re.compile(r"轉人工|轉接專人|會有專人|專人(為你|跟你|與你|再跟你)")
+BARE_REFUSAL_PATTERN = re.compile(
+    r"資料.{0,8}(?:不足|不夠)|(?:無法|沒辦法)(?:回答|判斷|給你)|"
+    r"沒有(?:整理|生成|寫)完整|重送一次"
+)
 
 # TASK 5a：被質疑就道歉、把原本正確的立場整個推翻。輔導最怕這個——設計師來
 # 問就是要一個站得住的判斷，一被頂就縮回去等於沒有人在給意見。
@@ -402,6 +406,13 @@ def problems(question: str, answer: str, tone: str = "", history=None) -> list[s
     if not text:
         return []
     found: list[str] = response_facts.inspect(question, text, history)[1]
+
+    refusal_rest = BARE_REFUSAL_PATTERN.sub("", text)
+    if BARE_REFUSAL_PATTERN.search(text) and not has_substance(refusal_rest):
+        found.append(
+            "這則只有拒答或要求重送，沒有交付判斷、數字或可執行動作。"
+            "有來源就先給一個最小可用答案；缺資料就說明要記哪個數字。"
+        )
 
     # TASK 1：延後回答的句型單獨出現。
     if any(pattern.search(text) for pattern in DELAY_PATTERNS) and not has_substance(text):

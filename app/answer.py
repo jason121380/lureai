@@ -461,7 +461,7 @@ class AnswerEngine:
     # 改成一句誠實的話加一個小問題，把球留在對話裡。
     MODEL_FAILED_MESSAGE = (
         "這題剛剛沒有整理完整\n"
-        "請重送一次 我會接著你這個問題回答"
+        "我先給你一個可以直接做的步驟"
     )
 
     @scoped

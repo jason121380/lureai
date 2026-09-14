@@ -342,10 +342,17 @@ class CustomerService:
         return []
 
     @staticmethod
-    def _citations(grounded_hits: list, mode: str, model_status: str) -> list[dict]:
-        """生成失敗降級時不掛來源：那則回答並沒有用到這些知識。"""
+    def _citations(
+        grounded_hits: list, mode: str, model_status: str, answer: str = ""
+    ) -> list[dict]:
+        """生成失敗只有在備援正文真的引用來源時才保留對應 citation。"""
         if mode != "llm" and model_status not in ("not_configured", "budget_exhausted"):
-            return []
+            referenced = {
+                int(number) for number in CITATION_REF_PATTERN.findall(answer or "")
+                if 1 <= int(number) <= len(grounded_hits)
+            }
+            if not referenced:
+                return []
         return [hit.citation() for hit in grounded_hits]
 
     def _fit_citations(
@@ -358,7 +365,7 @@ class CustomerService:
         只在會把 [n] 顯示出來的語氣做（客服／LINE 的編號在出口就被剝掉，
         照樣裁切會讓那兩種模式一個來源都不剩）。
         """
-        citations = self._citations(grounded_hits, mode, model_status)
+        citations = self._citations(grounded_hits, mode, model_status, answer)
         shows_numbers = getattr(self.answerer, "requires_citations", lambda _t: True)(tone)
         if not citations:
             return answer, citations
@@ -611,7 +618,7 @@ class CustomerService:
             answer, evidence_diagnostics = response_facts.inspect(question, answer, recent_history)
             answer = quality.correct_budget(question, answer)
         elif model_status not in ("used", "not_configured", "budget_exhausted"):
-            answer = response_facts.failure_reply(question, recent_history)
+            answer = response_facts.failure_reply(question, recent_history, grounded_hits)
         grounding_diagnostics = quality.grounding_diagnostics(
             answer, grounded_hits, tone=tone, substantive=(mode == "llm"),
             question=question, history=recent_history,
@@ -783,7 +790,7 @@ class CustomerService:
             answer, evidence_diagnostics = response_facts.inspect(question, answer, recent_history)
             answer = quality.correct_budget(question, answer)
         elif model_status not in ("used", "not_configured", "budget_exhausted"):
-            answer = response_facts.failure_reply(question, recent_history)
+            answer = response_facts.failure_reply(question, recent_history, grounded_hits)
         grounding_diagnostics = quality.grounding_diagnostics(
             answer, grounded_hits, tone=tone, substantive=(mode == "llm"),
             question=question, history=recent_history,

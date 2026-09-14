@@ -434,8 +434,9 @@ class ServiceTests(unittest.TestCase):
         result = events[-1]
         self.assertEqual(result["answer_mode"], "extractive")
         self.assertEqual(result["model_status"], "missing_citations")
-        self.assertNotIn("原文", result["answer"])
-        self.assertIn("重送", result["answer"])
+        self.assertNotIn("重送", result["answer"])
+        self.assertIn("[1]", result["answer"])
+        self.assertEqual([item["locator"] for item in result["citations"]], ["aftercare-1"])
 
     def test_stream_quality_gate_also_covers_the_citation_retry(self):
         """補回引用之後那則，內容一樣要查。
@@ -871,7 +872,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(result["citations"], [], question)
 
     def test_failed_generation_hides_raw_knowledge_and_sources(self):
-        """生成失敗不傾倒知識原文、也不掛來源（健檢報告 P0-1）。"""
+        """生成失敗交付一個短而有來源的動作，不要求使用者重送。"""
         class BrokenAnswerer:
             model_enabled = True
             model_name = "test-model"
@@ -887,9 +888,24 @@ class ServiceTests(unittest.TestCase):
         result = list(self.service.chat_stream("燙髮後怎麼整理？"))[-1]
 
         self.assertEqual(result["answer_mode"], "extractive")
-        self.assertNotIn("依照設計師示範", result["answer"])
         self.assertNotIn("知識原文", result["answer"])
-        self.assertEqual(result["citations"], [])
+        self.assertNotIn("重送", result["answer"])
+        self.assertIn("[1]", result["answer"])
+        self.assertEqual([item["locator"] for item in result["citations"]], ["aftercare-1"])
+
+    def test_non_stream_generation_failure_uses_the_same_cited_fallback(self):
+        class BrokenAnswerer(RecordingAnswerer):
+            def answer(self, *_args, **_kwargs):
+                return AnswerEngine.MODEL_FAILED_MESSAGE, "extractive", "timeout", {}
+
+        self.service.answerer = BrokenAnswerer()
+
+        result = self.service.chat("燙髮後怎麼整理？", want_followups=False)
+
+        self.assertEqual(result["model_status"], "timeout")
+        self.assertNotIn("重送", result["answer"])
+        self.assertIn("[1]", result["answer"])
+        self.assertEqual([item["locator"] for item in result["citations"]], ["aftercare-1"])
 
     def test_stream_starts_before_retrieval_so_headers_go_out_early(self):
         """第一個事件必須在檢索前送出，否則閘道等不到位元組會回 503（P0-2）。"""
