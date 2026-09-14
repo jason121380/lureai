@@ -14,6 +14,14 @@ from app.storage import KnowledgeStore
 from tests.test_ingest import approved_chunk
 
 
+class FakeHit:
+    """source_fallback 測試用的最小來源：只需要 text 與 score。"""
+
+    def __init__(self, text, score=0.95):
+        self.text = text
+        self.score = score
+
+
 class StubRetriever:
     def __init__(self, hits):
         self.hits = hits
@@ -899,11 +907,6 @@ class ServiceTests(unittest.TestCase):
         壓線過門檻，生成又失敗，備援把逐字稿引用行「那我先不打擾你囉」當成建議
         送了出去。兩道閘門：> 引用行是要傳給客人的話術，不能端給設計師；
         低於 0.80 的來源只是壓線陪襯，寧可退回誠實的通用備援。"""
-        class FakeHit:
-            def __init__(self, text, score):
-                self.text = text
-                self.score = score
-
         script = FakeHit(
             "情境：第一次追沒回，又過了一週。\n\n可以直接傳：\n\n"
             "> 那我先不打擾你囉\n> 之後想弄的時候隨時跟我說\n\n"
@@ -923,11 +926,6 @@ class ServiceTests(unittest.TestCase):
         """Codex #125 的 P1：話術知識的成品全部放在 > 引用行。他要話術時
         跳過引用行只剩「當天晚上可以傳：」這種標題，等於說要給又沒給；
         交件題要整段照給，那正是他等著複製的東西。"""
-        class FakeHit:
-            def __init__(self, text, score):
-                self.text = text
-                self.score = score
-
         script = FakeHit(
             "情境：客人剛離開店裡。\n\n當天晚上可以傳：\n\n"
             "> 今天的顏色你還喜歡嗎\n> 這兩天先不要洗太熱的水\n> 有什麼狀況隨時跟我說唷\n\n"
@@ -943,6 +941,45 @@ class ServiceTests(unittest.TestCase):
         # 交件題但來源沒有成品可抄：不硬湊標題行，退回通用交件備援。
         prose = FakeHit("先關心再提醒，最後留一句開放的話。", score=0.95)
         self.assertEqual(response_facts.source_fallback([prose], deliverable=True), "")
+
+    def test_deliverable_fallback_never_promises_numbers_the_user_did_not_give(self):
+        """Codex #126 的 P1：範本裡的「預算先抓 3000」是範例數字，不是他的
+        報價。使用者沒講過的金額、時點與可用時段，備援不可以替他承諾——
+        整段不引用，退回通用備援請他補資訊；他自己講過的數字才照給。"""
+        script = FakeHit(
+            "情境：報完價他直接說貴。\n\n可以直接傳：\n\n"
+            "> 我懂 這個價位確實不低\n"
+            "> 如果預算先抓 3000 我可以幫你排成兩次做 你覺得呢\n\n"
+            "為什麼這樣講：\n- 給一個他可以答應的版本，不是降價。",
+        )
+        blind = response_facts.failure_reply("客人嫌太貴，幫我寫回覆話術", None, [script])
+        self.assertNotIn("3000", blind)
+        self.assertNotIn("[1]", blind)
+
+        informed = response_facts.failure_reply(
+            "客人預算大概 3000，嫌太貴，幫我寫回覆話術", None, [script]
+        )
+        self.assertIn("3000", informed)
+        self.assertIn("[1]", informed)
+
+    def test_deliverable_fallback_picks_the_block_matching_the_situation(self):
+        """Codex #126 的 P2：同一塊知識有「當天傳」與「隔天傳」兩段話術，
+        永遠拿第一段會把當天的訊息端給隔天的情境。用說明行挑最貼的那段；
+        挑中的那段夾著沒講過的時點（留著到五點）就整段不給，不換段硬湊。"""
+        script = FakeHit(
+            "情境：時間到了人沒來。\n\n當天可以傳：\n\n"
+            "> 嗨 今天的時段我先幫你留著到五點\n> 如果臨時有事沒關係 跟我說一聲就好\n\n"
+            "隔天可以傳：\n\n"
+            "> 昨天的位子沒關係唷\n> 你想改哪一天再跟我說\n\n"
+            "為什麼這樣講：\n- 隔天那則主動把事情翻篇。",
+        )
+        next_day = response_facts.failure_reply("客人沒出現，隔天幫我寫訊息", None, [script])
+        self.assertIn("昨天的位子沒關係唷", next_day)
+        self.assertNotIn("五點", next_day)
+
+        same_day = response_facts.failure_reply("客人沒出現，當天幫我寫訊息", None, [script])
+        self.assertNotIn("五點", same_day)
+        self.assertNotIn("昨天的位子", same_day)
 
     def test_non_stream_generation_failure_uses_the_same_cited_fallback(self):
         class BrokenAnswerer(RecordingAnswerer):
