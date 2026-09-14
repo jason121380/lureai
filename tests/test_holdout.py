@@ -36,6 +36,10 @@ class IndependentHoldoutTests(unittest.TestCase):
         self.assertIn("no_answer_threshold_proxy_rate", result)
         self.assertIn("no_answer_policy_false_positive_rate", result)
         self.assertEqual(len(result["case_diagnostics"]), 20)
+        self.assertGreaterEqual(result["recall_at_3"], 14 / 15)
+        self.assertGreaterEqual(result["mrr_at_3"], 0.7666)
+        self.assertEqual(result["no_answer_threshold_proxy_rate"], 0)
+        self.assertEqual(result["no_answer_policy_false_positive_rate"], 0)
 
     def test_fixture_is_json_and_does_not_modify_retrieval_configuration(self):
         parsed = json.loads(FIXTURE.read_text(encoding="utf-8"))
