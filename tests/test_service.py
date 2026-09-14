@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app import response_facts
 from app.answer import AnswerEngine
 from app.ingest import ingest_jsonl
 from app.policy import PolicyEngine
@@ -892,6 +893,31 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("重送", result["answer"])
         self.assertIn("[1]", result["answer"])
         self.assertEqual([item["locator"] for item in result["citations"]], ["aftercare-1"])
+
+    def test_source_fallback_never_quotes_verbatim_scripts_or_weak_matches(self):
+        """實際踩到的災難：「我的版面要怎麼做一次總體檢」只有 script-04 以 0.727
+        壓線過門檻，生成又失敗，備援把逐字稿引用行「那我先不打擾你囉」當成建議
+        送了出去。兩道閘門：> 引用行是要傳給客人的話術，不能端給設計師；
+        低於 0.80 的來源只是壓線陪襯，寧可退回誠實的通用備援。"""
+        class FakeHit:
+            def __init__(self, text, score):
+                self.text = text
+                self.score = score
+
+        script = FakeHit(
+            "情境：第一次追沒回，又過了一週。\n\n可以直接傳：\n\n"
+            "> 那我先不打擾你囉\n> 之後想弄的時候隨時跟我說\n\n"
+            "為什麼這樣講：\n- 主動收尾，先把已讀不回的尷尬拿掉。",
+            score=0.95,
+        )
+        reply = response_facts.source_fallback([script])
+        self.assertNotIn("不打擾你", reply)
+        self.assertIn("[1]", reply)
+
+        weak = FakeHit("先提他問過的項目，他才想得起來自己問過什麼。", score=0.727)
+        self.assertEqual(response_facts.source_fallback([weak]), "")
+        fallback = response_facts.failure_reply("我的版面要怎麼做一次總體檢？", None, [weak])
+        self.assertNotIn("[1]", fallback)
 
     def test_non_stream_generation_failure_uses_the_same_cited_fallback(self):
         class BrokenAnswerer(RecordingAnswerer):

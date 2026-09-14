@@ -225,18 +225,29 @@ def inspect(question: str, answer: str, history=None) -> tuple[str, list[str]]:
 
 
 SOURCE_LINE_PREFIX = re.compile(
-    r"^\s*(?:[-*•>]\s*|\d{1,2}[.)、]\s*|#{1,6}\s*)"
+    r"^\s*(?:[-*•]\s*|\d{1,2}[.)、]\s*|#{1,6}\s*)"
 )
 SOURCE_ACTION = re.compile(
     r"先|記|檢查|確認|比較|問|寫|傳|拍|改|調|列|算|分|停|留|追蹤|回覆"
 )
+# 與 service.WEAK_MATCH_SCORE 同一條線（那邊不能 import 進來，會循環）：
+# 低於這個分數的來源只是壓線通過政策門檻的陪襯，拿它的句子當備援回覆，
+# 會把「追客沒回的話術」端給問「版面總體檢」的人。
+QUOTABLE_SCORE = 0.80
 
 
 def source_fallback(hits, deliverable: bool = False) -> str:
     """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。"""
     candidates = []
     for source_number, hit in enumerate(hits or [], start=1):
+        score = getattr(hit, "score", None)
+        if score is not None and score < QUOTABLE_SCORE:
+            continue
         for raw_line in str(getattr(hit, "text", "") or "").splitlines():
+            if raw_line.lstrip().startswith(">"):
+                # 引用區塊是要傳給「客人」的逐字稿，脫離情境直接送出會變成
+                # AI 在跟設計師說「那我先不打擾你囉」。
+                continue
             line = SOURCE_LINE_PREFIX.sub("", raw_line).replace("**", "").strip()
             if len(line) < 8:
                 continue
