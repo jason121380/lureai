@@ -19,6 +19,7 @@
 | Task 7 | 客用成品 typed facts、時序零狀態、敏感結論、durable rule version | 完成 | 新 50 組未做付費模型測試 |
 | Task 8 | generic source support、alias 邊界、自足新題不得借歷史過門檻 | 完成 | 未揭露語意改寫集；Recall@3 仍有限 |
 | Task 9 | 即時店務資料、醫療確診、訂金法律結論生成前攔截 | 完成 | 新意圖措辭的持續人工抽查 |
+| 2026-09-14 40 題 | 危急健康直出、低召回 aliases、延續型改寫、生成失敗來源回退 | 完成 | 正式部署後真實模型重跑與新盲測 |
 
 ## 評測證據界線
 
@@ -29,6 +30,20 @@
 - 最終分支對同一 frozen 30 題的回歸為 Recall@3 `0.45`、MRR@3 `0.425`、raw threshold proxy `3/10`、policy false positive `0/10`。這是揭露後 regression，不是 post-fix blind score。
 - 沒有真實模型、真人 LINE、正式部署、MFA 或 production billing 測試。不得從離線 lexical gate 推論整體語意正確率或滿分。
 - 2026-09-05 後續：依 20 題 holdout 揭露的失敗補同義詞與問法種子後，同一份 20 題回歸為 Recall@3 `0.9333`、MRR@3 `0.7667`、threshold proxy `0/5`、policy false positive `0/5`。失敗案例已先揭露並用於修正，這只能稱 regression，不是 blind score；語意層評估仍需新的未揭露資料集。
+- 2026-09-14 的 live 40 題首次人工評估為 `59/100`，27 題可用、21 題強回答、13 題不足或失敗，其中 11 題是直接拒答或生成失敗。最嚴重案例是染後呼吸異常卻沒有立即安全指示。
+- 同一批已揭露問題已固定成 `tests/fixtures/response_reliability_40.json`（SHA-256 `e61cb0709d4a518df509e87ec98a057514aafbbd7861be5e9fde37fb33407733`）。修正後離線路由回歸為 40/40 通過，另含 6 個危急健康改寫與 6 個否定／語境控制；因案例已參與修正，不能稱為新的全面性分數。
+
+## 2026-09-14 修復對照
+
+| 評估缺口 | 修復 | 回歸證據 |
+| --- | --- | --- |
+| 呼吸或意識異常仍進一般問答 | `PolicyEngine.urgent_health()` 決定式直出，且服務路由接受 `direct` | 40 題中的 2 題＋12 個安全邊界案例 |
+| 自然問法召回不足 | 對 8 個既有 locator 補精準 aliases，不放寬全域門檻 | 40 題逐題路由與 top-3 locator 驗證 |
+| 「其中哪層／加上取消／整理成群組」被當新題 | 明確 context transform 合併主題與格式來源 | 多輪情境依序回歸 |
+| timeout／缺引用只回重送 | grounded source 最小可用回退；無來源才問一件事 | service、quality、acceptance 測試 |
+| 裸拒答沒有被品質守門攔下 | 新增 bare refusal 判斷，固定安全回覆不受影響 | 正反向品質案例 |
+
+目前證據證明的是路由、安全與失敗降級的離線回歸；正式部署後仍須以真實模型重跑原 40 題，並另建未揭露改寫集，才能更新產品的回答全面性分數。
 
 ## 交付與來源
 

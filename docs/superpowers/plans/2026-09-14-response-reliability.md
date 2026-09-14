@@ -147,7 +147,7 @@ FORMAT_FOLLOW_UP = re.compile(
 
 ```bash
 python3 scripts/build_knowledge_index.py \
-  --reviewed-at 2026-09-14 \
+  --reviewed-at 2026-09-05 \
   knowledge/designer_coaching_process.jsonl
 ```
 

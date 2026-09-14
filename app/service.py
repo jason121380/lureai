@@ -242,7 +242,7 @@ class CustomerService:
         # 一句「哈囉」被當成問題，講話就很硬。交給模型自然接一句，等他問到真正的
         # 問題再從知識庫拿。
         precheck = self.policy.precheck(question)
-        if precheck.action == "escalate":
+        if precheck.action != "continue":
             return [], [], precheck
         safe_communication = self.policy.safe_communication(question)
         if safe_communication:
