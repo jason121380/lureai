@@ -87,6 +87,36 @@ class RetrievalPolicyTests(unittest.TestCase):
         ):
             self.assertEqual(self.policy.precheck(question).action, "continue", question)
 
+    def test_urgent_health_symptoms_bypass_normal_rag(self):
+        for question in (
+            "客人染後呼吸不順，還要先傳照片嗎？",
+            "客人現在喘不過氣，我要怎麼回？",
+            "她做完染髮後喉嚨腫起來了",
+            "客人突然昏倒而且意識不清",
+        ):
+            with self.subTest(question=question):
+                decision = self.policy.precheck(question)
+                self.assertEqual(decision.action, "direct")
+                self.assertEqual(decision.reason, "urgent_health")
+                self.assertIn("立即", decision.message)
+                self.assertNotIn("傳照片", decision.message)
+
+    def test_urgent_health_detection_does_not_capture_non_emergencies(self):
+        for question in (
+            "客人染後頭皮有點紅，怎麼回？",
+            "貼文不要寫成讓人呼吸不順的長句",
+            "她沒有呼吸不順，只是覺得頭皮癢",
+        ):
+            with self.subTest(question=question):
+                self.assertNotEqual(self.policy.precheck(question).reason, "urgent_health")
+
+    def test_urgent_health_reply_can_be_overridden(self):
+        policy = PolicyEngine(rules_provider=lambda: {"reply-urgent_health": "立即聯絡緊急醫療服務"})
+
+        decision = policy.precheck("客人喘不過氣")
+
+        self.assertEqual(decision.message, "立即聯絡緊急醫療服務")
+
     def test_requests_only_a_person_can_settle_still_escalate(self):
         for question, reason in (
             ("客人說要提告", "legal_refund_or_compensation"),

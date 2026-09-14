@@ -15,6 +15,26 @@ FALLBACK_MESSAGE = "這題我手邊的資料不夠 沒辦法給你準的答案\n
 # 不要提「轉人工」——這裡沒有人工客服可以接手，說了等於把他丟在原地。
 SENSITIVE_MESSAGE = "這題牽涉到法律或醫療 我不能幫你決定\n我可以陪你想怎麼跟客人說 你要先聊哪一邊"
 LIVE_DATA_MESSAGE = "我看不到店裡現在的價目 排程或顧客紀錄 沒辦法替你查準\n你把目前資料貼給我 我可以幫你整理"
+URGENT_HEALTH_MESSAGE = (
+    "先不要等照片 也先停止目前的服務\n"
+    "請立即聯絡當地緊急醫療服務 或由現場人員協助就醫\n"
+    "我不能判斷原因 但呼吸或意識異常要先當緊急狀況處理"
+)
+
+# 這裡只認需要立即行動的嚴重症狀，不把一般紅腫、搔癢或醫療知識問題都升級。
+# 命中後不經檢索與模型，避免模型故障或錯誤來源延誤處置。
+URGENT_HEALTH_SYMPTOM = re.compile(
+    r"呼吸(?:不順|困難|急促|不到氣)|喘不過氣|吸不到氣|"
+    r"喉嚨(?:腫|腫起|緊|卡住)|昏倒|昏厥|失去意識|意識(?:不清|異常)|"
+    r"嘴唇(?:發紫|變紫)"
+)
+URGENT_HEALTH_NEGATION = re.compile(
+    r"(?:沒有|並沒有|並無|不是|未出現|沒)(?:呼吸不順|呼吸困難|喘不過氣|"
+    r"吸不到氣|喉嚨腫|昏倒|昏厥|失去意識|意識不清)"
+)
+URGENT_HEALTH_META = re.compile(
+    r"(?:貼文|文案|句子)(?:不要|別|不該).{0,8}(?:呼吸不順|喘不過氣)"
+)
 
 
 # 提問者是「設計師本人」，不是顧客。談客人的報價、追客、頭皮狀況、店內請假
@@ -375,6 +395,19 @@ class PolicyEngine:
             return PolicyDecision("smalltalk", "emotion")
         return None
 
+    def urgent_health(self, question: str) -> PolicyDecision | None:
+        """嚴重症狀只做立即安全分流，不診斷原因，也不等待照片或模型。"""
+        normalized = "".join(str(question or "").lower().split())
+        if URGENT_HEALTH_NEGATION.search(normalized) or URGENT_HEALTH_META.search(normalized):
+            return None
+        if not URGENT_HEALTH_SYMPTOM.search(normalized):
+            return None
+        return PolicyDecision(
+            "direct",
+            "urgent_health",
+            self._override("reply-urgent_health", URGENT_HEALTH_MESSAGE),
+        )
+
     def safe_communication(self, question: str) -> PolicyDecision | None:
         text = "".join(str(question).split())
         if self.restricted_conclusion(question):
@@ -443,6 +476,9 @@ class PolicyEngine:
 
     def precheck(self, question: str) -> PolicyDecision:
         normalized = "".join(str(question or "").lower().split())
+        urgent = self.urgent_health(question)
+        if urgent is not None:
+            return urgent
         if self.restricted_conclusion(question):
             return PolicyDecision("escalate", "legal_or_medical_conclusion", self.sensitive_message)
         if self.unavailable_live_lookup(question):
