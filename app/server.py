@@ -160,7 +160,7 @@ from .humanize import (
 from .health import build_health_report
 from . import ingest as ingest_module
 from .ingest import ingest_jsonl
-from .policy import BOUNDARY_REPLIES, PolicyEngine
+from .policy import BOUNDARY_REPLIES, URGENT_HEALTH_MESSAGE, PolicyEngine
 from .retrieval import Retriever
 from .service import CustomerService
 from .storage import KnowledgeStore
@@ -566,6 +566,7 @@ def create_server(host: str, port: int, context: AppContext) -> ThreadingHTTPSer
             """固定回覆句的預設值（供校調頁顯示與還原）。"""
             policy = context.service.policy
             return {
+                "reply-urgent_health": URGENT_HEALTH_MESSAGE,
                 "reply-fallback": policy._fallback_message,
                 "reply-sensitive": policy._sensitive_message,
                 "reply-model_failed": context.service.answerer.MODEL_FAILED_MESSAGE,

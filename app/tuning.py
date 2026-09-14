@@ -42,6 +42,7 @@ FIXED_REPLY_GROUP = {
 # 固定回覆句的標籤與說明；預設文字由呼叫端帶進來（真正的預設值住在
 # app/policy.py 與 app/answer.py，這裡只負責顯示與覆寫）。
 FIXED_REPLY_LABELS = {
+    "reply-urgent_health": ("危急健康狀況", "呼吸或意識異常時，立即停止服務並聯絡緊急醫療服務。"),
     "reply-fallback": ("查不到資料時", "檢索沒有夠格的知識時回這句，然後把球丟回去問數字。"),
     "reply-sensitive": ("需要真人判斷時", "退費賠償、勞資、醫療這類只有人能決定的題目。"),
     "reply-model_failed": ("模型沒產出時", "生成失敗的降級說法；不要傾倒知識原文。"),

@@ -214,6 +214,21 @@ class SafetyTests(unittest.TestCase):
         self.assertIn("第二個問題", note)
         self.assertEqual(quality.retry_note([]), "")
 
+    def test_generic_refusal_or_resend_is_rejected(self):
+        for answer in (
+            "這題資料不足，我沒辦法回答",
+            "這題剛剛沒有整理完整，請重送一次",
+            "我目前無法判斷這個問題",
+        ):
+            with self.subTest(answer=answer):
+                found = quality.problems("完全沒記資料，第一步做什麼？", answer)
+                self.assertTrue(any("拒答" in item for item in found), found)
+
+    def test_insufficiency_with_a_safe_action_is_not_a_bare_refusal(self):
+        answer = "資料還不足，先記下私訊、預約與到店數，再比較一週"
+
+        self.assertEqual(quality.problems("完全沒記資料，第一步做什麼？", answer), [])
+
 
 class ScoreReplyTests(unittest.TestCase):
     """百分制品質分數：把既有診斷收成一個數字，不另外發明判斷。

@@ -106,6 +106,67 @@ class CoachingRagTests(unittest.TestCase):
     def test_retrieves_two_choice_technique(self):
         self.assert_top_locators_include("二選一怎麼問？", {"chat-10", "chat-11"})
 
+    def test_evaluation_questions_reach_supported_playbooks(self):
+        cases = (
+            ("CTR 0.6%、CPC 15、1,000 點擊僅 12 私訊，先改哪裡？", {"coach-15"}),
+            ("如何做 7 天單變因 A/B 測試？", {"ads-09"}),
+            ("隔壁染髮 999，我收 2,800，客人嫌貴怎麼辦？", {"chat-16", "script-06"}),
+            ("新客體驗價怎麼設，避免只吸引撿便宜者？", {"coach-19"}),
+            ("客單 2,200 降至 1,850、回訪率不變，先查哪三項？", {"metric-07"}),
+            ("低價服務占比增加，該漲價嗎？", {"career-24"}),
+            ("完全沒記資料但覺得生意差，第一步做什麼？", {"session-03"}),
+        )
+        for question, locators in cases:
+            with self.subTest(question=question):
+                hits = self.retriever.retrieve(question, limit=6)
+                self.assertTrue(hits)
+                self.assertGreaterEqual(hits[0].score, 0.72)
+                self.assertTrue(locators & {hit.locator for hit in hits[:3]}, hits[:3])
+
+    def test_evaluation_format_followups_reuse_previous_subject(self):
+        from app.answer import AnswerEngine
+
+        service = CustomerService(
+            store=self.store,
+            retriever=self.retriever,
+            policy=PolicyEngine(minimum_score=0.72),
+            answerer=AnswerEngine(),
+        )
+        cases = (
+            (
+                "其中 6 人取消，取消要算在哪一層？",
+                "80 私訊、18 預約、12 到店，計算三層轉換率。",
+                {"coach-03", "coach-04", "coach-16"},
+            ),
+            (
+                "把建立信任那篇寫成完整貼文。",
+                "規劃一週三篇：吸引、信任、預約。",
+                {"social-05", "social-08", "coach-09"},
+            ),
+            (
+                "加入每人 2.5 小時、時薪 500 後計算毛利。",
+                "兩人同行第二位半價，計算營收、成本、毛利。",
+                {"ops-43"},
+            ),
+            (
+                "每天只有 10 分鐘，縮成最小追蹤表。",
+                "完全沒記資料但覺得生意差，第一步做什麼？",
+                {"session-03"},
+            ),
+            (
+                "整理成員工群組 80 字內清單。",
+                "做兩週沒改善，需要提供哪些數字？",
+                {"session-07"},
+            ),
+        )
+        for question, previous, locators in cases:
+            with self.subTest(question=question):
+                _hits, grounded, escalation = service._route(
+                    question, [{"role": "user", "content": previous}]
+                )
+                self.assertIsNone(escalation)
+                self.assertTrue(locators & {hit.locator for hit in grounded[:3]}, grounded[:3])
+
 
 if __name__ == "__main__":
     unittest.main()

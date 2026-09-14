@@ -224,7 +224,39 @@ def inspect(question: str, answer: str, history=None) -> tuple[str, list[str]]:
     return corrected.strip(), found
 
 
-def failure_reply(question: str, history=None) -> str:
+SOURCE_LINE_PREFIX = re.compile(
+    r"^\s*(?:[-*•>]\s*|\d{1,2}[.)、]\s*|#{1,6}\s*)"
+)
+SOURCE_ACTION = re.compile(
+    r"先|記|檢查|確認|比較|問|寫|傳|拍|改|調|列|算|分|停|留|追蹤|回覆"
+)
+
+
+def source_fallback(hits, deliverable: bool = False) -> str:
+    """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。"""
+    candidates = []
+    for source_number, hit in enumerate(hits or [], start=1):
+        for raw_line in str(getattr(hit, "text", "") or "").splitlines():
+            line = SOURCE_LINE_PREFIX.sub("", raw_line).replace("**", "").strip()
+            if len(line) < 8:
+                continue
+            candidates.append((not bool(SOURCE_ACTION.search(line)), source_number, line))
+    if not candidates:
+        return ""
+    _passive, source_number, line = min(candidates, key=lambda item: (item[0], item[1]))
+    if len(line) > 120:
+        line = line[:117].rstrip(" ，,；;：:") + "…"
+    if deliverable:
+        lead = "我先保留你給的資訊 用這個來源骨架"
+    else:
+        lead = "先從這個不會出錯的動作開始"
+    return f"{lead}\n{line} [{source_number}]"
+
+
+def failure_reply(question: str, history=None, hits=None) -> str:
+    sourced = source_fallback(hits, deliverable=is_deliverable(question, history))
+    if sourced:
+        return sourced
     if is_deliverable(question, history):
-        return '這段話剛剛沒有寫完整\n請重送一次 我會保留你給的資訊再寫'
-    return '這題剛剛沒有整理完整\n請重送一次 我會接著你這個問題回答'
+        return "我先保留你給的資訊\n你最需要保留的是價格 時段 還是語氣？"
+    return "先記下曝光 私訊 預約 到店與客單\n你目前最容易拿到哪一個數字？"
