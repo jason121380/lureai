@@ -236,17 +236,71 @@ SOURCE_ACTION = re.compile(
 QUOTABLE_SCORE = 0.80
 
 
-def source_fallback(hits, deliverable: bool = False) -> str:
-    """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。"""
+# 話術範本裡的具體宣稱：金額（3000）、時點（五點、10:30）、可用時段（這週四）。
+# 使用者自己沒講過的，備援不可以替他承諾——那是範例數字，不是他的報價與班表。
+SOURCE_QUOTE_SPECIFIC = re.compile(
+    r"\d[\d,]*|[零〇一二兩三四五六七八九十]{1,3}點"
+    r"|(?:這|本|下)?(?:週|星期|禮拜)[一二三四五六日天]"
+)
+
+
+def _quote_blocks(text: str) -> list[tuple[str, str]]:
+    """來源裡的 > 引用區塊，各自帶著前面最近一行說明（如「隔天可以傳：」）。"""
+    blocks: list[tuple[str, str]] = []
+    label = ""
+    current: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        stripped = raw_line.lstrip()
+        if stripped.startswith(">"):
+            line = stripped.lstrip("> ").strip()
+            if line:
+                current.append(line)
+            continue
+        if current:
+            blocks.append((label, "\n".join(current)))
+            current = []
+        if stripped:
+            label = SOURCE_LINE_PREFIX.sub("", stripped).replace("**", "").strip()
+    if current:
+        blocks.append((label, "\n".join(current)))
+    return blocks
+
+
+def source_fallback(
+    hits, deliverable: bool = False, question: str = "", history=None
+) -> str:
+    """模型故障時，從已通過檢索門檻的來源交付一個短而可查的動作。
+
+    引用區塊（> 逐字稿）是要傳給「客人」的成品：他要話術（deliverable）時
+    整段照給，那正是他等著複製的東西；他問建議時一律跳過，脫離情境送出
+    會變成 AI 在跟設計師說「那我先不打擾你囉」。
+    """
+    known = "".join(user_texts(question, history))
     candidates = []
     for source_number, hit in enumerate(hits or [], start=1):
         score = getattr(hit, "score", None)
         if score is not None and score < QUOTABLE_SCORE:
             continue
-        for raw_line in str(getattr(hit, "text", "") or "").splitlines():
+        text = str(getattr(hit, "text", "") or "")
+        if deliverable:
+            blocks = _quote_blocks(text)
+            if not blocks:
+                continue
+            # 同一塊知識常有多段情境話術（當天傳／隔天傳），用說明行跟
+            # 問題的字面重疊挑最貼的那段，平手取第一段。
+            _label, block = max(
+                blocks, key=lambda item: sum(ch in item[0] for ch in set(question))
+            )
+            if any(
+                match[0] not in known
+                for match in SOURCE_QUOTE_SPECIFIC.finditer(block)
+            ):
+                # 挑中的那段夾著使用者沒講過的金額或時段，整段不引用；
+                # 換別段是換情境，寧可退回通用備援請他補資訊。
+                continue
+            return f"我先保留你給的資訊 這版可以直接用\n{block} [{source_number}]"
+        for raw_line in text.splitlines():
             if raw_line.lstrip().startswith(">"):
-                # 引用區塊是要傳給「客人」的逐字稿，脫離情境直接送出會變成
-                # AI 在跟設計師說「那我先不打擾你囉」。
                 continue
             line = SOURCE_LINE_PREFIX.sub("", raw_line).replace("**", "").strip()
             if len(line) < 8:
@@ -257,15 +311,14 @@ def source_fallback(hits, deliverable: bool = False) -> str:
     _passive, source_number, line = min(candidates, key=lambda item: (item[0], item[1]))
     if len(line) > 120:
         line = line[:117].rstrip(" ，,；;：:") + "…"
-    if deliverable:
-        lead = "我先保留你給的資訊 用這個來源骨架"
-    else:
-        lead = "先從這個不會出錯的動作開始"
-    return f"{lead}\n{line} [{source_number}]"
+    return f"先從這個不會出錯的動作開始\n{line} [{source_number}]"
 
 
 def failure_reply(question: str, history=None, hits=None) -> str:
-    sourced = source_fallback(hits, deliverable=is_deliverable(question, history))
+    sourced = source_fallback(
+        hits, deliverable=is_deliverable(question, history),
+        question=question, history=history,
+    )
     if sourced:
         return sourced
     if is_deliverable(question, history):
